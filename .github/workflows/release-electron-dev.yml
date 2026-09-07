@@ -305,6 +305,9 @@ jobs:
       OSS_REGION: "rg-china-mainland"
       OSS_BUCKET: "oss://nuwa-packages"
       OSS_CDN_BASE: "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com"
+      # 发布通道参数（nuwa-work 商业版复制本 workflow 时须整组覆盖，实现更新通道隔离）
+      RELEASE_ROOT: "nuwaclaw-electron"
+      PRODUCT_PREFIX: "NuwaClaw"
       RELEASE_TAG: ${{ github.ref_name }}
     steps:
       - name: Ensure awscli v2 (for S3)
@@ -354,7 +357,7 @@ jobs:
         run: |
           TAG="${RELEASE_TAG}"
           VERSION="${TAG#prerelease-v}"
-          S3_URL_PREFIX="${S3_CDN_BASE}/nuwaclaw-electron/beta-build/${TAG}"
+          S3_URL_PREFIX="${S3_CDN_BASE}/${RELEASE_ROOT}/beta-build/${TAG}"
           ASSETS_DIR="/tmp/release-assets"
 
           # semver MVP guard: only allow numeric x.y.z
@@ -397,21 +400,21 @@ jobs:
 
           PLATFORMS="{}"
           echo "==> Scanning release assets for platforms..."
-          add_platform "darwin-aarch64"     "NuwaClaw-${VERSION}-arm64.dmg"
-          add_platform "darwin-aarch64-zip" "NuwaClaw-${VERSION}-arm64-mac.zip"
-          add_platform "darwin-x86_64"      "NuwaClaw-${VERSION}.dmg"
-          add_platform "darwin-x86_64-zip"  "NuwaClaw-${VERSION}-mac.zip"
-          add_platform "windows-x86_64"      "NuwaClaw-Setup-${VERSION}-unsigned.exe"
-          add_platform "windows-x86_64-nsis" "NuwaClaw-Setup-${VERSION}-unsigned.exe"
-          add_platform "windows-x86_64-msi"  "NuwaClaw-${VERSION}-unsigned.msi"
-          add_platform "linux-x86_64"          "NuwaClaw-${VERSION}.AppImage"
-          add_platform "linux-x86_64-appimage" "NuwaClaw-${VERSION}.AppImage"
-          add_platform "linux-x86_64-deb"      "NuwaClaw-${VERSION}-amd64.deb"
-          add_platform "linux-x86_64-rpm"      "NuwaClaw-${VERSION}-x86_64.rpm"
-          add_platform "linux-aarch64"          "NuwaClaw-${VERSION}-arm64.AppImage"
-          add_platform "linux-aarch64-appimage" "NuwaClaw-${VERSION}-arm64.AppImage"
-          add_platform "linux-aarch64-deb"      "NuwaClaw-${VERSION}-arm64.deb"
-          add_platform "linux-aarch64-rpm"      "NuwaClaw-${VERSION}-aarch64.rpm"
+          add_platform "darwin-aarch64" "${PRODUCT_PREFIX}-${VERSION}-arm64.dmg"
+          add_platform "darwin-aarch64-zip" "${PRODUCT_PREFIX}-${VERSION}-arm64-mac.zip"
+          add_platform "darwin-x86_64" "${PRODUCT_PREFIX}-${VERSION}.dmg"
+          add_platform "darwin-x86_64-zip" "${PRODUCT_PREFIX}-${VERSION}-mac.zip"
+          add_platform "windows-x86_64"      "${PRODUCT_PREFIX}-Setup-${VERSION}-unsigned.exe"
+          add_platform "windows-x86_64-nsis" "${PRODUCT_PREFIX}-Setup-${VERSION}-unsigned.exe"
+          add_platform "windows-x86_64-msi" "${PRODUCT_PREFIX}-${VERSION}-unsigned.msi"
+          add_platform "linux-x86_64" "${PRODUCT_PREFIX}-${VERSION}.AppImage"
+          add_platform "linux-x86_64-appimage" "${PRODUCT_PREFIX}-${VERSION}.AppImage"
+          add_platform "linux-x86_64-deb" "${PRODUCT_PREFIX}-${VERSION}-amd64.deb"
+          add_platform "linux-x86_64-rpm" "${PRODUCT_PREFIX}-${VERSION}-x86_64.rpm"
+          add_platform "linux-aarch64" "${PRODUCT_PREFIX}-${VERSION}-arm64.AppImage"
+          add_platform "linux-aarch64-appimage" "${PRODUCT_PREFIX}-${VERSION}-arm64.AppImage"
+          add_platform "linux-aarch64-deb" "${PRODUCT_PREFIX}-${VERSION}-arm64.deb"
+          add_platform "linux-aarch64-rpm" "${PRODUCT_PREFIX}-${VERSION}-aarch64.rpm"
 
           if [ "$(echo "$PLATFORMS" | jq 'length')" = "0" ]; then
             echo "::warning::No exact filename matches, falling back to fuzzy scan"
@@ -515,7 +518,7 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.MINIO_SECRET_ACCESS_KEY }}
         run: |
           TAG="${RELEASE_TAG}"
-          S3_PREFIX="nuwaclaw-electron/beta-build/${TAG}"
+          S3_PREFIX="${RELEASE_ROOT}/beta-build/${TAG}"
 
           echo "==> MinIO: (1/3) installers and other non-yml release assets"
           for file in /tmp/release-assets/*; do
@@ -540,13 +543,13 @@ jobs:
           echo "==> MinIO: (3/3) latest.json (versioned + beta/latest.json pointer)"
           aws s3 cp /tmp/latest.json "s3://${S3_BUCKET}/${S3_PREFIX}/latest.json" \
             --endpoint-url "$S3_ENDPOINT"
-          aws s3 cp /tmp/latest.json "s3://${S3_BUCKET}/nuwaclaw-electron/beta/latest.json" \
+          aws s3 cp /tmp/latest.json "s3://${S3_BUCKET}/${RELEASE_ROOT}/beta/latest.json" \
             --endpoint-url "$S3_ENDPOINT"
 
       - name: Verify S3 upload
         run: |
           TAG="${RELEASE_TAG}"
-          VERIFY_URL="${S3_CDN_BASE}/nuwaclaw-electron/beta-build/${TAG}/latest-mac.yml"
+          VERIFY_URL="${S3_CDN_BASE}/${RELEASE_ROOT}/beta-build/${TAG}/latest-mac.yml"
           HTTP_STATUS=$(curl -sS -o /dev/null -w "%{http_code}" "$VERIFY_URL")
           if [ "$HTTP_STATUS" = "200" ]; then
             echo "==> S3 upload verified: latest-mac.yml (HTTP ${HTTP_STATUS})"
@@ -563,13 +566,13 @@ jobs:
           TAG="${RELEASE_TAG}"
           echo "==> Publishing latest.json to beta channel on OSS"
           # 写入版本化路径
-          ossutil cp --force /tmp/latest.json "${OSS_BUCKET}/nuwaclaw-electron/beta-build/${TAG}/latest.json" \
+          ossutil cp --force /tmp/latest.json "${OSS_BUCKET}/${RELEASE_ROOT}/beta-build/${TAG}/latest.json" \
             --endpoint "$OSS_ENDPOINT" \
             --region "$OSS_REGION" \
             --access-key-id "$OSS_ACCESS_KEY_ID" \
             --access-key-secret "$OSS_ACCESS_KEY_SECRET"
           # 写入 beta/latest.json（供 beta 通道用户检查更新）
-          ossutil cp --force /tmp/latest.json "${OSS_BUCKET}/nuwaclaw-electron/beta/latest.json" \
+          ossutil cp --force /tmp/latest.json "${OSS_BUCKET}/${RELEASE_ROOT}/beta/latest.json" \
             --endpoint "$OSS_ENDPOINT" \
             --region "$OSS_REGION" \
             --access-key-id "$OSS_ACCESS_KEY_ID" \
@@ -578,7 +581,7 @@ jobs:
 
       - name: Verify OSS upload
         run: |
-          VERIFY_URL="${OSS_CDN_BASE}/nuwaclaw-electron/beta/latest.json"
+          VERIFY_URL="${OSS_CDN_BASE}/${RELEASE_ROOT}/beta/latest.json"
           HTTP_STATUS=$(curl -sS -o /tmp/oss-latest.json -w "%{http_code}" "$VERIFY_URL")
           if [ "$HTTP_STATUS" = "200" ]; then
             echo "==> beta/latest.json: OK (HTTP ${HTTP_STATUS})"

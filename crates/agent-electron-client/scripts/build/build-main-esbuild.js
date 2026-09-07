@@ -100,6 +100,10 @@ esbuild
     external,
     define: {
       'process.env.NODE_ENV': JSON.stringify(isDev ? 'development' : 'production'),
+      // 品牌注入（nuwa-work 商业版）：未设置时替换为空串，运行时回落源码默认值（社区版）
+      'process.env.NUWAX_APP_IDENTIFIER': JSON.stringify(process.env.NUWAX_APP_IDENTIFIER ?? ''),
+      'process.env.NUWAX_APP_DISPLAY_NAME': JSON.stringify(process.env.NUWAX_APP_DISPLAY_NAME ?? ''),
+      'process.env.NUWAX_UPDATE_FEED_BASE': JSON.stringify(process.env.NUWAX_UPDATE_FEED_BASE ?? ''),
     },
     plugins: [resolvePlugin],
   })

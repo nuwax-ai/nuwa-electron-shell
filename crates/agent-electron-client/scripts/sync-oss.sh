@@ -34,7 +34,21 @@
 set -e
 
 # 正式发布仓库：Electron 包在 nuwaclaw 仓库的 Releases 中（如 electron-v0.9.0）
-REPO="${GITHUB_REPOSITORY:-nuwax-ai/nuwaclaw}"
+# nuwa-work 商业版：SYNC_OSS_REPO=nuwax-ai/nuwa-work（须与 sign:win 的 SIGN_RELEASE_REPO 一致）
+REPO="${SYNC_OSS_REPO:-${GITHUB_REPOSITORY:-nuwax-ai/nuwaclaw}}"
+
+# 产物名前缀：优先 env 覆盖，其次取 package.json build.productName（与 CI artifactName 的 ${productName} 对齐）
+_sync_pkg_json=""
+_script_dir="$(cd "$(dirname "$0")" && pwd)"
+if [[ -f "./package.json" ]]; then
+  _sync_pkg_json="./package.json"
+else
+  _sync_pkg_json="$(cd "$_script_dir/.." && pwd)/package.json"
+  if command -v cygpath >/dev/null 2>&1; then
+    _sync_pkg_json="$(cygpath -m "$_sync_pkg_json")"
+  fi
+fi
+ARTIFACT_PREFIX="${SIGN_WIN_ARTIFACT_PREFIX:-$(node -p "require('$_sync_pkg_json').build.productName || require('$_sync_pkg_json').productName" 2>/dev/null || echo NuwaClaw)}"
 
 # 与 scripts/build/sign-release-win.sh 中 resolve_gh 保持一致：Git Bash 常未继承含 gh 的 Windows PATH。
 resolve_powershell() {
@@ -210,9 +224,9 @@ ensure_windows_signed_for_stable() {
   fi
 
   local version="${TAG#electron-v}"
-  local signed_exe="NuwaClaw.Setup.${version}.exe"
-  local release_msi="NuwaClaw.${version}.msi"
-  local unsigned_exe="NuwaClaw-Setup-${version}-unsigned.exe"
+  local signed_exe="${ARTIFACT_PREFIX}.Setup.${version}.exe"
+  local release_msi="${ARTIFACT_PREFIX}.${version}.msi"
+  local unsigned_exe="${ARTIFACT_PREFIX}-Setup-${version}-unsigned.exe"
 
   echo "==> stable：校验 Release $TAG 已完成 Windows EXE 签名..."
   local assets=""

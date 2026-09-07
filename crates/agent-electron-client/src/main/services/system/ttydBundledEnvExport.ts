@@ -13,12 +13,13 @@
 
 import * as path from "path";
 import { isWindows } from "./shellEnv";
+import { APP_DATA_DIR_NAME } from "@shared/constants";
 
 export type TtydEnvMap = Record<string, string>;
 
 /** Substrings that identify bundled-tool directories inside appEnv.PATH. */
 export const BUNDLED_PATH_MARKERS = [
-  ".nuwaclaw",
+  APP_DATA_DIR_NAME,
   "/resources/node",
   "/resources/uv",
   "/resources/ripgrep",

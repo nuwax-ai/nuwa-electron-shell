@@ -9,11 +9,26 @@ import type { AgentEngineType } from "@shared/types/electron";
 
 // ==================== 应用名称 ====================
 
+/**
+ * 品牌注入（nuwa-work 商业版拆仓用）：
+ * 默认值 = 社区版。商业版构建时通过环境变量覆盖，由 build-main-esbuild.js / vite.config.ts
+ * 在构建期把 process.env.<KEY> 静态替换为字面量（renderer 无 process，靠 vite define 注入）。
+ * vitest 与本地 dev 不设 env，回落默认值，行为不变。
+ */
+const NUWAX_APP_IDENTIFIER_ENV =
+  typeof process !== "undefined" ? process.env.NUWAX_APP_IDENTIFIER : undefined;
+const NUWAX_APP_DISPLAY_NAME_ENV =
+  typeof process !== "undefined"
+    ? process.env.NUWAX_APP_DISPLAY_NAME
+    : undefined;
+
 /** 应用对外显示名称（窗口标题、关于、安装包名称等），与 package.json build.productName 保持一致 */
-export const APP_DISPLAY_NAME = "女娲 Nuwax";
+export const APP_DISPLAY_NAME =
+  NUWAX_APP_DISPLAY_NAME_ENV?.trim() || "女娲 Nuwax";
 
 /** 应用技术标识（进程名、目录名等，小写字母），与 appId 等保持一致 */
-export const APP_NAME_IDENTIFIER = "nuwaclaw";
+export const APP_NAME_IDENTIFIER =
+  NUWAX_APP_IDENTIFIER_ENV?.trim() || "nuwaclaw";
 
 /** 主窗口默认宽度（首次创建窗口时使用） */
 export const DEFAULT_WINDOW_WIDTH = 1240;

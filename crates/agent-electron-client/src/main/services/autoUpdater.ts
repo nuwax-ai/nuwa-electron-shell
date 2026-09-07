@@ -32,7 +32,13 @@ import {
 
 // ==================== OSS latest.json ====================
 
+// 更新通道根（nuwa-work 商业版构建时经 NUWAX_UPDATE_FEED_BASE 覆盖，构建期注入；见 constants.ts 品牌注入说明）
+const NUWAX_UPDATE_FEED_BASE_ENV =
+  typeof process !== "undefined"
+    ? process.env.NUWAX_UPDATE_FEED_BASE
+    : undefined;
 const OSS_BASE =
+  NUWAX_UPDATE_FEED_BASE_ENV?.trim() ||
   "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/nuwaclaw-electron";
 const OSS_STABLE_LATEST_JSON_URL = `${OSS_BASE}/latest/latest.json`;
 const OSS_BETA_LATEST_JSON_URL = `${OSS_BASE}/beta/latest.json`;

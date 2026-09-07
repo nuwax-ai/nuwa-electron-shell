@@ -131,6 +131,9 @@ importers:
       7zip-bin:
         specifier: ^5.2.0
         version: 5.2.0
+      '@electron/notarize':
+        specifier: ^2.5.0
+        version: 2.5.0
       '@electron/rebuild':
         specifier: ^4.0.3
         version: 4.0.3
