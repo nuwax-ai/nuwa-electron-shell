@@ -43,19 +43,24 @@ UNSIGNED_DIR="$WORK_DIR/unsigned"
 SIGNED_DIR="$WORK_DIR/signed"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
+# 解析本包 package.json 路径：优先 cwd，其次脚本相对路径（Windows Git Bash 下转 cygpath -m 供 node require）
+resolve_pkg_json() {
+    if [[ -f "./package.json" ]]; then
+        echo "./package.json"
+        return 0
+    fi
+    local pkg="$SCRIPT_DIR/../../package.json"
+    if command -v cygpath >/dev/null 2>&1; then
+        # Node on Windows cannot require Git Bash /c/... paths
+        pkg="$(cygpath -m "$pkg")"
+    fi
+    echo "$pkg"
+}
+
 # 产物名前缀：优先 env 显式覆盖，其次取 package.json productName
 # （electron-builder 的 nsis/msi artifactName 均为 ${productName} 派生，自动对齐 CI 产物名）。
 # 给非本仓 checkout 的目标（如 nuwa-work）签名时，用 SIGN_WIN_ARTIFACT_PREFIX 显式指定商业版前缀。
-PKG_JSON_FOR_PREFIX=""
-if [[ -f "./package.json" ]]; then
-  PKG_JSON_FOR_PREFIX="./package.json"
-else
-  PKG_JSON_FOR_PREFIX="$SCRIPT_DIR/../../package.json"
-  if command -v cygpath >/dev/null 2>&1; then
-    # Node on Windows cannot require Git Bash /c/... paths
-    PKG_JSON_FOR_PREFIX="$(cygpath -m "$PKG_JSON_FOR_PREFIX")"
-  fi
-fi
+PKG_JSON_FOR_PREFIX="$(resolve_pkg_json)"
 PRODUCT_NAME_FOR_PREFIX="$(node -p "require('$PKG_JSON_FOR_PREFIX').build.productName || require('$PKG_JSON_FOR_PREFIX').productName" 2>/dev/null || true)"
 ARTIFACT_PREFIX="${SIGN_WIN_ARTIFACT_PREFIX:-${PRODUCT_NAME_FOR_PREFIX:-NuwaClaw}}"
 
@@ -104,17 +109,7 @@ done
 
 # Default version from package.json when omitted (npm run sign:win / sign:win -- --skip-upload)
 if [[ -z "$VERSION" ]]; then
-    PKG_JSON=""
-    if [[ -f "./package.json" ]]; then
-        PKG_JSON="./package.json"
-    else
-        PKG_JSON="$SCRIPT_DIR/../../package.json"
-        if command -v cygpath >/dev/null 2>&1; then
-            # Node on Windows cannot require Git Bash /c/... paths
-            PKG_JSON="$(cygpath -m "$PKG_JSON")"
-        fi
-    fi
-    VERSION="$(node -p "require('$PKG_JSON').version" 2>/dev/null || true)"
+    VERSION="$(node -p "require('$(resolve_pkg_json)').version" 2>/dev/null || true)"
     if [[ -n "$VERSION" ]]; then
         echo "==> Using package.json version: $VERSION"
     fi

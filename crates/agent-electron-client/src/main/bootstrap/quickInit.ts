@@ -24,6 +24,7 @@ import path from "node:path";
 import os from "node:os";
 import log from "electron-log";
 import { APP_DATA_DIR_NAME } from "../services/constants";
+import { APP_NAME_IDENTIFIER } from "@shared/constants";
 import {
   DEFAULT_AGENT_RUNNER_PORT,
   DEFAULT_FILE_SERVER_PORT,
@@ -68,7 +69,8 @@ function pickPort(...values: unknown[]): number {
 /**
  * 读取快捷初始化配置
  *
- * 优先级（per-field）: nuwaclaw.json → 环境变量 → 默认值
+ * 优先级（per-field）: <identifier>.json（社区版 nuwaclaw.json / 商业版 nuwawork.json，
+ * 与 migrate.ts 的配置改名目标一致）→ 环境变量 → 默认值
  * 结果缓存，每次启动只读一次
  */
 export function readQuickInitConfig(): QuickInitConfig | null {
@@ -76,9 +78,9 @@ export function readQuickInitConfig(): QuickInitConfig | null {
 
   const appDataDir = path.join(os.homedir(), APP_DATA_DIR_NAME);
   const defaultWorkspace = path.join(appDataDir, "workspace");
-  const filePath = path.join(appDataDir, "nuwaclaw.json");
+  const filePath = path.join(appDataDir, `${APP_NAME_IDENTIFIER}.json`);
 
-  // --- 读取 nuwaclaw.json (quickInit scope) ---
+  // --- 读取 <identifier>.json (quickInit scope) ---
   let json: Record<string, unknown> | null = null;
   try {
     if (fs.existsSync(filePath)) {

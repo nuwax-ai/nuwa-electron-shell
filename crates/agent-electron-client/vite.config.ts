@@ -22,7 +22,17 @@ function getFeatureFlags(mode: string) {
   };
 }
 
-export default defineConfig(({ mode }) => ({
+export default defineConfig(({ mode }) => {
+  // 品牌注入（nuwa-work 商业版）：renderer 无 process 运行时，靠 define 注入；
+  // 未设置时替换为空串，constants.ts 里回落默认值（社区版）。loadEnv 同时读 .env 文件与 shell env
+  const brandingEnv = loadEnv(mode, __dirname, 'NUWAX_');
+  const brandingDefines = {
+    'process.env.NUWAX_APP_IDENTIFIER': JSON.stringify(brandingEnv.NUWAX_APP_IDENTIFIER ?? ''),
+    'process.env.NUWAX_APP_DISPLAY_NAME': JSON.stringify(brandingEnv.NUWAX_APP_DISPLAY_NAME ?? ''),
+    'process.env.NUWAX_UPDATE_FEED_BASE': JSON.stringify(brandingEnv.NUWAX_UPDATE_FEED_BASE ?? ''),
+  };
+
+  return {
   plugins: [
     react(),
     {
@@ -55,11 +65,7 @@ export default defineConfig(({ mode }) => ({
     __APP_VERSION__: JSON.stringify(pkg.version),
     // Feature flags - 构建时静态替换（仅影响渲染进程）
     ...getFeatureFlags(mode),
-    // 品牌注入（nuwa-work 商业版）：renderer 无 process 运行时，靠 define 注入；
-    // 未设置时替换为空串，constants.ts 里回落默认值（社区版）。loadEnv 同时读 .env 文件与 shell env
-    'process.env.NUWAX_APP_IDENTIFIER': JSON.stringify(loadEnv(mode, __dirname, 'NUWAX_APP_IDENTIFIER')['NUWAX_APP_IDENTIFIER'] ?? ''),
-    'process.env.NUWAX_APP_DISPLAY_NAME': JSON.stringify(loadEnv(mode, __dirname, 'NUWAX_APP_DISPLAY_NAME')['NUWAX_APP_DISPLAY_NAME'] ?? ''),
-    'process.env.NUWAX_UPDATE_FEED_BASE': JSON.stringify(loadEnv(mode, __dirname, 'NUWAX_UPDATE_FEED_BASE')['NUWAX_UPDATE_FEED_BASE'] ?? ''),
+    ...brandingDefines,
   },
   resolve: {
     alias: {
@@ -95,4 +101,5 @@ export default defineConfig(({ mode }) => ({
       allow: ['..', '../..', '../../node_modules'],
     },
   },
-}));
+  };
+});
