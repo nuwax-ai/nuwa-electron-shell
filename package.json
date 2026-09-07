@@ -1,8 +1,8 @@
 {
   "private": true,
   "scripts": {
-    "postinstall": "pnpm --filter @nuwax-ai/agent-kit build",
-    "build:agent-kit": "pnpm --filter @nuwax-ai/agent-kit build",
+    "postinstall": "pnpm run build:agent-kit",
+    "build:agent-kit": "pnpm -C crates/agent-kit install --ignore-workspace --prefer-offline && pnpm -C crates/agent-kit run build",
     "prepare": "husky",
     "test:electron": "cd crates/agent-electron-client && npm run test:run",
     "test:electron:scripts": "cd crates/agent-electron-client && npm run test:scripts"
@@ -26,7 +26,7 @@
   },
   "pnpm": {
     "overrides": {
-      "@nuwax-ai/agent-kit": "file:crates/agent-kit",
+      "@nuwax-ai/agent-kit": "link:crates/agent-kit",
       "protobufjs": ">=7.5.6",
       "@protobufjs/utf8": ">=1.1.1",
       "tar": ">=7.5.8",

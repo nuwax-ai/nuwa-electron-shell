@@ -23,6 +23,35 @@ nuwaclaw `feature/electron-client-1.0` 线的延续（历史完整保留，基�
 `NUWAX_UPDATE_FEED_BASE` 经 esbuild/vite define 固化进 main/renderer 产物
 （不设 env 时默认值=社区版行为，见 `crates/agent-electron-client/src/shared/constants.ts` 头注）。
 
+## 与社区版的同步模型
+
+本仓 main 与 nuwaclaw main（`811009627`）同源：本仓包含其为祖先，社区任何新提交
+直接 merge 过来（合并干净、无重放冲突）：
+
+```bash
+# 一次性配置
+git remote add nuwaclaw https://github.com/nuwax-ai/nuwaclaw.git
+# 定期同步（社区 → 商业，单向；商业功能不回流社区）
+git fetch nuwaclaw && git merge nuwaclaw/main
+```
+
+原 1.0 开发线（`feature/electron-client-1.0`，108 提交）已从公开仓 nuwaclaw 删除，
+其历史**完整保留在本仓 main** 内——需要回溯或找回某笔旧改动时，直接在本仓
+`git log`/`git cherry-pick <SHA>`，不依赖 nuwaclaw。另存有归档分支
+`archive/codex-agent-workbench-0.11`（louis 的 57 提交独立工作线，未合入主线）。
+
+## 新克隆工程注意（fresh clone）
+
+1. `pnpm install`：postinstall 会自动构建 `crates/agent-kit`（独立安装 + tsup）。
+   该包以 `link:crates/agent-kit` 直链（0.4.0 未发布 npm）；内层安装带
+   `--ignore-workspace`，否则会向上触发整个 workspace 安装造成 postinstall 递归。
+2. 测试/运行前补准备型资源（gitignore，需生成）：至少
+   `cd crates/agent-electron-client && npm run prepare:mcp-proxy`（mcp.test.ts 依赖
+   `resources/mcp-proxy-ts/`）；完整资源用仓库根 Makefile 的 `electron-prepare`。
+3. `npm run test:electron` 基线：105 文件 / 1277 用例通过；已知 2 个 unhandled
+   error（`UnifiedAgentService.getActiveIsolatedHomes` 对 mock engine 调
+   `getIsolatedHome`，teardown 期未捕获噪音，不失败任何用例）——后续修。
+
 ## 发版流程
 
 1. **准备**：`release-notes/electron-v{x.y.z}.md`（缺省用默认文案）。

@@ -403,7 +403,12 @@ export class UnifiedAgentService extends EventEmitter {
   getActiveIsolatedHomes(): Set<string> {
     const paths = new Set<string>();
     for (const engine of this.engines.values()) {
-      const home = engine.getIsolatedHome();
+      // 构造期 setImmediate 会触发本方法（见 constructor），测试中 engines 可能是
+      // 不含 getIsolatedHome 的部分 mock——按缺失返回 null 处理，避免 unhandled rejection
+      const home =
+        typeof engine.getIsolatedHome === "function"
+          ? engine.getIsolatedHome()
+          : null;
       if (home) paths.add(home);
     }
     return paths;
