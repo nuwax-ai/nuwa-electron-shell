@@ -692,9 +692,18 @@ app.on("window-all-closed", () => {
 });
 
 app.on("activate", () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
+  // macOS：点击 Dock 图标时，窗口若被隐藏到托盘则重新显示并聚焦
+  if (!mainWindow) {
     createWindow();
+    return;
   }
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore();
+  }
+  if (!mainWindow.isVisible()) {
+    mainWindow.show();
+  }
+  mainWindow.focus();
 });
 
 let isCleaningUp = false;
