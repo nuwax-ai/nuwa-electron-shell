@@ -5,7 +5,7 @@
 #
 # 所需 Secrets：GH_PAT（或 repo token）、MINIO_ACCESS_KEY_ID、MINIO_SECRET_ACCESS_KEY、OSS_ACCESS_KEY_ID、OSS_ACCESS_KEY_SECRET
 
-name: Sync Electron Release to MinIO S3 & OSS
+name: Sync Electron Release to MinIO S3 & OSS (nuwa-work)
 
 on:
   workflow_dispatch:
@@ -42,11 +42,11 @@ jobs:
       OSS_REGION: "rg-china-mainland"
       OSS_BUCKET: "oss://nuwa-packages"
       OSS_CDN_BASE: "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com"
-      # 发布通道参数（nuwa-work 商业版复制本 workflow 时须整组覆盖，实现更新通道隔离）：
+      # 发布通道参数（本仓=nuwa-work 商业版；社区版 nuwaclaw 使用 nuwaclaw-electron/NuwaClaw）：
       #   RELEASE_ROOT    对象存储上的发布根前缀（客户端 autoUpdater 的 OSS_BASE 与此对应）
       #   PRODUCT_PREFIX  产物名前缀（与 package.json build.productName 保持一致；不匹配时走 fuzzy 兜底）
-      RELEASE_ROOT: "nuwaclaw-electron"
-      PRODUCT_PREFIX: "NuwaClaw"
+      RELEASE_ROOT: "nuwa-work-electron"
+      PRODUCT_PREFIX: "女娲 Nuwax"
       RELEASE_TAG: ${{ inputs.tag }}
       RELEASE_CHANNEL: ${{ inputs.channel || 'stable' }}
     steps:

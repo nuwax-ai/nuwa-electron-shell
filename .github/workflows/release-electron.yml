@@ -22,7 +22,7 @@
 #
 # 产物目录：crates/agent-electron-client/release/${version}/（由 package.json directories.output 决定）
 
-name: Release Electron App
+name: Release Electron App (nuwa-work)
 
 on:
   push:
@@ -74,7 +74,7 @@ jobs:
             echo "Using release notes from $NOTES_FILE"
             cp "$NOTES_FILE" release_notes.txt
           else
-            echo "NuwaClaw ${VERSION}。请在 Assets 中下载对应平台安装包。" > release_notes.txt
+            echo "女娲 Nuwax ${VERSION}。请在 Assets 中下载对应平台安装包。" > release_notes.txt
           fi
 
       - name: Create GitHub Release
@@ -86,7 +86,7 @@ jobs:
             echo "Release $TAG already exists"
           else
             gh release create "$TAG" \
-              --title "NuwaClaw (Electron) ${{ steps.version.outputs.version }}" \
+              --title "女娲 Nuwax (Electron) ${{ steps.version.outputs.version }}" \
               --notes-file release_notes.txt \
               --repo "$GITHUB_REPOSITORY"
             echo "Created release $TAG"
@@ -131,13 +131,17 @@ jobs:
           git submodule update --init nuwax
           git submodule status
 
-      - name: Set version in package.json
+      - name: Set version & commercial branding in package.json
         shell: bash
         working-directory: crates/agent-electron-client
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
           npm pkg set version="$VERSION"
-          echo "package.json version: $(npm pkg get version)"
+          # 商业身份：appId 独立于社区版（并装互不干扰）；删除 extendInfo 旧覆盖使
+          # macOS bundle id 与 appId 统一
+          npm pkg set build.appId="com.nuwax-ai.nuwa-work"
+          npm pkg delete build.mac.extendInfo.CFBundleIdentifier || true
+          echo "package.json version: $(npm pkg get version), appId: $(npm pkg get build.appId)"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -274,6 +278,12 @@ jobs:
           SKIP_PREPARE: "1"  # Step 14 已执行 prepare:all，避免重复（含 git clone/pull）
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           CSC_NAME: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # 商业版品牌注入（构建期经 esbuild/vite define 固化）：
+          # identifier=nuwawork → 数据目录 ~/.nuwawork（首启自动迁移既有 ~/.nuwaclaw）
+          NUWAX_APP_IDENTIFIER: nuwawork
+          NUWAX_APP_DISPLAY_NAME: "女娲 Nuwax"
+          # 独立更新通道（客户端 autoUpdater 的 OSS_BASE）
+          NUWAX_UPDATE_FEED_BASE: "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/nuwa-work-electron"
         run: |
           if [ "${{ runner.os }}" = "macOS" ] && [ -z "${{ secrets.APPLE_CERTIFICATE }}" ]; then
             echo "No Apple certificate, building unsigned Mac package for ${{ matrix.arch }}"
@@ -321,11 +331,11 @@ jobs:
       OSS_REGION: "rg-china-mainland"
       OSS_BUCKET: "oss://nuwa-packages"
       OSS_CDN_BASE: "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com"
-      # 发布通道参数（nuwa-work 商业版复制本 workflow 时须整组覆盖，实现更新通道隔离）：
+      # 发布通道参数（本仓=nuwa-work 商业版；社区版 nuwaclaw 使用 nuwaclaw-electron/NuwaClaw）：
       #   RELEASE_ROOT    对象存储上的发布根前缀（客户端 autoUpdater 的 OSS_BASE 与此对应）
       #   PRODUCT_PREFIX  产物名前缀（与 package.json build.productName 保持一致；不匹配时走 fuzzy 兜底）
-      RELEASE_ROOT: "nuwaclaw-electron"
-      PRODUCT_PREFIX: "NuwaClaw"
+      RELEASE_ROOT: "nuwa-work-electron"
+      PRODUCT_PREFIX: "女娲 Nuwax"
       RELEASE_TAG: ${{ inputs.tag }}
       RELEASE_CHANNEL: ${{ inputs.channel || 'stable' }}
     steps:

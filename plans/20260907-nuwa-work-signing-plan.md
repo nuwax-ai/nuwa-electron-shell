@@ -27,6 +27,18 @@
 4. Windows 人工签名 runbook（`docs/sign-windows.md`）。
 5. 遗留沿用现状：MSI 不签名；blockmap/差分更新默认关闭。
 
+## 二次调整（2026-09-07 同日）：整仓形态
+
+用户决策变更：**nuwaclaw = 社区开源版**（远端分支不动，本地切回 main=`811009627`，
+0.13 基线继续），**nuwa-work = 商业版整仓**——以 nuwaclaw `feature/electron-client-1.0`
+（`beee4623`）完整树+历史重写 nuwa-work main（放弃薄壳+submodule 形态：社区版回滚后
+submodule 无 1.0 线可指）。两仓今后独立演进，公共修复靠 cherry-pick。
+
+落地：force push `beee4623` → nuwa-work main；追加适配提交（三个 workflow 通道/品牌/
+标题商业化、appId 构建期覆盖、NUWA-WORK.md 商业版总说明、docs/sign-windows.md 整仓
+路径版 runbook）；nuwax 在途改动（侧栏折叠 7改+2新）复制到 nuwa-work 同 pin 工作树，
+原目录保留。
+
 ## 风险与边界
 
 - 双开端口冲突（18099/60006/60005/60002 常量默认值）——本轮标记不改。
