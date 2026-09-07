@@ -283,15 +283,19 @@ ensure_windows_signed_for_stable() {
 
 ensure_windows_signed_for_stable
 
-# workflow_dispatch 需要 ref：优先使用当前分支（workflow 定义需在该分支上存在），
-# 当前分支无远程追踪时回退到仓库默认分支。
+# workflow_dispatch 需要 ref：优先显式覆盖（nuwa-work 等超仓场景，ref 必须是目标仓库自己的分支），
+# 其次当前分支（workflow 定义需在该分支上存在），无远程追踪时回退仓库默认分支。
 # 注意：@{u} 形如 origin/feature/electron-client-0.11，仅剥第一段 remote 名，
 # 保留分支自身的斜杠（feature/...），否则 GitHub 会 422 "No ref found"。
-UPSTREAM=$(git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null || true)
-if [ -n "$UPSTREAM" ]; then
-  REF="${UPSTREAM#*/}"
+if [[ -n "${SYNC_OSS_REF:-}" ]]; then
+  REF="$SYNC_OSS_REF"
 else
-  REF=$(run_gh repo view "$REPO" --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || echo "main")
+  UPSTREAM=$(git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null || true)
+  if [ -n "$UPSTREAM" ]; then
+    REF="${UPSTREAM#*/}"
+  else
+    REF=$(run_gh repo view "$REPO" --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || echo "main")
+  fi
 fi
 
 # 获取 GitHub token
