@@ -6,6 +6,7 @@ import {
   ipcMain,
   nativeImage,
   session,
+  webContents,
 } from "electron";
 import * as path from "path";
 import * as fs from "fs";
@@ -208,6 +209,14 @@ function createWindow() {
     minHeight: DEFAULT_WINDOW_MIN_HEIGHT,
     title: APP_DISPLAY_NAME,
     icon: getIconPath(),
+    // 沉浸式无边框：隐藏原生系统标题栏，让 nuwax 内容顶到窗口上沿。
+    // mac 保留原生红绿灯（悬浮于内容之上）；Win/Linux 完全无边框，由 renderer 自绘窗口控制按钮。
+    ...(process.platform === "darwin"
+      ? {
+          titleBarStyle: "hidden" as const,
+          trafficLightPosition: { x: 16, y: 16 },
+        }
+      : { frame: false, hasShadow: true }),
     webPreferences: {
       preload: path.join(__dirname, "..", "preload", "index.js"),
       contextIsolation: true,
@@ -496,6 +505,41 @@ app.whenReady().then(async () => {
     log.info("Dev CORS fix enabled");
   }
 
+  // 为所有 http/https 出站请求注入客户端标识头，供 nuwax 后端识别「桌面客户端内」环境，
+  // 后端凭该头在登录响应里返回 token（nuwax 用 Authorization 头鉴权）。值非敏感
+  // （客户端身份本就体现在 UA 中），对所有域生效，避免漏掉 nuwax 后端域名导致识别失败。
+  //
+  // 但当请求「来源 origin」是 nuwax 本地开发调试服务(localhost / 127.0.0.1)时跳过注入：
+  // 后端为前端调试设计——凭 origin=localhost 即返回 token，无需此头；且注入这个自定义头
+  // 会使跨域请求触发 CORS preflight（后端 CORS 未放行 x-client-type）而被拦下、请求发不出。
+  // 生产 webview 加载 nuwax 线上域(origin 非 localhost)，正常注入、凭头识别。
+  // 注意：判断维度是「nuwax dev server 的来源 origin」，不是 electron 客户端自身的 isDev。
+  session.defaultSession.webRequest.onBeforeSendHeaders(
+    { urls: ["http://*/*", "https://*/*"] },
+    (details, callback) => {
+      // 跳过维度 = 请求「目标」是回环（网关/dev server）——网关对云端方向已自行
+      // 注入 x-client-type，不重复；目标为云端的请求无论发起方（webview/壳
+      // renderer）一律注入（FR-03：后端仅凭该头在登录响应返回 token）。
+      let targetLocal = false;
+      try {
+        const host = new URL(details.url).hostname;
+        targetLocal =
+          host === "localhost" || host === "127.0.0.1" || host === "::1";
+      } catch {
+        targetLocal = false;
+      }
+      if (targetLocal) {
+        callback({ requestHeaders: details.requestHeaders });
+        return;
+      }
+      details.requestHeaders["x-client-type"] = "nuwaclaw";
+      callback({ requestHeaders: details.requestHeaders });
+    },
+  );
+  log.info(
+    "x-client-type header injection enabled (skipped for localhost/127.0.0.1 dev origin)",
+  );
+
   // Set Dock icon on macOS (development mode needs this)
   if (process.platform === "darwin" && app.dock) {
     const iconPath = getDockIconPath();
@@ -560,6 +604,56 @@ app.whenReady().then(async () => {
   initWebviewPolicy(() => mainWindow);
 
   createWindow();
+  // 启动服务门禁：核心服务 ready 前壳层停在 loading（renderer 监听 services:ready）。
+  {
+    let gateResult: unknown = null;
+    const sendGate = (r: unknown): void => {
+      mainWindow?.webContents.send("services:ready", r);
+    };
+    const runGate = (): void => {
+      void (async () => {
+        const { runServicesGate } = await import("./services/servicesGate");
+        const r = await runServicesGate();
+        gateResult = r;
+        sendGate(r);
+      })();
+    };
+    ipcMain.handle("services:readyState", () => gateResult);
+    ipcMain.handle("services:waitForReady", () => {
+      runGate();
+      return null;
+    });
+    runGate();
+  }
+  // 诊断探针（NUWAX_AVOID_PROBE=1）：guest 的避让判定输入真值（桥/platform/菜单 paddingTop）
+  if (process.env.NUWAX_AVOID_PROBE === "1") {
+    const probe = (): void => {
+      for (const wc of webContents.getAllWebContents()) {
+        if (!wc.getURL().startsWith("http://")) continue;
+        void wc
+          .executeJavaScript(
+            `(() => ({
+              url: location.href.slice(0, 80),
+              bridge: typeof window.NuwaClawBridge !== 'undefined',
+              shellSticky: (() => { try { return sessionStorage.getItem('nuwax:shell-window'); } catch { return 'na'; } })(),
+              pad36: [...document.querySelectorAll('*')].filter(el => getComputedStyle(el).paddingTop === '36px').length,
+              themePrimary: getComputedStyle(document.documentElement).getPropertyValue('--xagi-color-primary').trim(),
+              themeBg: getComputedStyle(document.documentElement).getPropertyValue('--xagi-layout-bg-primary').trim(),
+              lsUser: !!localStorage.getItem('xagi-user-theme-config'),
+              lsUserColor: (() => { try { return JSON.parse(localStorage.getItem('xagi-user-theme-config') || '{}').selectedThemeColor ?? null; } catch { return 'parse-err'; } })(),
+              lsGlobalColor: (() => { try { return JSON.parse(localStorage.getItem('xagi-global-settings') || '{}').primaryColor ?? null; } catch { return 'parse-err'; } })(),
+              lsTenantTpl: (() => { try { return !!JSON.parse(localStorage.getItem('TENANT_CONFIG_INFO') || '{}').templateConfig; } catch { return 'parse-err'; } })(),
+              shellPrimary: getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim(),
+              shellBg: getComputedStyle(document.documentElement).getPropertyValue('--color-bg-layout').trim(),
+            }))()`,
+          )
+          .then((r: unknown) => log.info("[AvoidProbe]", JSON.stringify(r)))
+          .catch(() => {});
+      }
+    };
+    setTimeout(probe, 15000);
+    setTimeout(probe, 40000);
+  }
   if (pendingSecondInstanceFocus && mainWindow) {
     pendingSecondInstanceFocus = false;
     mainWindow.show();
@@ -598,9 +692,18 @@ app.on("window-all-closed", () => {
 });
 
 app.on("activate", () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
+  // macOS：点击 Dock 图标时，窗口若被隐藏到托盘则重新显示并聚焦
+  if (!mainWindow) {
     createWindow();
+    return;
   }
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore();
+  }
+  if (!mainWindow.isVisible()) {
+    mainWindow.show();
+  }
+  mainWindow.focus();
 });
 
 let isCleaningUp = false;
@@ -633,6 +736,14 @@ app.on("before-quit", (e) => {
     try {
       await cleanupAllProcesses();
     } finally {
+      // Loopback Gateway 收尾（幂等；未启用时为 no-op）
+      try {
+        const { stopLoopbackGateway } =
+          await import("./services/loopbackGateway");
+        await stopLoopbackGateway();
+      } catch (e) {
+        log.warn("[App] Loopback gateway stop failed (ignored):", e);
+      }
       const elapsed = Date.now() - start;
       if (elapsed > CLEANUP_TIMEOUT) {
         log.warn(

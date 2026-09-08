@@ -1,0 +1,4 @@
+[submodule "nuwax"]
+	path = nuwax
+	url = https://git.yichamao.com/agent-platform/nuwax.git
+	branch = feat-dong.0930

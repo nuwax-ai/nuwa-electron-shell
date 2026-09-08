@@ -89,6 +89,111 @@ const perf = {
   },
 };
 
+/**
+ * auth 命名空间：nuwax webview ↔ nuwaclaw 壳的 ACCESS_TOKEN 双向同步。
+ * nuwax 用 localStorage.ACCESS_TOKEN 鉴权（Authorization header），非 cookie；
+ * token 由主进程按 webview 来源 origin 持久化到 settings 表，跨重启复用。
+ * 后端见 main/ipc/nuwaxBridgeHandlers.ts。
+ */
+const auth = {
+  /** 读取本 origin 持久化的 nuwax ACCESS_TOKEN（重启免登）。 */
+  getToken(): Promise<string | null> {
+    return ipcRenderer.invoke("auth:getToken");
+  },
+  /** nuwax 登录成功后持久化 token（写入 settings 表）。 */
+  persistToken(token: string): Promise<boolean> {
+    return ipcRenderer.invoke("auth:persistToken", token);
+  },
+  /** nuwax 登出联动：清除本 origin 的持久化 token。 */
+  clear(): Promise<boolean> {
+    return ipcRenderer.invoke("auth:clear");
+  },
+};
+
+/**
+ * native 命名空间：宿主原生能力。浏览器端不存在此桥，nuwax 自行降级。
+ */
+const native = {
+  /** 右键另存图片：调用系统保存对话框并下载。 */
+  saveImage(
+    url: string,
+    filename?: string,
+  ): Promise<{ success: boolean; path?: string; error?: string }> {
+    return ipcRenderer.invoke("native:saveImage", { url, filename });
+  },
+  /**
+   * 新开独立窗口打开 nuwax 页面（智能体详情/工作流/我的电脑等全屏页）。
+   * 新窗口带系统标题栏（无沉浸式工具栏浮层，页面零遮挡），注入同一 webview
+   * 桥 preload（isNuwaClaw/主题/避让等桥能力一致）。path 为 nuwax 站内相对路径。
+   */
+  openWindow(path: string): Promise<{ success: boolean; error?: string }> {
+    return ipcRenderer.invoke("native:openWindow", { path });
+  },
+};
+
+/**
+ * localFiles 命名空间：宿主原生目录选择器。
+ * 仅返回所选目录的绝对路径；文件数据面由 nuwax 走 file-server（customTargetDir）。
+ */
+const localFiles = {
+  pickDirectory(): Promise<{ canceled: boolean; paths: string[] }> {
+    return ipcRenderer.invoke("localFiles:pickDirectory");
+  },
+};
+
+/**
+ * events 命名空间：宿主→nuwax 入站命令通道。
+ * nuwaclaw 工具栏等通过 <webview>.send('nuwax:host-command', payload) 下发，
+ * 此处 ipcRenderer.on 接收并转发给 nuwax 注册的回调（contextBridge 保证回调在 guest
+ * 上下文执行，从而能操作 nuwax 的 React/model 状态）。payload 协议见 nuwax 侧
+ * global.d.ts 的 HostCommand。
+ */
+let hostCommandHandler: ((payload: unknown) => void) | null = null;
+ipcRenderer.on("nuwax:host-command", (_e, payload: unknown) => {
+  hostCommandHandler?.(payload);
+});
+const events = {
+  /** 注册/注销宿主命令回调（传 null 注销）。 */
+  onHostCommand(cb: ((payload: unknown) => void) | null): void {
+    hostCommandHandler = cb;
+  },
+};
+
+/**
+ * theme 命名空间：nuwax → 壳的主题同步（guest→host）。
+ * 女娲主题生效/让位时 nuwax 推送 { active, 调色板 }，主进程转发给壳 renderer
+ * （nuwax:theme-changed），壳给自己的 antd tokens / CSS 变量叠加同套米白调色板，
+ * 实现原生 UI（设置弹窗等）与 nuwax 统一。fire-and-forget，不等待结果。
+ */
+const theme = {
+  /** 推送主题状态给壳。 */
+  syncTheme(payload: Record<string, unknown>): void {
+    ipcRenderer.send("nuwax:theme-sync", payload);
+  },
+};
+
+/**
+ * layout 命名空间：nuwax → 壳的布局状态同步（guest→host）。
+ * 如「当前页是否存在可收起的二级菜单」→ 主进程转发（nuwax:layout-changed）给壳
+ * renderer，工具栏据此显隐收起按钮。fire-and-forget。
+ */
+const layout = {
+  /** 告知壳当前页是否有二级菜单可收起。 */
+  setSecondMenuAvailable(available: boolean): void {
+    ipcRenderer.send("nuwax:layout-sync", { secondMenuAvailable: !!available });
+  },
+  /** 同步二级菜单真实收起态（壳工具栏 icon 以此为准，修 reload 后失同步）。 */
+  setSecondMenuCollapsed(collapsed: boolean): void {
+    ipcRenderer.send("nuwax:layout-sync", { secondMenuCollapsed: !!collapsed });
+  },
+};
+
 contextBridge.exposeInMainWorld("NuwaClawBridge", {
   perf,
+  auth,
+  native,
+  localFiles,
+  events,
+  theme,
+  layout,
 });

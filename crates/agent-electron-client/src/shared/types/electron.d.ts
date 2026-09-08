@@ -547,6 +547,7 @@ export interface AppAPI {
     error?: string;
   }>;
   getDeviceId: () => Promise<string>;
+  getHostname: () => Promise<string>;
 }
 
 export type PermissionStatus = "granted" | "denied" | "unknown";
@@ -746,6 +747,7 @@ export interface ElectronAPI {
   window: {
     minimize: () => Promise<void>;
     maximize: () => Promise<void>;
+    isMaximized: () => Promise<boolean>;
     close: () => Promise<void>;
   };
   mcp: MCPAPI;

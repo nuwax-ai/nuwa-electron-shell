@@ -7,13 +7,20 @@
  * - 系统设置（主题、开机自启动、日志目录）
  */
 
-import React, { useState, useEffect, useCallback, Suspense } from "react";
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  Suspense,
+  useRef,
+} from "react";
 import {
   Button,
   Form,
   Row,
   Col,
   Input,
+  AutoComplete,
   InputNumber,
   Select,
   Slider,
@@ -46,9 +53,7 @@ import {
   MODEL_OPTIONS,
   STORAGE_KEYS,
   I18N_KEYS,
-  DEFAULT_AI_ENGINE,
 } from "@shared/constants";
-import type { AgentEngineType } from "@shared/types/electron";
 import { FEATURES } from "@shared/featureFlags";
 import {
   t,
@@ -145,25 +150,49 @@ export default function SettingsPage() {
   const [guiMcpSaving, setGuiMcpSaving] = useState(false);
   const [guiMcpEnabled, setGuiMcpEnabled] = useState<boolean | null>(null);
 
-  // Dev: agent engine type
-  const [devEngineType, setDevEngineType] = useState<string>(DEFAULT_AI_ENGINE);
-
   // 使用表单中的 workspaceDir 作为"系统模块"的展示源，确保编辑保存后展示保持实时一致。
   const workspaceDir = Form.useWatch("workspaceDir", form) || "";
 
   // ========== 加载服务配置 ==========
+  // 本地化加速（「系统」区块开关，即点即存）：映射 nuwaxLoadMode → 保存后重启生效
+  //（服务域名 serverHost 归「服务配置」区块管理——前后端一体语义）
+  const [loopbackEnabled, setLoopbackEnabled] = useState(false);
+  const [loopbackApplying, setLoopbackApplying] = useState(false);
+
+  const handleLoopbackChange = async (checked: boolean) => {
+    setLoopbackApplying(true);
+    try {
+      const existing = await setupService.getStep1Config();
+      await setupService.saveStep1Config({
+        ...existing,
+        nuwaxLoadMode: checked ? "gateway" : "direct",
+      });
+      await window.electronAPI?.services?.restartAll?.();
+      setLoopbackEnabled(checked);
+      message.success(t(I18N_KEYS.Toast.SUCCESS.CONFIG_SAVED));
+    } catch {
+      // 失败必须可见且状态不落定——静默会让用户误以为已生效
+      message.error(t(I18N_KEYS.Toast.ERROR.CONFIG_SAVE_FAILED));
+    } finally {
+      setLoopbackApplying(false);
+    }
+  };
+
   const loadConfig = useCallback(async () => {
     setLoading(true);
     try {
       const config = await setupService.getStep1Config();
-      form.setFieldsValue(config);
-      setOriginalConfig(config);
-      if (IS_DEV) {
-        const agentConfig = (await window.electronAPI?.settings.get(
-          "agent_config",
-        )) as { type?: string } | null;
-        setDevEngineType(agentConfig?.type || DEFAULT_AI_ENGINE);
-      }
+      // 本地化加速状态按 nuwaxLoadMode 反推（服务域名 serverHost 归「服务配置」
+      // 表单原样带协议展示；登录流程改域会回写，此处自然跟随）
+      const loopbackOn =
+        ((config as Record<string, unknown>).nuwaxLoadMode ?? "direct") ===
+        "gateway";
+      const enriched = {
+        ...config,
+      };
+      form.setFieldsValue(enriched);
+      setLoopbackEnabled(loopbackOn);
+      setOriginalConfig(enriched);
     } catch (error) {
       console.error("Failed to load config:", error);
       message.error(t(I18N_KEYS.Toast.ERROR.LOAD_FAILED));
@@ -323,8 +352,25 @@ export default function SettingsPage() {
           setSaving(true);
           try {
             const existing = await setupService.getStep1Config();
-            await setupService.saveStep1Config({ ...existing, ...values });
-            setOriginalConfig(values);
+            const patch = { ...values };
+            // 服务域名协议归一：支持带 http(s)://，未含默认补 https://
+            //（与登录域/lanproxy 探针的后端域解析同式，见 loopback 设计文档 §6）
+            if (typeof patch.serverHost === "string") {
+              const host = patch.serverHost.trim().replace(/\/+$/, "");
+              patch.serverHost = /^[a-z][a-z0-9+.-]*:\/\//i.test(host)
+                ? host
+                : `https://${host}`;
+            }
+            await setupService.saveStep1Config({ ...existing, ...patch });
+            // 域名变更影响 reg / lanproxy / webview 解析，随保存重启服务
+            //（与本地化加速保存同语义；serverHost 前后端一体）
+            if (
+              (existing as { serverHost?: string }).serverHost !==
+              patch.serverHost
+            ) {
+              await window.electronAPI?.services?.restartAll?.();
+            }
+            setOriginalConfig({ ...values, serverHost: patch.serverHost });
             setEditing(false);
             message.success(t(I18N_KEYS.Toast.SUCCESS.CONFIG_SAVED));
           } catch (error) {
@@ -657,54 +703,17 @@ export default function SettingsPage() {
                 disabled={!editing}
                 size="small"
               >
-                {IS_DEV && (
-                  <Form.Item
-                    label={
-                      <Space>
-                        <ExperimentOutlined />
-                        <span>Agent Engine (Dev)</span>
-                      </Space>
-                    }
-                  >
-                    <Select
-                      value={devEngineType}
-                      disabled={!editing}
-                      onChange={async (v) => {
-                        setDevEngineType(v);
-                        const agentConfig =
-                          (await window.electronAPI?.settings.get(
-                            "agent_config",
-                          )) as Record<string, unknown> | null;
-                        await window.electronAPI?.settings.set("agent_config", {
-                          ...(agentConfig || {}),
-                          type: v,
-                        });
-                        try {
-                          await window.electronAPI?.services.restartAll();
-                          message.success(
-                            "Engine switched & services restarted",
-                          );
-                        } catch (e) {
-                          message.error("Restart failed: " + String(e));
-                        }
-                      }}
-                      options={[
-                        {
-                          value: "claude-code",
-                          label: "Claude Code (ACP) — Anthropic",
-                        },
-                        {
-                          value: "nuwaxcode",
-                          label: "nuwaxcode (ACP) — OpenAI",
-                        },
-                        {
-                          value: "codex",
-                          label: "Codex CLI (ACP) — OpenAI",
-                        },
-                      ]}
-                    />
-                  </Form.Item>
-                )}
+                <Form.Item
+                  name="serverHost"
+                  label="服务域名"
+                  rules={[{ required: true, message: "填写服务域名" }]}
+                >
+                  <AutoComplete
+                    size="small"
+                    options={[{ value: "https://agent.nuwax.com" }]}
+                    placeholder="如 agent.nuwax.com"
+                  />
+                </Form.Item>
                 <Row gutter={16}>
                   <Col span={12}>
                     <Form.Item
@@ -865,39 +874,59 @@ export default function SettingsPage() {
                 />
               </div>
 
-              {/* 主题设置 */}
+              {/* 本地化加速（loopback 网关同源加载；服务域名在「服务配置」区块） */}
               <div className={styles.serviceRow}>
                 <div className={styles.serviceInfo}>
                   <div>
-                    <span className={styles.serviceLabel}>
-                      {t("Claw.Settings.system.theme")}
-                    </span>
+                    <span className={styles.serviceLabel}>本地化加速</span>
                     <div className={styles.serviceDescription}>
-                      {t("Claw.Settings.system.themeDesc")}
+                      页面经本地网关同源加载（更快且免跨域）。服务域名在「服务配置」区块修改，切换后自动重启服务。
                     </div>
                   </div>
                 </div>
-                <Select
+                <Switch
                   size="small"
-                  value={themeMode}
-                  onChange={(value) => setThemeMode(value)}
-                  style={{ width: 100 }}
-                  options={[
-                    {
-                      value: "system",
-                      label: t("Claw.Settings.system.themeSystem"),
-                    },
-                    {
-                      value: "light",
-                      label: t("Claw.Settings.system.themeLight"),
-                    },
-                    {
-                      value: "dark",
-                      label: t("Claw.Settings.system.themeDark"),
-                    },
-                  ]}
+                  checked={loopbackEnabled}
+                  onChange={handleLoopbackChange}
+                  loading={loopbackApplying}
                 />
               </div>
+
+              {/* 主题设置（暗黑模式经环境变量关闭时恒浅色，外观项无意义随之隐藏） */}
+              {FEATURES.DARK_THEME && (
+                <div className={styles.serviceRow}>
+                  <div className={styles.serviceInfo}>
+                    <div>
+                      <span className={styles.serviceLabel}>
+                        {t("Claw.Settings.system.theme")}
+                      </span>
+                      <div className={styles.serviceDescription}>
+                        {t("Claw.Settings.system.themeDesc")}
+                      </div>
+                    </div>
+                  </div>
+                  <Select
+                    size="small"
+                    value={themeMode}
+                    onChange={(value) => setThemeMode(value)}
+                    style={{ width: 100 }}
+                    options={[
+                      {
+                        value: "system",
+                        label: t("Claw.Settings.system.themeSystem"),
+                      },
+                      {
+                        value: "light",
+                        label: t("Claw.Settings.system.themeLight"),
+                      },
+                      {
+                        value: "dark",
+                        label: t("Claw.Settings.system.themeDark"),
+                      },
+                    ]}
+                  />
+                </div>
+              )}
 
               {/* 语言设置 */}
               <div className={styles.serviceRow}>
@@ -954,7 +983,7 @@ export default function SettingsPage() {
                       style={{
                         fontFamily:
                           "ui-monospace, SFMono-Regular, Menlo, monospace",
-                        maxWidth: 280,
+                        maxWidth: "100%",
                         overflow: "hidden",
                         textOverflow: "ellipsis",
                         whiteSpace: "nowrap",
@@ -981,7 +1010,7 @@ export default function SettingsPage() {
                       style={{
                         fontFamily:
                           "ui-monospace, SFMono-Regular, Menlo, monospace",
-                        maxWidth: 280,
+                        maxWidth: "100%",
                         overflow: "hidden",
                         textOverflow: "ellipsis",
                         whiteSpace: "nowrap",

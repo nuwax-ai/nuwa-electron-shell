@@ -34,6 +34,13 @@ export interface Step1Config {
   /** ttyd Web 终端端口（仅回环监听） */
   ttydPort: number;
   workspaceDir: string;
+  /** nuwax 加载形态（阶段一网关方案）：'gateway' = 经 loopback 网关同源加载；
+   *  缺省 'direct' = serverHost 直连（现状）。 */
+  nuwaxLoadMode?: "direct" | "gateway";
+  /** loopback 网关固定端口（缺省 46800；占用时回退随机并告警）。 */
+  gatewayPort?: number;
+  /** 二级页承载：same-window（默认，主 webview 同窗导航）| new-window（独立窗口）。 */
+  secondaryPages?: "same-window" | "new-window";
 }
 
 export interface AuthUserInfo {

@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   window: {
     minimize: () => ipcRenderer.invoke("window:minimize"),
     maximize: () => ipcRenderer.invoke("window:maximize"),
+    isMaximized: () => ipcRenderer.invoke("window:isMaximized"),
     close: () => ipcRenderer.invoke("window:close"),
   },
 
@@ -275,6 +276,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
   services: {
     restartAll: () => ipcRenderer.invoke("services:restartAll"),
     stopAll: () => ipcRenderer.invoke("services:stopAll"),
+    /** 启动服务门禁：已就绪结果缓存（null=仍在等待）。 */
+    readyState: () => ipcRenderer.invoke("services:readyState"),
+    /** 手动重跑门禁（错误屏的重试按钮）。 */
+    waitForReady: () => ipcRenderer.invoke("services:waitForReady"),
   },
 
   // Tray status sync
@@ -529,6 +534,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     openReleasesPage: () => ipcRenderer.invoke("app:openReleasesPage"),
     getUpdateDebugInfo: () => ipcRenderer.invoke("app:getUpdateDebugInfo"),
     getDeviceId: () => ipcRenderer.invoke("app:getDeviceId"),
+    getHostname: () => ipcRenderer.invoke("app:getHostname"),
   },
 
   // Permissions (macOS)
@@ -579,6 +585,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
       "admin:servicesRestarted",
       "intervention:request",
       "intervention:updated",
+      "nuwax:authChanged",
+      "nuwax:theme-changed",
+      "nuwax:layout-changed",
+      "nuwax:open-same-window",
+      "nuwax:loopback-changed",
+      "services:ready",
     ];
     if (validChannels.includes(channel)) {
       const wrapper = (_: unknown, ...args: unknown[]) => callback(...args);
