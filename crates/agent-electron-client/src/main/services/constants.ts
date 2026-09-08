@@ -23,14 +23,19 @@ export const PERF_LOG_FILENAME_PREFIX = "perf";
 
 // ==================== 端口配置 ====================
 
+import {
+  DEFAULT_MCP_PROXY_PORT as SHARED_MCP_PROXY_PORT,
+  DEFAULT_DEV_SERVER_PORT as SHARED_DEV_SERVER_PORT,
+} from "@shared/constants";
+
 /** @deprecated MCP Proxy 不再使用端口（@nuwax-ai/mcp-proxy-ts 为 stdio 直通模式） */
-export const DEFAULT_MCP_PROXY_PORT = 18099;
+export const DEFAULT_MCP_PROXY_PORT = SHARED_MCP_PROXY_PORT;
 
 /** @deprecated MCP Proxy 不再使用监听地址（@nuwax-ai/mcp-proxy-ts 为 stdio 直通模式） */
 export const DEFAULT_MCP_PROXY_HOST = "127.0.0.1";
 
-/** 开发服务器默认端口 */
-export const DEFAULT_DEV_SERVER_PORT = 60173;
+/** 开发服务器默认端口（含端口偏移注入：商业 dev=61173，与 vite.config 同源） */
+export const DEFAULT_DEV_SERVER_PORT = SHARED_DEV_SERVER_PORT;
 
 // ==================== 主机/IP 配置 ====================
 

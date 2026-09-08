@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "dotenv -e .env.development -- cross-env NODE_ENV=development concurrently \"npm run dev:vite\" \"npm run dev:electron\"",
     "dev:vite": "vite --force",
-    "dev:electron": "wait-on http://localhost:60173 && npm run prepare:mcp-proxy && npm run build:main:dev && dotenv -e .env.development -- cross-env NODE_ENV=development electron .",
+    "dev:electron": "node scripts/dev/wait-vite.js && npm run prepare:mcp-proxy && npm run build:main:dev && dotenv -e .env.development -- cross-env NODE_ENV=development electron .",
     "prebuild:main:dev": "echo \"agent-kit from npm, skip local build\"",
     "build:main:dev": "cross-env NODE_ENV=development node scripts/build/build-main-esbuild.js",
     "prebuild:main": "echo \"agent-kit from npm, skip local build\"",
