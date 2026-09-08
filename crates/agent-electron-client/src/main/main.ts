@@ -635,6 +635,10 @@ app.whenReady().then(async () => {
             `(() => ({
               url: location.href.slice(0, 80),
               bridge: typeof window.NuwaClawBridge !== 'undefined',
+              authNs: (() => { try { return typeof window.NuwaClawBridge?.auth?.getToken; } catch { return 'err'; } })(),
+              lsToken: (() => { const t = localStorage.getItem('ACCESS_TOKEN'); return t ? t.slice(0, 16) + '…len' + t.length : null; })(),
+              bridgeToken: null,
+              bridgeTokenErr: null,
               shellSticky: (() => { try { return sessionStorage.getItem('nuwax:shell-window'); } catch { return 'na'; } })(),
               pad36: [...document.querySelectorAll('*')].filter(el => getComputedStyle(el).paddingTop === '36px').length,
               themePrimary: getComputedStyle(document.documentElement).getPropertyValue('--xagi-color-primary').trim(),
@@ -645,7 +649,12 @@ app.whenReady().then(async () => {
               lsTenantTpl: (() => { try { return !!JSON.parse(localStorage.getItem('TENANT_CONFIG_INFO') || '{}').templateConfig; } catch { return 'parse-err'; } })(),
               shellPrimary: getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim(),
               shellBg: getComputedStyle(document.documentElement).getPropertyValue('--color-bg-layout').trim(),
-            }))()`,
+            }))()
+              .then((base) => {
+                const p = window.NuwaClawBridge?.auth?.getToken?.();
+                if (!p) return base;
+                return p.then((t) => ({ ...base, bridgeToken: t ? t.slice(0, 16) + '…len' + t.length : 'null' })).catch((e) => ({ ...base, bridgeTokenErr: String(e).slice(0, 80) }));
+              })`,
           )
           .then((r: unknown) => log.info("[AvoidProbe]", JSON.stringify(r)))
           .catch(() => {});
