@@ -13,12 +13,13 @@
 
 import * as path from "path";
 import { isWindows } from "./shellEnv";
+import { APP_DATA_DIR_NAME } from "@shared/constants";
 
 export type TtydEnvMap = Record<string, string>;
 
 /** Substrings that identify bundled-tool directories inside appEnv.PATH. */
 export const BUNDLED_PATH_MARKERS = [
-  ".nuwaclaw",
+  APP_DATA_DIR_NAME,
   "/resources/node",
   "/resources/uv",
   "/resources/ripgrep",
@@ -79,7 +80,7 @@ export function pickTtydBundledEnv(allEnv: TtydEnvMap): TtydEnvMap {
 export function bashSingleQuote(value: string): string {
   // Bash single-quoted string escape using the canonical '"'"' sequence.
   // Example: abc'def -> 'abc'"'"'def'
-  return `'${value.replace(/'/g, `'\"'\"'`)}'`;
+  return `'${value.replace(/'/g, `'"'"'`)}'`;
 }
 
 /** Bash `export KEY='value'` lines for bundled dev env (no shebang). */
@@ -108,7 +109,10 @@ function dedupePathEntries(entries: string[]): string[] {
   const result: string[] = [];
   for (const entry of entries) {
     if (!entry) continue;
-    const key = isWindows() ? entry.toLowerCase() : entry;
+    const key =
+      isWindows() || /^[A-Za-z]:[\\/]/.test(entry)
+        ? entry.toLowerCase()
+        : entry;
     if (seen.has(key)) continue;
     seen.add(key);
     result.push(entry);
@@ -129,11 +133,16 @@ export function collectBundledDevPathEntries(appEnv: TtydEnvMap): string[] {
   push(appEnv.UV_TOOL_BIN_DIR);
   push(appEnv.PNPM_HOME);
   if (appEnv.NODE_PATH) {
-    push(path.join(appEnv.NODE_PATH, ".bin"));
+    const pathApi = /^[A-Za-z]:[\\/]/.test(appEnv.NODE_PATH)
+      ? path.win32
+      : path;
+    push(pathApi.join(appEnv.NODE_PATH, ".bin"));
   }
 
-  const pathSep = isWindows() ? ";" : ":";
-  for (const segment of (appEnv.PATH || "").split(pathSep)) {
+  const rawPath = appEnv.PATH || "";
+  const pathSep =
+    isWindows() || /(?:^|;)[A-Za-z]:[\\/]/.test(rawPath) ? ";" : ":";
+  for (const segment of rawPath.split(pathSep)) {
     if (!segment || !isBundledPathSegment(segment)) continue;
     candidates.push(segment);
   }

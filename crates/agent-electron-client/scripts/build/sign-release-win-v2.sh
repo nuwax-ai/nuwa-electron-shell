@@ -3,8 +3,8 @@
 # Windows Release Signing Script v2 (Bash/Git Bash)
 #
 # 在 v1 基础上：仅优化「下载」——若 Release 上有未签名 zip，则一次下载后解压为未签名 EXE 再签名。
-# **上传**：NuwaClaw.Setup.<ver>.exe，以及 NuwaClaw.Setup.<ver>.exe.blockmap（签名后重新生成，供 electron-updater 差分更新）。
-# MSI（NuwaClaw.<ver>.msi）由 CI 直出最终文件名，不再签名。
+# **上传**：<PREFIX>.Setup.<ver>.exe，以及 <PREFIX>.Setup.<ver>.exe.blockmap（签名后重新生成，供 electron-updater 差分更新）。
+# MSI（<PREFIX>.<ver>.msi）由 CI 直出最终文件名，不再签名。PREFIX 由 SIGN_WIN_ARTIFACT_PREFIX 控制（默认 NuwaClaw）。
 #
 # CI 可选：在 electron-v* Release 上额外上传 NuwaClaw-<version>-unsigned-win.zip（仅作下载加速；
 # 解压后须得到未签名 EXE）。建议 zip -j 扁平打包。
@@ -20,7 +20,10 @@
 #   ./sign-release-win-v2.sh 0.9.2 --no-bundle-download   # 强制与 v1 相同逐文件下载
 #
 # Environment (optional):
-#   SIGN_WIN_UNSIGNED_BUNDLE  未签名 zip 在 Release 上的文件名（默认 NuwaClaw-<ver>-unsigned-win.zip）
+#   SIGN_RELEASE_REPO        目标 GitHub 仓库（默认 nuwax-ai/nuwaclaw；nuwa-work 商业版传 nuwax-ai/nuwa-work）
+#   SIGN_WORK_DIR            本地工作目录（默认 /c/tmp/nuwaclaw-sign）
+#   SIGN_WIN_ARTIFACT_PREFIX 产物名前缀（默认 NuwaClaw；须与 CI 构建的 productName 前缀一致）
+#   SIGN_WIN_UNSIGNED_BUNDLE 未签名 zip 在 Release 上的文件名（默认 <前缀>-<ver>-unsigned-win.zip）
 #
 # Required Environment Variables:
 #   WINDOWS_CERTIFICATE_SHA1  - Certificate thumbprint
@@ -39,6 +42,27 @@ WORK_DIR="${SIGN_WORK_DIR:-/c/tmp/nuwaclaw-sign}"
 UNSIGNED_DIR="$WORK_DIR/unsigned"
 SIGNED_DIR="$WORK_DIR/signed"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# 解析本包 package.json 路径：优先 cwd，其次脚本相对路径（Windows Git Bash 下转 cygpath -m 供 node require）
+resolve_pkg_json() {
+    if [[ -f "./package.json" ]]; then
+        echo "./package.json"
+        return 0
+    fi
+    local pkg="$SCRIPT_DIR/../../package.json"
+    if command -v cygpath >/dev/null 2>&1; then
+        # Node on Windows cannot require Git Bash /c/... paths
+        pkg="$(cygpath -m "$pkg")"
+    fi
+    echo "$pkg"
+}
+
+# 产物名前缀：优先 env 显式覆盖，其次取 package.json productName
+# （electron-builder 的 nsis/msi artifactName 均为 ${productName} 派生，自动对齐 CI 产物名）。
+# 给非本仓 checkout 的目标（如 nuwa-work）签名时，用 SIGN_WIN_ARTIFACT_PREFIX 显式指定商业版前缀。
+PKG_JSON_FOR_PREFIX="$(resolve_pkg_json)"
+PRODUCT_NAME_FOR_PREFIX="$(node -p "require('$PKG_JSON_FOR_PREFIX').build.productName || require('$PKG_JSON_FOR_PREFIX').productName" 2>/dev/null || true)"
+ARTIFACT_PREFIX="${SIGN_WIN_ARTIFACT_PREFIX:-${PRODUCT_NAME_FOR_PREFIX:-NuwaClaw}}"
 
 # Defaults
 VERSION=""
@@ -85,17 +109,7 @@ done
 
 # Default version from package.json when omitted (npm run sign:win / sign:win -- --skip-upload)
 if [[ -z "$VERSION" ]]; then
-    PKG_JSON=""
-    if [[ -f "./package.json" ]]; then
-        PKG_JSON="./package.json"
-    else
-        PKG_JSON="$SCRIPT_DIR/../../package.json"
-        if command -v cygpath >/dev/null 2>&1; then
-            # Node on Windows cannot require Git Bash /c/... paths
-            PKG_JSON="$(cygpath -m "$PKG_JSON")"
-        fi
-    fi
-    VERSION="$(node -p "require('$PKG_JSON').version" 2>/dev/null || true)"
+    VERSION="$(node -p "require('$(resolve_pkg_json)').version" 2>/dev/null || true)"
     if [[ -n "$VERSION" ]]; then
         echo "==> Using package.json version: $VERSION"
     fi
@@ -431,16 +445,16 @@ extract_unsigned_bundle() {
 }
 
 # File names
-# CI builds: NuwaClaw-Setup-{version}-unsigned.exe（待签名）
-#            NuwaClaw.{version}.msi（最终名，CI 直出，不签名）
-# Signed:    NuwaClaw.Setup.{version}.exe
-UNSIGNED_EXE="NuwaClaw-Setup-$VERSION-unsigned.exe"
-SIGNED_EXE="NuwaClaw.Setup.$VERSION.exe"
-LEGACY_UNSIGNED_MSI="NuwaClaw-$VERSION-unsigned.msi"
+# CI builds: <PREFIX>-Setup-{version}-unsigned.exe（待签名）
+#            <PREFIX>.{version}.msi（最终名，CI 直出，不签名）
+# Signed:    <PREFIX>.Setup.{version}.exe
+UNSIGNED_EXE="${ARTIFACT_PREFIX}-Setup-$VERSION-unsigned.exe"
+SIGNED_EXE="${ARTIFACT_PREFIX}.Setup.$VERSION.exe"
+LEGACY_UNSIGNED_MSI="${ARTIFACT_PREFIX}-$VERSION-unsigned.msi"
 UNSIGNED_BLOCKMAP="${UNSIGNED_EXE}.blockmap"
 SIGNED_BLOCKMAP="${SIGNED_EXE}.blockmap"
 BLOCKMAP_SCRIPT="$SCRIPT_DIR/generate-blockmap.js"
-UNSIGNED_BUNDLE="${SIGN_WIN_UNSIGNED_BUNDLE:-NuwaClaw-${VERSION}-unsigned-win.zip}"
+UNSIGNED_BUNDLE="${SIGN_WIN_UNSIGNED_BUNDLE:-${ARTIFACT_PREFIX}-${VERSION}-unsigned-win.zip}"
 
 echo ""
 echo "==> Setting up directories"

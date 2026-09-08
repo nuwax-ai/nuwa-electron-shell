@@ -16,18 +16,21 @@ const { getProjectRoot } = require('../utils/project-paths');
 
 const isWin = process.platform === 'win32';
 const home = process.env.HOME || process.env.USERPROFILE;
-const dbPath = path.join(home, '.nuwaclaw', 'nuwaclaw.db');
+// 品牌/端口注入（与 shared/constants.ts 同步）：商业版构建经 NUWAX_* env 整体偏移
+const APP_IDENTIFIER = (process.env.NUWAX_APP_IDENTIFIER || 'nuwaclaw').trim() || 'nuwaclaw';
+const PORT_OFFSET = Number.parseInt(process.env.NUWAX_PORT_OFFSET || '0', 10) || 0;
+const dbPath = path.join(home, '.' + APP_IDENTIFIER, APP_IDENTIFIER + '.db');
 const projectRoot = getProjectRoot();
 const checkPortShPath = path.join(__dirname, 'check-port.sh');
 const winBashPath = path.join(projectRoot, 'resources', 'git', 'bin', 'bash.exe');
 
 // 与 shared/constants + shared/startupPorts 保持一致
 const DEFAULTS = {
-  agent: 60001,
-  fileServer: 60000,
-  mcp: 18099,
-  lanproxyLocal: 60002,
-  vite: 60173,
+  agent: 60006 + PORT_OFFSET,
+  fileServer: 60005 + PORT_OFFSET,
+  mcp: 18099 + PORT_OFFSET,
+  lanproxyLocal: 60002 + PORT_OFFSET,
+  vite: 60173 + PORT_OFFSET,
 };
 
 const LABELS = {

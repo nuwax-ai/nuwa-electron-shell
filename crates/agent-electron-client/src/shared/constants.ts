@@ -9,11 +9,26 @@ import type { AgentEngineType } from "@shared/types/electron";
 
 // ==================== 应用名称 ====================
 
+/**
+ * 品牌注入（nuwa-work 商业版拆仓用）：
+ * 默认值 = 社区版。商业版构建时通过环境变量覆盖，由 build-main-esbuild.js / vite.config.ts
+ * 在构建期把 process.env.<KEY> 静态替换为字面量（renderer 无 process，靠 vite define 注入）。
+ * vitest 与本地 dev 不设 env，回落默认值，行为不变。
+ */
+const NUWAX_APP_IDENTIFIER_ENV =
+  typeof process !== "undefined" ? process.env.NUWAX_APP_IDENTIFIER : undefined;
+const NUWAX_APP_DISPLAY_NAME_ENV =
+  typeof process !== "undefined"
+    ? process.env.NUWAX_APP_DISPLAY_NAME
+    : undefined;
+
 /** 应用对外显示名称（窗口标题、关于、安装包名称等），与 package.json build.productName 保持一致 */
-export const APP_DISPLAY_NAME = "NuwaClaw";
+export const APP_DISPLAY_NAME =
+  NUWAX_APP_DISPLAY_NAME_ENV?.trim() || "女娲 Nuwax";
 
 /** 应用技术标识（进程名、目录名等，小写字母），与 appId 等保持一致 */
-export const APP_NAME_IDENTIFIER = "nuwaclaw";
+export const APP_NAME_IDENTIFIER =
+  NUWAX_APP_IDENTIFIER_ENV?.trim() || "nuwaclaw";
 
 /** 主窗口默认宽度（首次创建窗口时使用） */
 export const DEFAULT_WINDOW_WIDTH = 1240;
@@ -46,33 +61,46 @@ export const WEBVIEW_POPUP_MIN_WIDTH = DEFAULT_WINDOW_MIN_WIDTH;
 export const WEBVIEW_POPUP_MIN_HEIGHT = DEFAULT_WINDOW_MIN_HEIGHT;
 
 // ==================== 端口配置 ====================
+//
+// 端口偏移注入（nuwa-work 商业版构建用）：NUWAX_PORT_OFFSET 构建期注入（经
+// esbuild/vite define），商业版注 1000 得 19099 / 61002~61009 / 61173，与社区版
+// nuwaclaw（60xxx 序列）及 nuwa-cli（gateway 60016 / file-server 60015 /
+// lanproxy 10076）三方同机错开、双开不冲突。默认 0 = 社区版原端口不变。
+
+const NUWAX_PORT_OFFSET_ENV =
+  typeof process !== "undefined" ? process.env.NUWAX_PORT_OFFSET : undefined;
+/** 端口偏移量（0 = 社区版默认序列；负值与非数字按 0 处理） */
+export const NUWAX_PORT_OFFSET = Math.max(
+  0,
+  Number.parseInt(NUWAX_PORT_OFFSET_ENV?.trim() ?? "0", 10) || 0,
+);
 
 /** MCP Proxy 默认端口 */
-export const DEFAULT_MCP_PROXY_PORT = 18099;
+export const DEFAULT_MCP_PROXY_PORT = 18099 + NUWAX_PORT_OFFSET;
 
 /** Agent Runner 默认端口 */
-export const DEFAULT_AGENT_RUNNER_PORT = 60006;
+export const DEFAULT_AGENT_RUNNER_PORT = 60006 + NUWAX_PORT_OFFSET;
 
 /** File Server 默认端口 */
-export const DEFAULT_FILE_SERVER_PORT = 60005;
+export const DEFAULT_FILE_SERVER_PORT = 60005 + NUWAX_PORT_OFFSET;
 
 /** Lanproxy 默认端口 */
-export const DEFAULT_LANPROXY_PORT = 60002;
+export const DEFAULT_LANPROXY_PORT = 60002 + NUWAX_PORT_OFFSET;
 
 /** GUI Agent MCP 默认端口 */
-export const DEFAULT_GUI_MCP_PORT = 60008;
+export const DEFAULT_GUI_MCP_PORT = 60008 + NUWAX_PORT_OFFSET;
 
 /** 本地 MCP 管理中 GUI MCP 条目的固定 Server ID（与 ACP 注入名一致） */
 export const GUI_MCP_SERVER_ID = "gui-agent";
 
 /** Admin Server 默认端口（管理接口） */
-export const DEFAULT_ADMIN_SERVER_PORT = 60007;
+export const DEFAULT_ADMIN_SERVER_PORT = 60007 + NUWAX_PORT_OFFSET;
 
 /** 开发服务器默认端口 */
-export const DEFAULT_DEV_SERVER_PORT = 60173;
+export const DEFAULT_DEV_SERVER_PORT = 60173 + NUWAX_PORT_OFFSET;
 
 /** ttyd Web 终端默认端口（仅监听回环 127.0.0.1） */
-export const DEFAULT_TTYD_PORT = 60009;
+export const DEFAULT_TTYD_PORT = 60009 + NUWAX_PORT_OFFSET;
 
 // ==================== 主机 / IP 配置 ====================
 
@@ -92,6 +120,8 @@ export const DEFAULT_ANTHROPIC_API_URL = "https://api.anthropic.com";
 
 /** 默认后端服务器地址 */
 export const DEFAULT_SERVER_HOST = "https://agent.nuwax.com";
+/** 测试环境预置域（回环形态「测试环境」下拉项对应的后端）。 */
+export const TEST_SERVER_HOST = "https://testagent.xspaceagi.com";
 
 // ==================== AI 默认配置 ====================
 
