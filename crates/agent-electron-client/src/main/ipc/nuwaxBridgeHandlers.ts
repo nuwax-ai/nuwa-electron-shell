@@ -1,18 +1,15 @@
 /**
- * nuwax webview ↔ nuwaclaw 壳的桥后端。
+ * nuwax webview ↔ 壳的桥后端（产品中立部分）。
  *
- * - auth:getToken / auth:persistToken / auth:clear
- *     nuwax 用 localStorage.ACCESS_TOKEN（Authorization header）鉴权，非 cookie。
- *     这里把 token 按 webview 来源 origin 持久化到 settings 表（键 nuwax.accessToken.<origin>），
- *     与 sandbox ticket 隔离，实现「重启免登 / 登录持久化 / 登出联动」。
- *     服务生命周期联动（Phase 2）：persistToken(≈登录成功) → best-effort 起服务；
- *     clear(≈登出 + 401 失效) → 停止全部本地服务。
+ * 基座只承载与产品身份无关的宿主能力：
+ * - localFiles:pickDirectory
+ *     宿主原生目录选择器：仅返回绝对路径，数据面由 nuwax 走 file-server。
  * - native:saveImage
  *     右键另存图片：系统保存对话框 + net.fetch（走 defaultSession，携带登录态 cookie）写盘。
  * - native:openWindow
- *     新开独立窗口打开 nuwax 站内页面（智能体详情/工作流/网页应用开发/我的电脑等
- *     全屏页）。带系统标题栏（零遮挡）+ 同一 webview 桥 preload；URL 追加 _shell=1
- *     让 nuwax 解除沉浸式门控。仅接受站内相对路径并校验同源。
+ *     新开独立窗口/同窗导航打开 nuwax 站内页面（智能体详情/工作流/网页应用开发/
+ *     我的电脑等全屏页）。带系统标题栏（零遮挡）+ 同一 webview 桥 preload；URL
+ *     追加 _shell=1 让 nuwax 解除沉浸式门控。仅接受站内相对路径并校验同源。
  * - nuwax:theme-sync
  *     nuwax 女娲主题状态推送（{ active, 调色板 }）→ 转发 nuwax:theme-changed 给壳
  *     renderer，壳给自己的 antd tokens / CSS 变量叠加同套米白调色板（原生 UI 统一）。
@@ -20,69 +17,20 @@
  *     nuwax 布局状态推送（{ secondMenuAvailable }）→ 转发 nuwax:layout-changed 给壳
  *     renderer，工具栏据此显隐「收起二级菜单」按钮（无二级菜单的页面按钮无意义）。
  *
+ * 【商业扩展】nuwax 登录态同步（auth:getToken/persistToken/clear 的 token 持久化
+ * 与服务生命周期联动、NUWAX_TOKEN_KEY_PREFIX/nuwaxTokenScopes 键空间）属商业
+ * 专属实现，由 nuwa-work overlay 整文件覆写本文件补齐——覆写版本为本文件超集。
+ *
  * 桥前端：preload/webviewPerfBridge.ts（注入到所有 http/https webview guest）。
  * 注册入口：ipc/index.ts 的 registerAllHandlers。
  */
 import { ipcMain, dialog, net, BrowserWindow } from "electron";
-import type { IpcMainInvokeEvent, OpenDialogOptions } from "electron";
+import type { OpenDialogOptions } from "electron";
 import * as fs from "fs";
 import * as path from "path";
 import log from "electron-log";
 import type { HandlerContext } from "@shared/types/ipc";
-import { readSetting, writeSetting } from "../db";
-import {
-  stopAllServicesNow,
-  restartAllServicesNow,
-  isAnyCoreServiceRunning,
-} from "./processHandlers";
-
-/** nuwax ACCESS_TOKEN 存储键前缀，按来源 origin 分域，避免污染 sandbox ticket。 */
-export const NUWAX_TOKEN_KEY_PREFIX = "nuwax.accessToken.";
-
-/** 从 IPC 调用方（webview guest）解析来源 origin 作为 token 存储作用域。 */
-function resolveSenderOrigin(event: IpcMainInvokeEvent): string {
-  const url = event.senderFrame?.url || event.sender?.getURL?.() || "";
-  try {
-    return url ? new URL(url).origin : "global";
-  } catch {
-    return "global";
-  }
-}
-
-function tokenKey(scope: string): string {
-  return `${NUWAX_TOKEN_KEY_PREFIX}${scope}`;
-}
-
-/**
- * 跨 origin 候选作用域统一视图（sender → serverHost origin → 网关 origin）。
- * token 按 origin 分键存储，direct↔gateway 两形态共存期内多个键都可能被读到——
- * getToken 回退 / persistToken 双写 / clear 全清 / 网关 Bearer 代注源必须共享
- * 同一份候选集合，否则出现「写 A 读 B」的键空间分裂（网关形态新登录代注不注入、
- * 登出被回退链复活过期 token）。
- */
-export function nuwaxTokenScopes(senderScope: string): string[] {
-  const scopes = [senderScope];
-  try {
-    const step1 = readSetting("step1_config") as {
-      serverHost?: string;
-    } | null;
-    if (step1?.serverHost) {
-      const raw = step1.serverHost.trim().replace(/\/+$/, "");
-      const host = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw)
-        ? raw
-        : `https://${raw}`;
-      scopes.push(new URL(host).origin);
-    }
-    const loopback = readSetting("nuwax.loopback") as {
-      enabled?: boolean;
-      origin?: string | null;
-    } | null;
-    if (loopback?.enabled && loopback.origin) scopes.push(loopback.origin);
-  } catch {
-    /* 配置异常时退化为仅 sender */
-  }
-  return [...new Set(scopes)];
-}
+import { readSetting } from "../db";
 
 /** 桌面独立窗口注册表：持引用防 GC，closed 时清理。 */
 const shellWindows = new Set<BrowserWindow>();
@@ -133,103 +81,6 @@ export function registerNuwaxBridgeHandlers(ctx: HandlerContext): void {
     }
     if (Object.keys(forward).length === 0) return;
     ctx.getMainWindow()?.webContents.send("nuwax:layout-changed", forward);
-  });
-
-  // ---- auth：ACCESS_TOKEN 双向同步 ----
-  ipcMain.handle("auth:getToken", (event) => {
-    const scope = resolveSenderOrigin(event);
-    // 跨 origin 回退链（nuwaxTokenScopes 统一视图）：direct↔gateway 切换后
-    // sender 键为空时依次回退其余候选键，命中即回写——双向切换免重登。
-    const scopes = nuwaxTokenScopes(scope);
-    let value = readSetting(tokenKey(scopes[0]));
-    if (typeof value !== "string" || !value) {
-      for (const candidate of scopes.slice(1)) {
-        const fallback = readSetting(tokenKey(candidate));
-        if (typeof fallback === "string" && fallback) {
-          value = fallback;
-          writeSetting(tokenKey(scope), fallback);
-          log.info("[NuwaxBridge] auth:getToken origin 迁移回退命中", {
-            from: candidate,
-            to: scope,
-          });
-          break;
-        }
-      }
-    }
-    const loggedIn = typeof value === "string" && !!value;
-    log.debug("[NuwaxBridge] auth:getToken", { scope, hasToken: loggedIn });
-
-    // 顶栏登录态同步（以 webview 为最优先）：nuwax 启动 getInitialState 无条件调 getToken，
-    // 是感知 webview 真实登录态最可靠的时机。
-    // - token 在（重启免登态）→ 推 loggedIn:true。
-    // - token 不在（webview 未登录）→ 推 loggedIn:false，纠正 nuwaclaw configKey 残留导致的
-    //   「伪已登录」，使原生顶栏始终跟随 webview 实际状态。
-    // （persistToken 只在 /Login 登录成功时触发，覆盖不了「启动即未登录」场景，故在此补全。）
-    ctx.getMainWindow()?.webContents.send("nuwax:authChanged", { loggedIn });
-    if (loggedIn) {
-      log.info(
-        "[NuwaxBridge] getToken → sync header loggedIn:true (relogin-free)",
-      );
-    } else {
-      log.info(
-        "[NuwaxBridge] getToken → sync header loggedIn:false (webview not logged in)",
-      );
-    }
-    return typeof value === "string" ? value : null;
-  });
-
-  ipcMain.handle("auth:persistToken", (event, token: unknown) => {
-    const scope = resolveSenderOrigin(event);
-    if (typeof token !== "string" || !token) return false;
-    // 双写全部候选键（sender + serverHost + 网关）：网关 Bearer 代注源读
-    // serverHost/网关键，单写 sender 会让代注拿到空/陈旧 token（键空间分裂修复）。
-    const scopes = nuwaxTokenScopes(scope);
-    for (const s of scopes) writeSetting(tokenKey(s), token);
-    log.info("[NuwaxBridge] auth:persistToken saved", { scopes });
-
-    // 登录成功联动：best-effort 启动本地服务。仅在「当前无核心服务运行」时触发，
-    // 避免已登录态下（如 token 刷新）重复 restart 打断在跑的会话。
-    // 异步触发、不阻塞 persistToken 返回，保持 nuwax 登录即时跳转。
-    // lanproxy 完整自起待 Phase 3 后端 reg 支持 token 鉴权后实现。
-    if (!isAnyCoreServiceRunning()) {
-      log.info("[NuwaxBridge] login → starting services (best-effort)");
-      void restartAllServicesNow().catch((e) => {
-        log.warn("[NuwaxBridge] login service start failed (ignored):", e);
-      });
-    } else {
-      log.info("[NuwaxBridge] login → services already running, skip restart");
-    }
-
-    // 顶栏账号状态联动：登录成功 → 通知 renderer 顶栏切「已登录」态（跟随 nuwax token，
-    // 而非 nuwaclaw 原生 configKey）。Phase 3 configKey 退役前，顶栏以此事件为准。
-    ctx.getMainWindow()?.webContents.send("nuwax:authChanged", {
-      loggedIn: true,
-    });
-    return true;
-  });
-
-  ipcMain.handle("auth:clear", async (event) => {
-    const scope = resolveSenderOrigin(event);
-    // 全清候选键：单清 sender 键时，getToken 回退链会从 serverHost/网关键把
-    // 过期 token「复活」——登出/401 后陷入 复活→401→clear 死循环（键空间分裂修复）。
-    const scopes = nuwaxTokenScopes(scope);
-    for (const s of scopes) writeSetting(tokenKey(s), null);
-    log.info("[NuwaxBridge] auth:clear", { scopes });
-
-    // 登出 / token 失效（401）联动：停止全部本地服务。
-    // 用户定：登出与失效都停服务。await 以确保重定向回 /Login 前服务确停；
-    // stopAllServicesNow 内部对各进程有超时，整体有界，失败仅 warn 不影响 clear 结果。
-    try {
-      await stopAllServicesNow();
-    } catch (e) {
-      log.warn("[NuwaxBridge] logout/expiry service stop failed (ignored):", e);
-    }
-
-    // 顶栏账号状态联动：登出 / token 失效 → 通知 renderer 顶栏切「去登录」态。
-    ctx.getMainWindow()?.webContents.send("nuwax:authChanged", {
-      loggedIn: false,
-    });
-    return true;
   });
 
   // ---- native：新开独立窗口打开 nuwax 页面 ----

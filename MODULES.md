@@ -28,7 +28,7 @@ peerDependency；MCP bridge 由宿主注入。
 | `computer/` | admin server、chat dispatch、SSE 流 |
 | `intervention/` | 干预/审批协议 |
 | `memory/` | 会话记忆 |
-| `loopbackGateway/` | nuwax 前端 webview 承载与鉴权桥 |
+| `loopbackGateway/` | nuwax 前端本地承载**插槽**（基座=no-op 桩；商业实现由 nuwa-work overlay 覆写注入，导出面/设置键/事件契约见模块头注） |
 | `autoUpdater` | 更新通道（feed base 可注入） |
 
 渲染层 `renderer/`、共享层 `shared/`（注入契约单点 `constants.ts`）。
@@ -42,8 +42,9 @@ peerDependency；MCP bridge 由宿主注入。
 ## D. 产品差异化接入点（开关，不是分叉）
 
 - **4 个 NUWAX_* 构建期 env**（见 README「注入契约」）：identifier / 显示名 / 端口偏移 / 更新通道。不注入=社区版。
-- **nuwax 子模块 pin**：产品可嵌不同前端版本。
-- **壳层 `overlay/`**：产品自有代码落位（启动参数、专属 preload/webview 注入等）。
+- **通信桥宿主身份**：`x-client-type` 头与桥 `host.getProduct()` 随 identifier 派生（nuwaclaw/nuwawork），nuwax 后端/前端可凭此区分宿主产品。
+- **产品前端 pin**：产品壳自持 nuwax 前端子模块并 pin 版本（基座不嵌前端）；dev 经 `NUWAX_FRONTEND_DIST` env 注入 dist 目录，打包经产品壳 electron-builder extraResources 注入 `nuwax-dist`。
+- **壳层 `overlay/`**：产品自有代码落位（整文件覆写；如 nuwa-work 的 loopbackGateway 商业实现、桥 auth 登录同步、设置商业区块）。
 
 ## 扩展落位指引
 

@@ -154,44 +154,15 @@ export default function SettingsPage() {
   const workspaceDir = Form.useWatch("workspaceDir", form) || "";
 
   // ========== 加载服务配置 ==========
-  // 本地化加速（「系统」区块开关，即点即存）：映射 nuwaxLoadMode → 保存后重启生效
-  //（服务域名 serverHost 归「服务配置」区块管理——前后端一体语义）
-  const [loopbackEnabled, setLoopbackEnabled] = useState(false);
-  const [loopbackApplying, setLoopbackApplying] = useState(false);
-
-  const handleLoopbackChange = async (checked: boolean) => {
-    setLoopbackApplying(true);
-    try {
-      const existing = await setupService.getStep1Config();
-      await setupService.saveStep1Config({
-        ...existing,
-        nuwaxLoadMode: checked ? "gateway" : "direct",
-      });
-      await window.electronAPI?.services?.restartAll?.();
-      setLoopbackEnabled(checked);
-      message.success(t(I18N_KEYS.Toast.SUCCESS.CONFIG_SAVED));
-    } catch {
-      // 失败必须可见且状态不落定——静默会让用户误以为已生效
-      message.error(t(I18N_KEYS.Toast.ERROR.CONFIG_SAVE_FAILED));
-    } finally {
-      setLoopbackApplying(false);
-    }
-  };
-
+  //（商业版「本地化加速」开关属 nuwa-work overlay 整文件覆写范围，基座不含）
   const loadConfig = useCallback(async () => {
     setLoading(true);
     try {
       const config = await setupService.getStep1Config();
-      // 本地化加速状态按 nuwaxLoadMode 反推（服务域名 serverHost 归「服务配置」
-      // 表单原样带协议展示；登录流程改域会回写，此处自然跟随）
-      const loopbackOn =
-        ((config as Record<string, unknown>).nuwaxLoadMode ?? "direct") ===
-        "gateway";
       const enriched = {
         ...config,
       };
       form.setFieldsValue(enriched);
-      setLoopbackEnabled(loopbackOn);
       setOriginalConfig(enriched);
     } catch (error) {
       console.error("Failed to load config:", error);
@@ -871,24 +842,6 @@ export default function SettingsPage() {
                   checked={autolaunchEnabled}
                   onChange={handleAutolaunchChange}
                   loading={autolaunchLoading}
-                />
-              </div>
-
-              {/* 本地化加速（loopback 网关同源加载；服务域名在「服务配置」区块） */}
-              <div className={styles.serviceRow}>
-                <div className={styles.serviceInfo}>
-                  <div>
-                    <span className={styles.serviceLabel}>本地化加速</span>
-                    <div className={styles.serviceDescription}>
-                      页面经本地网关同源加载（更快且免跨域）。服务域名在「服务配置」区块修改，切换后自动重启服务。
-                    </div>
-                  </div>
-                </div>
-                <Switch
-                  size="small"
-                  checked={loopbackEnabled}
-                  onChange={handleLoopbackChange}
-                  loading={loopbackApplying}
                 />
               </div>
 
