@@ -1,0 +1,39 @@
+# 基座测试 CI：全量 vitest（社区默认值基线）
+# 发布编排不在本仓——构建/签名/上传在产品壳（nuwaclaw / nuwa-work）仓库。
+name: CI (tests)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: vitest (electron client)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.5
+
+      # Python 3.12+ 移除 distutils，node-gyp（better-sqlite3）依赖
+      - name: Install setuptools for node-gyp
+        run: python3 -m pip install setuptools --break-system-packages 2>/dev/null || python3 -m pip install setuptools
+
+      - name: Install workspace dependencies
+        run: pnpm install --filter @nuwax-ai/nuwaclaw...
+
+      - name: Run tests
+        run: npm run test:electron
