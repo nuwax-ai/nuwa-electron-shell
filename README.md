@@ -44,7 +44,9 @@ Windows 沙箱 helper、`nuwax/` 前端子模块、根 Makefile sidecar 准备�
 ## 本地开发
 
 ```bash
-pnpm install --filter @nuwax-ai/nuwaclaw...   # 自动构建 agent-kit
+# agent-kit 经 pnpm.overrides file: 引用，install 会打包快照——须先构建再 install
+pnpm -C crates/agent-kit install --ignore-workspace && pnpm -C crates/agent-kit run build
+pnpm install --filter @nuwax-ai/nuwaclaw...
 npm run test:electron                          # 全量 vitest（社区默认值基线）
 # 开发/构建入口见 crates/agent-electron-client/package.json scripts 与根 Makefile
 # （electron-dev / electron-prepare）；型资源准备见 Makefile
