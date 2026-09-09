@@ -403,7 +403,8 @@ export class UnifiedAgentService extends EventEmitter {
   getActiveIsolatedHomes(): Set<string> {
     const paths = new Set<string>();
     for (const engine of this.engines.values()) {
-      const home = engine.getIsolatedHome();
+      // 防御：注册表可能混入部分实现/测试 mock（缺方法），sweep 是后台异步路径
+      const home = engine.getIsolatedHome?.() ?? null;
       if (home) paths.add(home);
     }
     return paths;
@@ -412,7 +413,7 @@ export class UnifiedAgentService extends EventEmitter {
   getActivePids(): Set<number> {
     const pids = new Set<number>();
     for (const engine of this.engines.values()) {
-      const pid = engine.getProcessPid();
+      const pid = engine.getProcessPid?.() ?? null;
       if (pid) pids.add(pid);
     }
     return pids;
