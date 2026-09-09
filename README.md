@@ -52,6 +52,16 @@ npm run test:electron                          # 全量 vitest（社区默认值
 # （electron-dev / electron-prepare）；型资源准备见 Makefile
 ```
 
+## 开发方式
+
+- **推荐独立工作副本开发**（非经产品壳的 submodule）：`git clone
+  https://github.com/nuwax-ai/nuwa-electron-shell.git`（本地惯例放
+  `~/workspace/nuwa-electron-shell`，与 nuwax/nuwa-work/nuwaclaw 同级），初始化
+  `nuwax` 子模块后即可 install/test/dev。产品壳内的 submodule 副本仅用于 pin 与
+  构建，日常改动在本仓直接提交推送，壳按需 bump pin。
+- 功能模块的粒度、边界与接入方式见 **[MODULES.md](./MODULES.md)**（独立包 /
+  客户端功能域 / 平台 helper / 产品注入开关 + 扩展落位指引）。
+
 ## 产品壳如何引用与升级
 
 - 产品壳以 submodule pin 引用本仓 `main`（`.gitmodules` → 本仓）。
