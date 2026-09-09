@@ -108,4 +108,4 @@ crates/gateway-server/.env
 .kilo/
 tmp/
 .zcode/
-.claude/cache/
+.claude/cache/crates/agent-kit/pnpm-lock.yaml
