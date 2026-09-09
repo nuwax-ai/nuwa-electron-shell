@@ -25,6 +25,7 @@ import * as fs from "node:fs";
 import * as fsp from "node:fs/promises";
 import * as nodePath from "node:path";
 import log from "electron-log";
+import { APP_NAME_IDENTIFIER } from "@shared/constants";
 
 /** 逐跳头：转发时剥掉，由本层连接语义自行决定。 */
 const HOP_BY_HOP = new Set([
@@ -374,7 +375,8 @@ export async function startLoopbackGateway(
   const target = new URL(opts.targetOrigin);
   const ctx: ProxyContext = {
     getAccessToken: opts.getAccessToken,
-    clientTypeHeader: opts.clientTypeHeader ?? "nuwaclaw",
+    // 缺省跟随构建期注入的产品标识（nuwaclaw=社区版 / nuwawork=商业版）
+    clientTypeHeader: opts.clientTypeHeader ?? APP_NAME_IDENTIFIER,
   };
   const DEFAULT_BACKEND_PREFIXES = ["/api", "/computer", "/devcomputer"];
   const distDir = opts.distDir ? nodePath.resolve(opts.distDir) : undefined;

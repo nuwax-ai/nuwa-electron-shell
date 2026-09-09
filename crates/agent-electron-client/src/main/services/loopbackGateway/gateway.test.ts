@@ -23,6 +23,7 @@ vi.mock("electron-log", () => ({
 }));
 
 import { startLoopbackGateway } from "./gateway";
+import { APP_NAME_IDENTIFIER } from "@shared/constants";
 
 const openServers: (http.Server | net.Server)[] = [];
 
@@ -172,7 +173,7 @@ describe("loopback gateway（透明反代）", () => {
     expect(up.captured.auth).toBe("Bearer SELF");
   });
 
-  it("x-client-type：缺省 nuwaclaw，空串关闭", async () => {
+  it("x-client-type：缺省随产品标识 APP_NAME_IDENTIFIER，空串关闭", async () => {
     const up = await startUpstream((req, res, cap) => {
       cap.xct = req.headers["x-client-type"];
       res.writeHead(204).end();
@@ -183,7 +184,9 @@ describe("loopback gateway（透明反代）", () => {
     });
     gateways.push(gw1);
     await fetch(`${gw1.origin}/a`);
-    expect(up.captured.xct).toBe("nuwaclaw");
+    // 测试环境未注入 NUWAX_APP_IDENTIFIER → 社区版缺省 nuwaclaw；
+    // 商业版构建（nuwawork）时该头值随 define 联动，无需改本测试
+    expect(up.captured.xct).toBe(APP_NAME_IDENTIFIER);
 
     const gw2 = await startLoopbackGateway({
       targetOrigin: up.origin,

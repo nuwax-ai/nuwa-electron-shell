@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
+import { APP_NAME_IDENTIFIER } from "@shared/constants";
 
 type PerfPayload = Record<string, unknown>;
 
@@ -188,6 +189,19 @@ const layout = {
   },
 };
 
+/**
+ * host 命名空间：宿主身份只读信息（host→nuwax）。
+ * nuwax 凭 getProduct() 区分宿主产品：`nuwaclaw`（社区版）/ `nuwawork`（商业版），
+ * 用于按宿主开关桌面专属能力或降级。值由构建期 define 注入（同 4-env 注入契约），
+ * 不经 IPC、无运行时 process 访问。
+ */
+const host = {
+  /** 宿主产品标识：nuwaclaw（社区版）/ nuwawork（商业版）。 */
+  getProduct(): string {
+    return APP_NAME_IDENTIFIER;
+  },
+};
+
 contextBridge.exposeInMainWorld("NuwaClawBridge", {
   perf,
   auth,
@@ -196,4 +210,5 @@ contextBridge.exposeInMainWorld("NuwaClawBridge", {
   events,
   theme,
   layout,
+  host,
 });

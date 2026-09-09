@@ -26,10 +26,16 @@ export interface NuwaClawBridgeNative {
   ): Promise<{ success: boolean; path?: string; error?: string }>;
 }
 
+export interface NuwaClawBridgeHost {
+  /** 宿主产品标识：nuwaclaw（社区版）/ nuwawork（商业版）。构建期注入，非 IPC。 */
+  getProduct(): string;
+}
+
 export interface NuwaClawBridge {
   perf?: NuwaClawBridgePerf;
   auth?: NuwaClawBridgeAuth;
   native?: NuwaClawBridgeNative;
+  host?: NuwaClawBridgeHost;
 }
 
 declare global {

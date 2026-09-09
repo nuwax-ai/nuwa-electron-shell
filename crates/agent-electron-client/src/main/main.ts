@@ -27,6 +27,7 @@ import type { HandlerContext } from "@shared/types/ipc";
 import { DEFAULT_DEV_SERVER_PORT } from "./services/constants";
 import {
   APP_DISPLAY_NAME,
+  APP_NAME_IDENTIFIER,
   CLEANUP_TIMEOUT,
   DEFAULT_WINDOW_HEIGHT,
   DEFAULT_WINDOW_MIN_HEIGHT,
@@ -532,7 +533,9 @@ app.whenReady().then(async () => {
         callback({ requestHeaders: details.requestHeaders });
         return;
       }
-      details.requestHeaders["x-client-type"] = "nuwaclaw";
+      // 客户端标识头值跟随构建期注入的产品标识（nuwaclaw=社区版 / nuwawork=商业版），
+      // nuwax 后端凭该头区分宿主产品并在登录响应返回 token。
+      details.requestHeaders["x-client-type"] = APP_NAME_IDENTIFIER;
       callback({ requestHeaders: details.requestHeaders });
     },
   );
