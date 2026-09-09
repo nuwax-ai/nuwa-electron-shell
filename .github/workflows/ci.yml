@@ -32,6 +32,14 @@ jobs:
       - name: Install setuptools for node-gyp
         run: python3 -m pip install setuptools --break-system-packages 2>/dev/null || python3 -m pip install setuptools
 
+      # agent-kit 经根 package.json 的 pnpm.overrides file: 引用——install 会把它
+      # 打包成快照拷入 node_modules；必须先构建出 dist 再 install，否则快照无入口
+      # （vitest/esbuild 解析 @nuwax-ai/agent-kit 失败）
+      - name: Build agent-kit (before install)
+        run: |
+          pnpm -C crates/agent-kit install --ignore-workspace --prefer-offline
+          pnpm -C crates/agent-kit run build
+
       - name: Install workspace dependencies
         run: pnpm install --filter @nuwax-ai/nuwaclaw...
 
