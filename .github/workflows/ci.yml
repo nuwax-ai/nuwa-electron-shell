@@ -35,5 +35,12 @@ jobs:
       - name: Install workspace dependencies
         run: pnpm install --filter @nuwax-ai/nuwaclaw...
 
+      # mcp.test.ts 依赖型资源（gitignore，fresh clone 必做；见产品壳 README）
+      - name: Prepare test resources (mcp-proxy)
+        working-directory: crates/agent-electron-client
+        run: npm run prepare:mcp-proxy
+
+      # sandbox-integration 需真实 bwrap/seatbelt 环境，不适合通用 CI runner
       - name: Run tests
-        run: npm run test:electron
+        working-directory: crates/agent-electron-client
+        run: npx vitest run --exclude "tests/sandbox-integration/**" --exclude "**/node_modules/**"
