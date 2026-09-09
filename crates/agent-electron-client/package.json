@@ -145,7 +145,7 @@
   },
   "build": {
     "appId": "com.nuwax-ai.nuwaclaw",
-    "productName": "女娲 Nuwax",
+    "productName": "NuwaClaw",
     "afterSign": "scripts/build/after-sign.js",
     "electronLanguages": [
       "en",
