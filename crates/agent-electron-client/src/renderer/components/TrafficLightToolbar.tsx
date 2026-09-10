@@ -314,16 +314,15 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
         </div>
 
         {/* Win/Linux 自绘窗口控制按钮（mac 用原生红绿灯）：
-            absolute 贴窗口右上角并垂直居中（40×28，不顶满行高——评审反馈
-            46×36 观感过大）；方角、hover 加深、关闭键红底白字见
-            index.css .toolbar-ctrl-*（背景随 --color-bg-container 主题）；
-            字形为 captionGlyphs 的 1px 细线 SVG，对齐原生标题栏观感 */}
+            absolute 贴死窗口右上角并贴顶（40×28 不顶满行高但上沿贴边——
+            原生标题栏按钮均贴顶）；方角、hover 加深、关闭键红底白字见
+            index.css .toolbar-ctrl-*；字形为 captionGlyphs 1px 细线 SVG */}
         {!isMac && (
           <div
             className="toolbar-ctrl-group"
             style={{
               position: "absolute",
-              top: 4,
+              top: 0,
               right: 0,
               display: "flex",
               alignItems: "stretch",
