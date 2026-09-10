@@ -25,6 +25,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
     close: () => ipcRenderer.invoke("window:close"),
   },
 
+  // 自绘菜单栏（Win/Linux 顶行菜单；mac 走系统菜单不经此通道）
+  menu: {
+    editAction: (
+      action: "undo" | "redo" | "cut" | "copy" | "paste" | "selectAll",
+    ) => ipcRenderer.invoke("menu:editAction", action) as Promise<boolean>,
+  },
+
   // MCP Proxy management (@nuwax-ai/mcp-proxy-ts 聚合代理)
   mcp: {
     start: () => ipcRenderer.invoke("mcp:start"),

@@ -1544,6 +1544,11 @@ function App() {
               onForward={handleToolbarForward}
               onReload={handleToolbarReload}
               onOpenSettings={handleOpenSettings}
+              onOpenAbout={() => {
+                // 关于与检查更新：落到设置弹窗 about tab（版本 + 检查更新/下载/重启安装完整流程）
+                setActiveTab("about");
+                setSettingsModalOpen(true);
+              }}
               statusEntry={
                 // 服务状态指示器：非绿色（有服务 error→红 / 未全跑→橙）时渲染颜色点，
                 // 点击打开设置弹窗并落到 client tab（服务列表页）；全绿或未知（空）不渲染。

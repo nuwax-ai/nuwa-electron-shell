@@ -277,6 +277,34 @@ body {
   color: #fff;
 }
 
+/* ========== 一体化顶行自绘菜单栏（TrafficLightToolbar，仅 Win/Linux） ========== */
+/* 参考产品顶行菜单触发项：透明底融入顶行，hover 浅色叠层（同三键的加深策略，
+   不用主题 hover token——米白底上差异过小不可见） */
+.topbar-menu-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 20px;
+  white-space: nowrap;
+  color: var(--color-text, rgba(0, 0, 0, 0.88));
+  transition: background-color 0.15s ease;
+}
+
+.topbar-menu-btn:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+[data-theme='dark'] .topbar-menu-btn {
+  color: var(--color-text, rgba(255, 255, 255, 0.85));
+}
+
+[data-theme='dark'] .topbar-menu-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
 /* ========== 滚动条 ========== */
 ::-webkit-scrollbar {
   width: 5px;

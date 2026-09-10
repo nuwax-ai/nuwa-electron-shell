@@ -38,7 +38,7 @@ import { initLogging, updateLogLevel } from "./bootstrap/logConfig";
 import { initI18n, setMainLang } from "./services/i18n";
 import { createTrayManager, TrayStatus } from "./window/trayManager";
 import { createServiceManager } from "./window/serviceManager";
-import { initAutoUpdater } from "./services/autoUpdater";
+import { initAutoUpdater, showUpdateDialogFlow } from "./services/autoUpdater";
 import { migrateDataDir, migrateSettingsPaths } from "./bootstrap/migrate";
 import { getDeviceId, logSystemInfo } from "./services/system/deviceId";
 import { initWebviewPolicy } from "./services/system/webviewPolicy";
@@ -319,15 +319,65 @@ function createWindow() {
 
 function createMenu() {
   if (process.platform === "darwin") {
-    // macOS: 保留最小菜单，确保 Cmd+C/V/Q 等快捷键正常
+    // macOS: 中文菜单（role 保留原生快捷键，仅覆盖 label）；Win/Linux 置 null，
+    // 菜单栏由 renderer 自绘（见 TrafficLightToolbar）。
+    // 帮助菜单补托盘同款「检查更新」（showUpdateDialogFlow）。
     const template: Electron.MenuItemConstructorOptions[] = [
-      { role: "appMenu" },
-      { role: "editMenu" },
-      { role: "windowMenu" },
+      {
+        label: APP_DISPLAY_NAME,
+        submenu: [
+          { role: "about", label: `关于 ${APP_DISPLAY_NAME}` },
+          { type: "separator" },
+          { role: "hide", label: `隐藏 ${APP_DISPLAY_NAME}` },
+          { role: "hideOthers", label: "隐藏其他" },
+          { role: "unhide", label: "全部显示" },
+          { type: "separator" },
+          { role: "quit", label: `退出 ${APP_DISPLAY_NAME}` },
+        ],
+      },
+      {
+        label: "编辑",
+        submenu: [
+          { role: "undo", label: "撤销" },
+          { role: "redo", label: "重做" },
+          { type: "separator" },
+          { role: "cut", label: "剪切" },
+          { role: "copy", label: "拷贝" },
+          { role: "paste", label: "粘贴" },
+          { role: "selectAll", label: "全选" },
+        ],
+      },
+      {
+        label: "窗口",
+        submenu: [
+          // 后退/前进/刷新：顶行图标精简后收进本菜单（role 作用于焦点 webContents，
+          // webview guest 聚焦时即 guest），与 Win/Linux 自绘「窗口(W)」菜单对齐
+          { role: "back", label: "后退" },
+          { role: "forward", label: "前进" },
+          { role: "reload", label: "刷新页面" },
+          { type: "separator" },
+          { role: "minimize", label: "最小化" },
+          { role: "zoom", label: "缩放" },
+          { role: "close", label: "关闭窗口" },
+          { type: "separator" },
+          { role: "front", label: "前置全部窗口" },
+        ],
+      },
+      {
+        label: "帮助",
+        submenu: [
+          {
+            label: "检查更新",
+            click: async () => {
+              await showUpdateDialogFlow();
+            },
+          },
+        ],
+      },
     ];
     Menu.setApplicationMenu(Menu.buildFromTemplate(template));
   } else {
-    // Windows/Linux: 去掉菜单栏，功能由界面和系统托盘提供
+    // Windows/Linux: 去掉菜单栏，功能由界面（自绘顶行菜单栏）和系统托盘提供
     Menu.setApplicationMenu(null);
   }
 }

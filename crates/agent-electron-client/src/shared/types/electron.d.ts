@@ -750,6 +750,11 @@ export interface ElectronAPI {
     isMaximized: () => Promise<boolean>;
     close: () => Promise<void>;
   };
+  menu: {
+    editAction: (
+      action: "undo" | "redo" | "cut" | "copy" | "paste" | "selectAll",
+    ) => Promise<boolean>;
+  };
   mcp: MCPAPI;
   lanproxy: LanproxyAPI;
   agentRunner: AgentRunnerAPI;

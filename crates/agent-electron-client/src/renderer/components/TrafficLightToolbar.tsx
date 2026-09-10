@@ -1,31 +1,33 @@
 /**
- * TrafficLightToolbar - 沉浸式顶部工具栏覆盖层。
+ * TrafficLightToolbar - 沉浸式一体化顶行（窗口 chrome 层）。
  *
- * 浮于 NuwaxHostWebview 之上，分两层：
- * 1) 顶部全宽 10px 窄拖拽带（-webkit-app-region:drag）——唯一承接窗口拖拽的区域，
- *    mac 避开红绿灯；工具栏主体不再整层 drag，否则会拦截 webview 顶部元素的点击。
- * 2) 工具栏主体（pointer-events:none 事件穿透）：mac 左侧留出 80px 避让原生红绿灯
- *    （{16,16}）；其右紧跟工具 icon 组：收起/展开二级菜单 | 设置 | 后退 | 前进 | 刷新
- *    （Win/Linux 最左先放 nuwax 应用图标，再接工具 icon 组）。
- *    右侧渲染新版本更新入口（updateEntry，仅当检测到新版本时由 App.tsx 注入
- *    icon/下载进度；Agent 运行状态不再展示）；
- *    Win/Linux 自绘最小化/最大化/关闭按钮（Windows 标题栏样式贴死右上角，
- *    实底方角无悬浮装饰；mac 用原生红绿灯，不渲染）。
+ * 浮于 NuwaxHostWebview 之上，参考产品（Win/Linux 图1 / macOS 图2）的顶行布局：
+ * 1) 顶部全宽 10px 窄拖拽带（-webkit-app-region:drag）——保底拖拽区，mac 避开红绿灯；
+ * 2) 48px 顶行主体（整行 DRAG，交互子块 NO_DRAG 豁免；双击切换最大化）：
+ *    - 左（全平台）：侧栏开关（nuwax 经桥报告当前页存在二级菜单时才渲染）；
+ *    - 左（仅 Win/Linux）：自绘菜单栏 关于(A)/编辑(E)/窗口(W)/帮助(H)（antd Dropdown），
+ *      编辑动作经 menu:editAction 路由到焦点 webContents（webview guest 优先），
+ *      页面/窗口动作复用 App 注入的 onBack/onForward/onReload 与 window:* IPC；
+ *    - 右（全平台）：statusEntry（服务异常点）+ updateEntry（更新入口）；
+ *    - 右（仅 Win/Linux）：设置齿轮 + 贴角窗口三键（46×36，.toolbar-ctrl-*）；
+ *      mac 无自绘三键（原生红绿灯），设置齿轮放左侧 icon 组（红绿灯避让之后）。
  *
- * icon 组与更新入口为 no-drag + pointer-events:auto（可点击），中间大片留白事件穿透
- * 到 webview（不再遮挡其顶部可点击元素）。Win/Linux 窗口控制自包含
- * （maximized/onMin/onMax/onClose），不污染 App.tsx。
+ * Win/Linux 顶行实底背景走 --color-bg-container（女娲主题推送时随米白，
+ * 暗色回落壳自身色，App.tsx 统一叠加）；mac 保持透明浮层（内容区满窗，
+ * 图标组悬浮于侧栏顶部，见参考图 2）。
+ *
+ * 后退/前进/刷新不再占顶行图标位（对齐参考产品精简顶行）：Win/Linux 收进
+ * 「窗口(W)」菜单；mac 收进系统菜单「窗口」（main.ts createMenu，role back/
+ * forward/reload 同样作用于焦点 webContents）。
  *
  * tooltip 暂用中文面量（桌面端次要 UI）；后续如需多语言可统一抽 i18n key。
  */
 import React, { useEffect, useState } from "react";
-import { Button, Tooltip } from "antd";
+import { Button, Dropdown, Tooltip } from "antd";
+import type { MenuProps } from "antd";
 import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
-  LeftOutlined,
-  RightOutlined,
-  ReloadOutlined,
   SettingOutlined,
   // Win/Linux 窗口三键图标：统一用 antd SVG 图标（同 1em 视觉框、笔画一致），
   // 替代 Unicode 字形（–/□/✕ 同字号下视觉大小不齐，三键看起来不等大）
@@ -42,25 +44,45 @@ const isMac = /mac/i.test(navigator.platform);
 const DRAG = { WebkitAppRegion: "drag" } as any;
 const NO_DRAG = { WebkitAppRegion: "no-drag" } as any;
 
+type EditAction = "undo" | "redo" | "cut" | "copy" | "paste" | "selectAll";
+
+const editAction = (action: EditAction) => {
+  void window.electronAPI?.menu?.editAction?.(action);
+};
+
 export interface TrafficLightToolbarProps {
   /** 二级菜单收起态（决定收起/展开 icon 与 tooltip）。 */
   menuCollapsed: boolean;
   /** 当前页是否存在可收起的二级菜单（nuwax 经桥推送；无则隐藏收起按钮）。 */
   menuAvailable: boolean;
-  /** webview 后退能力（false 时禁用后退按钮）。 */
+  /** webview 后退能力（false 时禁用后退项）。 */
   canGoBack: boolean;
-  /** webview 前进能力（false 时禁用前进按钮）。 */
+  /** webview 前进能力（false 时禁用前进项）。 */
   canGoForward: boolean;
   onToggleMenu: () => void;
   onBack: () => void;
   onForward: () => void;
   onReload: () => void;
   onOpenSettings: () => void;
+  /** 打开「关于与检查更新」（App 侧落到设置弹窗 about tab，含完整更新流程）。 */
+  onOpenAbout: () => void;
   /** 服务状态指示器（非绿色时由 App.tsx 注入颜色点，点击打开设置弹窗；全绿不渲染）。 */
   statusEntry?: React.ReactNode;
   /** 新版本更新入口（仅当检测到新版本时注入：下载 icon / 下载中百分比 / 待安装；其余不渲染）。 */
   updateEntry?: React.ReactNode;
 }
+
+/** 顶行菜单栏单项（Win/Linux 自绘；label 沿用 Windows 助记后缀惯例，真实 Alt 快捷键后续再补）。 */
+const TopMenu: React.FC<{ label: string; items: MenuProps["items"] }> = ({
+  label,
+  items,
+}) => (
+  <Dropdown menu={{ items }} trigger={["click"]}>
+    <button type="button" className="topbar-menu-btn">
+      {label}
+    </button>
+  </Dropdown>
+);
 
 const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
   menuCollapsed,
@@ -72,6 +94,7 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
   onForward,
   onReload,
   onOpenSettings,
+  onOpenAbout,
   statusEntry,
   updateEntry,
 }) => {
@@ -118,6 +141,92 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
     </Tooltip>
   );
 
+  /** 侧栏开关：仅当 nuwax 报告当前页存在二级菜单时渲染（无则隐藏）。 */
+  const sidebarToggle =
+    menuAvailable &&
+    iconBtn(
+      menuCollapsed ? "展开侧栏" : "收起侧栏",
+      false,
+      onToggleMenu,
+      menuCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />,
+    );
+
+  const settingsBtn = iconBtn(
+    "设置",
+    false,
+    onOpenSettings,
+    <SettingOutlined />,
+  );
+
+  /** Win/Linux 自绘菜单栏（参考产品同款四项）。 */
+  const menuBar = !isMac && (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 2,
+        pointerEvents: "auto",
+        ...NO_DRAG,
+      }}
+    >
+      <TopMenu
+        label="关于(A)"
+        items={[
+          { key: "about", label: "关于与检查更新", onClick: onOpenAbout },
+        ]}
+      />
+      <TopMenu
+        label="编辑(E)"
+        items={[
+          { key: "undo", label: "撤销", onClick: () => editAction("undo") },
+          { key: "redo", label: "重做", onClick: () => editAction("redo") },
+          { type: "divider" },
+          { key: "cut", label: "剪切", onClick: () => editAction("cut") },
+          { key: "copy", label: "复制", onClick: () => editAction("copy") },
+          { key: "paste", label: "粘贴", onClick: () => editAction("paste") },
+          {
+            key: "selectAll",
+            label: "全选",
+            onClick: () => editAction("selectAll"),
+          },
+        ]}
+      />
+      <TopMenu
+        label="窗口(W)"
+        items={[
+          { key: "back", label: "后退", disabled: !canGoBack, onClick: onBack },
+          {
+            key: "forward",
+            label: "前进",
+            disabled: !canGoForward,
+            onClick: onForward,
+          },
+          { key: "reload", label: "刷新页面", onClick: onReload },
+          { type: "divider" },
+          { key: "minimize", label: "最小化", onClick: onMin },
+          {
+            key: "maximize",
+            label: maximized ? "还原" : "最大化",
+            onClick: onMax,
+          },
+          { key: "close", label: "关闭", onClick: onClose },
+        ]}
+      />
+      <TopMenu
+        label="帮助(H)"
+        items={[
+          {
+            key: "logs",
+            label: "打开日志目录",
+            onClick: () => {
+              void window.electronAPI?.log?.openDir?.();
+            },
+          },
+        ]}
+      />
+    </div>
+  );
+
   return (
     <>
       {/* 顶部窄拖拽带（全宽 10px，避开红绿灯）：窗口拖拽手柄由这条承担，
@@ -142,7 +251,9 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
         style={{
           position: "fixed",
           top: 0,
-          left: 10,
+          // mac 沿用 10px 起始（透明浮层无涂色需求）；Win/Linux 从 0 满宽起，
+          // 实底背景才能盖满顶行左缘（拖拽带 0-10px 与本行重叠，拖拽语义不变）
+          left: isMac ? 10 : 0,
           right: 0,
           height: 48,
           zIndex: 1100,
@@ -152,13 +263,16 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
           // Win/Linux 右上角被贴角的窗口控制三键（46×3=138px）占据，
           // 容器留出对应右内边距，防止更新入口等流内元素被其覆盖
           paddingRight: isMac ? 4 : 142,
+          // Win/Linux 一体化顶行：实底背景随主题（女娲推送米白/暗色回落壳自身色），
+          // 与下方内容无缝衔接；mac 保持透明浮层（内容满窗，图标悬浮于侧栏顶部）
+          background: isMac ? undefined : "var(--color-bg-container, #ffffff)",
           // 整条可拖拽窗口：沉浸避让已让空顶带（菜单 TOP36/
           // page-container TOP+8/详情页 TOOLBAR48），覆盖页面不再挡内容点击；
-          // 可交互子块（icon 组/更新入口）以 no-drag 豁免。
+          // 可交互子块（icon 组/菜单栏/更新入口）以 no-drag 豁免。
           ...DRAG,
         }}
       >
-        {/* 左侧工具 icon 组 */}
+        {/* 左侧：侧栏开关 +（仅 Win/Linux）自绘菜单栏 */}
         <div
           style={{
             display: "flex",
@@ -168,55 +282,28 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
             ...NO_DRAG,
           }}
         >
-          {/* Win/Linux：最左放 nuwax 应用图标（Windows 标题栏惯例；
-              与 index.html favicon 同源 public/icon.png）；
-              mac 左上被原生红绿灯占据，不放 */}
-          {!isMac && (
-            <img
-              src="/icon.png"
-              alt="Nuwax"
-              draggable={false}
-              style={{
-                width: 18,
-                height: 18,
-                marginRight: 6,
-                ...NO_DRAG,
-              }}
-            />
-          )}
-          {/* 收起/展开二级菜单：仅当 nuwax 报告当前页存在二级菜单时渲染（无则隐藏） */}
-          {menuAvailable &&
-            iconBtn(
-              menuCollapsed ? "展开二级菜单" : "收起二级菜单",
-              false,
-              onToggleMenu,
-              menuCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />,
-            )}
-          {iconBtn("设置", false, onOpenSettings, <SettingOutlined />)}
-          {iconBtn("后退", !canGoBack, onBack, <LeftOutlined />)}
-          {iconBtn("前进", !canGoForward, onForward, <RightOutlined />)}
-          {iconBtn("刷新", false, onReload, <ReloadOutlined />)}
-          {/* 服务状态指示器：非绿色时由 App.tsx 注入（点击打开设置弹窗），全绿不渲染 */}
-          {statusEntry}
+          {sidebarToggle}
+          {isMac && settingsBtn}
+          {menuBar}
         </div>
 
         {/* 中间留白：拖拽手柄 */}
         <div style={{ flex: 1 }} />
 
-        {/* 右侧：新版本更新入口（仅当有新版本时由 App.tsx 注入，其余不渲染） */}
-        {updateEntry && (
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              marginLeft: 8,
-              pointerEvents: "auto",
-              ...NO_DRAG,
-            }}
-          >
-            {updateEntry}
-          </div>
-        )}
+        {/* 右侧：设置（仅 Win/Linux）+ 服务状态 + 更新入口（由 App.tsx 按需注入） */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            marginLeft: 8,
+            pointerEvents: "auto",
+            ...NO_DRAG,
+          }}
+        >
+          {!isMac && settingsBtn}
+          {statusEntry}
+          {updateEntry}
+        </div>
 
         {/* Win/Linux 自绘窗口控制按钮（mac 用原生红绿灯）：
             Windows 标题栏样式——absolute 贴死窗口右上角（不受容器 padding/居中影响），
