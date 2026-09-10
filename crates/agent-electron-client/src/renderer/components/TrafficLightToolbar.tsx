@@ -258,10 +258,11 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
         style={{
           position: "fixed",
           top: 0,
-          // mac 沿用 10px 起始（透明浮层无涂色需求）；Win/Linux 从 0 满宽起，
-          // 实底背景才能盖满顶行左缘（拖拽带 0-10px 与本行重叠，拖拽语义不变）
-          left: isMac ? 10 : 0,
-          right: 0,
+          left: 0,
+          // mac：顶行仅占左侧 300px（图标簇+拖拽区）——mac 不默认退让后，
+          // 内容区顶部必须可交互，全宽行会整条挡死；Win/Linux 仍满宽
+          //（内容区恒避让 36px 顶行，无遮挡冲突）
+          ...(isMac ? { width: 300 } : { right: 0 }),
           height: ROW_H,
           zIndex: 1100,
           display: "flex",
@@ -269,13 +270,11 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
           paddingLeft: isMac ? 80 : 8,
           // Win/Linux 右上角被贴角的窗口控制三键（40×28，3 键共 120px）占据，
           // 容器留出对应右内边距，防止更新入口等流内元素被其覆盖
-          paddingRight: isMac ? 4 : 128,
+          paddingRight: isMac ? 8 : 128,
           // 全平台透明浮层：顶行不涂底色，透出 webview 顶部避让带的页面自身
           // 背景（nuwax 顶带即页面 body 底色），与内容天然无缝、随主题自动一致；
-          // 实底涂色会在页面底色与容器色有微差时形成可见断层（评审否决项）
-          // 整条可拖拽窗口：沉浸避让已让空顶带（菜单 TOP36/
-          // page-container TOP+8/详情页 TOOLBAR48），覆盖页面不再挡内容点击；
-          // 可交互子块（icon 组/菜单栏/更新入口）以 no-drag 豁免。
+          // 实底涂色会在页面底色与容器色有微差时形成可见断层（评审否决项）。
+          // 整条为拖拽区，可交互子块（icon 组/菜单栏/更新入口）以 no-drag 豁免
           ...DRAG,
         }}
       >
@@ -300,18 +299,21 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
         {/* 中间留白：拖拽手柄 */}
         <div style={{ flex: 1 }} />
 
-        {/* 右侧：更新入口（由 App.tsx 按需注入） */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            marginLeft: 8,
-            pointerEvents: "auto",
-            ...NO_DRAG,
-          }}
-        >
-          {updateEntry}
-        </div>
+        {/* 右侧：更新入口（仅 Win/Linux；mac 顶行只占左侧 300px，
+            更新入口单独浮在窗口右上，见下方） */}
+        {!isMac && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              marginLeft: 8,
+              pointerEvents: "auto",
+              ...NO_DRAG,
+            }}
+          >
+            {updateEntry}
+          </div>
+        )}
 
         {/* Win/Linux 自绘窗口控制按钮（mac 用原生红绿灯）：
             absolute 贴死窗口右上角并贴顶（40×28 不顶满行高但上沿贴边——
@@ -342,6 +344,24 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
           </div>
         )}
       </div>
+
+      {/* mac 更新入口：独立浮在窗口右上（顶行只占左侧 300px 图标/拖拽区） */}
+      {isMac && updateEntry && (
+        <div
+          style={{
+            position: "fixed",
+            top: 6,
+            right: 12,
+            zIndex: 1101,
+            display: "flex",
+            alignItems: "center",
+            pointerEvents: "auto",
+            ...NO_DRAG,
+          }}
+        >
+          {updateEntry}
+        </div>
+      )}
     </>
   );
 };
