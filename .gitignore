@@ -109,3 +109,4 @@ crates/gateway-server/.env
 tmp/
 .zcode/
 .claude/cache/
+crates/agent-kit/pnpm-lock.yaml
