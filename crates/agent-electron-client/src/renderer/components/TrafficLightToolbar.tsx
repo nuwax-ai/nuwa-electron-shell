@@ -4,7 +4,7 @@
  * 浮于 NuwaxHostWebview 之上，对照 WorkBuddy Windows 参考样式：
  * 1) 顶部全宽 10px 窄拖拽带（-webkit-app-region:drag）——保底拖拽区，mac 避开红绿灯；
  * 2) 顶行主体（整行 DRAG，交互子块 NO_DRAG 豁免；双击切换最大化）：
- *    - 左（全平台同构的功能区，最左起）：侧栏开关（nuwax 报告存在二级菜单才渲染）
+ *    - 左（全平台同构的功能区，最左起）：侧栏开关（常驻；当前页无二级菜单时置灰）
  *      → 设置 → 历史导航（后退/前进）→ statusEntry（服务异常点）；
  *    - 左（仅 Win/Linux，功能区之后）：自绘菜单栏 关于(A)/编辑(E)/窗口(W)/帮助(H)
  *      （antd Dropdown，12px 菜单文字）；编辑动作经 menu:editAction 路由到焦点
@@ -270,9 +270,9 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
           // Win/Linux 右上角被贴角的窗口控制三键（46×3=138px）占据，
           // 容器留出对应右内边距，防止更新入口等流内元素被其覆盖
           paddingRight: isMac ? 4 : 142,
-          // Win/Linux 一体化顶行：实底背景随主题（女娲推送米白/暗色回落壳自身色），
-          // 与下方内容无缝衔接；mac 保持透明浮层（内容满窗，图标悬浮于侧栏顶部）
-          background: isMac ? undefined : "var(--color-bg-container, #ffffff)",
+          // 全平台透明浮层：顶行不涂底色，透出 webview 顶部避让带的页面自身
+          // 背景（nuwax 顶带即页面 body 底色），与内容天然无缝、随主题自动一致；
+          // 实底涂色会在页面底色与容器色有微差时形成可见断层（评审否决项）
           // 整条可拖拽窗口：沉浸避让已让空顶带（菜单 TOP36/
           // page-container TOP+8/详情页 TOOLBAR48），覆盖页面不再挡内容点击；
           // 可交互子块（icon 组/菜单栏/更新入口）以 no-drag 豁免。
