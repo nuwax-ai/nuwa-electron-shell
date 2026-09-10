@@ -1,41 +1,29 @@
 /**
  * TrafficLightToolbar - 沉浸式一体化顶行（窗口 chrome 层）。
  *
- * 浮于 NuwaxHostWebview 之上，参考产品（Win/Linux 图1 / macOS 图2）的顶行布局：
+ * 浮于 NuwaxHostWebview 之上，对照 WorkBuddy Windows 参考样式：
  * 1) 顶部全宽 10px 窄拖拽带（-webkit-app-region:drag）——保底拖拽区，mac 避开红绿灯；
- * 2) 48px 顶行主体（整行 DRAG，交互子块 NO_DRAG 豁免；双击切换最大化）：
- *    - 左（全平台）：侧栏开关（nuwax 经桥报告当前页存在二级菜单时才渲染）；
- *    - 左（仅 Win/Linux）：自绘菜单栏 关于(A)/编辑(E)/窗口(W)/帮助(H)（antd Dropdown），
- *      编辑动作经 menu:editAction 路由到焦点 webContents（webview guest 优先），
- *      页面/窗口动作复用 App 注入的 onBack/onForward/onReload 与 window:* IPC；
- *    - 右（全平台）：statusEntry（服务异常点）+ updateEntry（更新入口）；
- *    - 右（仅 Win/Linux）：设置齿轮 + 贴角窗口三键（46×36，.toolbar-ctrl-*）；
- *      mac 无自绘三键（原生红绿灯），设置齿轮放左侧 icon 组（红绿灯避让之后）。
+ * 2) 顶行主体（整行 DRAG，交互子块 NO_DRAG 豁免；双击切换最大化）：
+ *    - Win/Linux：36px 纤细行（对齐 nuwax shellAvoid.TOP=36 避让），实底背景随
+ *      --color-bg-container 主题推送；左侧自绘菜单栏 关于(A)/编辑(E)/窗口(W)/帮助(H)
+ *      （antd Dropdown，12px 菜单文字）；右侧 statusEntry（服务异常点）+ updateEntry
+ *      （更新入口）+ 贴角窗口三键（46×36，captionGlyphs 的 1px 细线字形，原生观感）。
+ *      设置不入顶行（参考样式顶行无齿轮），收进「关于(A)」下拉首项。
+ *    - mac：48px 透明浮层（内容满窗），图标组悬浮于侧栏顶部与红绿灯同高
+ *      （80px 避让）；无窗口内菜单（系统菜单栏承接，见 main.ts createMenu）。
+ * 3) 编辑动作经 menu:editAction 路由到焦点 webContents；页面/窗口动作复用
+ *    App 注入的 onBack/onForward/onReload 与 window:* IPC。
  *
- * Win/Linux 顶行实底背景走 --color-bg-container（女娲主题推送时随米白，
- * 暗色回落壳自身色，App.tsx 统一叠加）；mac 保持透明浮层（内容区满窗，
- * 图标组悬浮于侧栏顶部，见参考图 2）。
- *
- * 后退/前进/刷新不再占顶行图标位（对齐参考产品精简顶行）：Win/Linux 收进
- * 「窗口(W)」菜单；mac 收进系统菜单「窗口」（main.ts createMenu，role back/
- * forward/reload 同样作用于焦点 webContents）。
+ * 后退/前进/刷新不占顶行：Win/Linux 收进「窗口(W)」菜单；mac 收进系统菜单
+ * 「窗口」（role back/forward/reload）。
  *
  * tooltip 暂用中文面量（桌面端次要 UI）；后续如需多语言可统一抽 i18n key。
  */
 import React, { useEffect, useState } from "react";
 import { Button, Dropdown, Tooltip } from "antd";
 import type { MenuProps } from "antd";
-import {
-  MenuFoldOutlined,
-  MenuUnfoldOutlined,
-  SettingOutlined,
-  // Win/Linux 窗口三键图标：统一用 antd SVG 图标（同 1em 视觉框、笔画一致），
-  // 替代 Unicode 字形（–/□/✕ 同字号下视觉大小不齐，三键看起来不等大）
-  LineOutlined,
-  BorderOutlined,
-  CopyOutlined,
-  CloseOutlined,
-} from "@ant-design/icons";
+import { MenuFoldOutlined, MenuUnfoldOutlined } from "@ant-design/icons";
+import { MinGlyph, MaxGlyph, RestoreGlyph, CloseGlyph } from "./captionGlyphs";
 
 /** macOS 用 navigator.platform 判定（渲染器无 process.platform）。 */
 const isMac = /mac/i.test(navigator.platform);
@@ -43,6 +31,9 @@ const isMac = /mac/i.test(navigator.platform);
 /** -webkit-app-region 需在 renderer DOM 设置；Electron 专属键，React CSSProperties 未内置，用 any 规避告警。 */
 const DRAG = { WebkitAppRegion: "drag" } as any;
 const NO_DRAG = { WebkitAppRegion: "no-drag" } as any;
+
+/** Win/Linux 顶行高：36px（对齐 nuwax shellAvoid.TOP=36）；mac 保持 48px（图标与红绿灯同高对齐）。 */
+const ROW_H = isMac ? 48 : 36;
 
 type EditAction = "undo" | "redo" | "cut" | "copy" | "paste" | "selectAll";
 
@@ -151,13 +142,6 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
       menuCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />,
     );
 
-  const settingsBtn = iconBtn(
-    "设置",
-    false,
-    onOpenSettings,
-    <SettingOutlined />,
-  );
-
   /** Win/Linux 自绘菜单栏（参考产品同款四项）。 */
   const menuBar = !isMac && (
     <div
@@ -172,6 +156,9 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
       <TopMenu
         label="关于(A)"
         items={[
+          // 设置不在顶行（参考样式顶行无齿轮），由此入口承接
+          { key: "settings", label: "设置", onClick: onOpenSettings },
+          { type: "divider" },
           { key: "about", label: "关于与检查更新", onClick: onOpenAbout },
         ]}
       />
@@ -255,7 +242,7 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
           // 实底背景才能盖满顶行左缘（拖拽带 0-10px 与本行重叠，拖拽语义不变）
           left: isMac ? 10 : 0,
           right: 0,
-          height: 48,
+          height: ROW_H,
           zIndex: 1100,
           display: "flex",
           alignItems: "center",
@@ -283,14 +270,13 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
           }}
         >
           {sidebarToggle}
-          {isMac && settingsBtn}
           {menuBar}
         </div>
 
         {/* 中间留白：拖拽手柄 */}
         <div style={{ flex: 1 }} />
 
-        {/* 右侧：设置（仅 Win/Linux）+ 服务状态 + 更新入口（由 App.tsx 按需注入） */}
+        {/* 右侧：服务状态 + 更新入口（由 App.tsx 按需注入） */}
         <div
           style={{
             display: "flex",
@@ -300,7 +286,6 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
             ...NO_DRAG,
           }}
         >
-          {!isMac && settingsBtn}
           {statusEntry}
           {updateEntry}
         </div>
@@ -308,7 +293,8 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
         {/* Win/Linux 自绘窗口控制按钮（mac 用原生红绿灯）：
             Windows 标题栏样式——absolute 贴死窗口右上角（不受容器 padding/居中影响），
             方角实底无悬浮装饰（index.css .toolbar-ctrl-group，
-            背景走 --color-bg-container 变量：女娲推送时随米白，暗色回落壳自身色） */}
+            背景走 --color-bg-container 变量：女娲推送时随米白，暗色回落壳自身色）；
+            字形为 captionGlyphs 的 1px 细线 SVG，对齐原生标题栏观感 */}
         {!isMac && (
           <div
             className="toolbar-ctrl-group"
@@ -323,17 +309,13 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
             }}
           >
             <CtrlButton title="最小化" onClick={onMin}>
-              <LineOutlined style={{ fontSize: 16 }} />
+              <MinGlyph />
             </CtrlButton>
             <CtrlButton title={maximized ? "还原" : "最大化"} onClick={onMax}>
-              {maximized ? (
-                <CopyOutlined style={{ fontSize: 16 }} />
-              ) : (
-                <BorderOutlined style={{ fontSize: 16 }} />
-              )}
+              {maximized ? <RestoreGlyph /> : <MaxGlyph />}
             </CtrlButton>
             <CtrlButton title="关闭" danger onClick={onClose}>
-              <CloseOutlined style={{ fontSize: 16 }} />
+              <CloseGlyph />
             </CtrlButton>
           </div>
         )}
@@ -355,11 +337,14 @@ const CtrlButton: React.FC<{
     onClick={onClick}
     className={`toolbar-ctrl-btn${danger ? " toolbar-ctrl-btn--danger" : ""}`}
     style={{
-      width: 46, // Windows 标题栏三键标准尺寸（46×32）
+      width: 46, // Windows 标题栏三键标准宽度
       height: 36,
       border: "none",
-      // 注意不写 background / color / font-size：inline 优先级高于 CSS 类规则，
-      // 会压掉 hover 底色、关闭键 hover 白字与 index.css 的图标字号（16px）
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      // 注意不写 background / color：inline 优先级高于 CSS 类规则，
+      // 会压掉 hover 底色与关闭键 hover 白字
       cursor: "pointer",
       ...NO_DRAG,
     }}

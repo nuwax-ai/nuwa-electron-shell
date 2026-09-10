@@ -284,12 +284,12 @@ body {
   background: transparent;
   border: none;
   cursor: pointer;
-  padding: 3px 8px;
+  padding: 2px 7px;
   border-radius: 4px;
-  font-size: 13px;
-  line-height: 20px;
+  font-size: 12px;
+  line-height: 18px;
   white-space: nowrap;
-  color: var(--color-text, rgba(0, 0, 0, 0.88));
+  color: var(--color-text, rgba(0, 0, 0, 0.78));
   transition: background-color 0.15s ease;
 }
 

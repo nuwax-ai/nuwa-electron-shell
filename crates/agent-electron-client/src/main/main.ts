@@ -327,6 +327,14 @@ function createMenu() {
         label: APP_DISPLAY_NAME,
         submenu: [
           { role: "about", label: `关于 ${APP_DISPLAY_NAME}` },
+          {
+            // 设置入口与 Win/Linux 顶行「关于(A)」菜单对齐：发既有
+            // menu:settings 事件，App.tsx 打开设置弹窗
+            label: "设置...",
+            click: () => {
+              mainWindow?.webContents.send("menu:settings");
+            },
+          },
           { type: "separator" },
           { role: "hide", label: `隐藏 ${APP_DISPLAY_NAME}` },
           { role: "hideOthers", label: "隐藏其他" },
@@ -350,11 +358,30 @@ function createMenu() {
       {
         label: "窗口",
         submenu: [
-          // 后退/前进/刷新：顶行图标精简后收进本菜单（role 作用于焦点 webContents，
-          // webview guest 聚焦时即 guest），与 Win/Linux 自绘「窗口(W)」菜单对齐
-          { role: "back", label: "后退" },
-          { role: "forward", label: "前进" },
-          { role: "reload", label: "刷新页面" },
+          // 后退/前进/刷新：顶行图标精简后收进本菜单；本版 Electron 类型不含
+          // back/forward role，用显式 click 作用于焦点 webContents（webview
+          // guest 聚焦时即 guest），与 Win/Linux 自绘「窗口(W)」菜单对齐
+          {
+            label: "后退",
+            click: () => {
+              const wc = webContents.getFocusedWebContents();
+              if (wc && !wc.isDestroyed()) wc.goBack();
+            },
+          },
+          {
+            label: "前进",
+            click: () => {
+              const wc = webContents.getFocusedWebContents();
+              if (wc && !wc.isDestroyed()) wc.goForward();
+            },
+          },
+          {
+            label: "刷新页面",
+            click: () => {
+              const wc = webContents.getFocusedWebContents();
+              if (wc && !wc.isDestroyed()) wc.reload();
+            },
+          },
           { type: "separator" },
           { role: "minimize", label: "最小化" },
           { role: "zoom", label: "缩放" },
