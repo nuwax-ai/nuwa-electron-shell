@@ -4,13 +4,14 @@
  * 浮于 NuwaxHostWebview 之上，对照 WorkBuddy Windows 参考样式：
  * 1) 顶部全宽 10px 窄拖拽带（-webkit-app-region:drag）——保底拖拽区，mac 避开红绿灯；
  * 2) 顶行主体（整行 DRAG，交互子块 NO_DRAG 豁免；双击切换最大化）：
- *    - Win/Linux：36px 纤细行（对齐 nuwax shellAvoid.TOP=36 避让），实底背景随
- *      --color-bg-container 主题推送；左侧自绘菜单栏 关于(A)/编辑(E)/窗口(W)/帮助(H)
- *      （antd Dropdown，12px 菜单文字）；右侧 statusEntry（服务异常点）+ updateEntry
- *      （更新入口）+ 贴角窗口三键（46×36，captionGlyphs 的 1px 细线字形，原生观感）。
- *      设置不入顶行（参考样式顶行无齿轮），收进「关于(A)」下拉首项。
- *    - mac：48px 透明浮层（内容满窗），图标组悬浮于侧栏顶部与红绿灯同高
- *      （80px 避让）；无窗口内菜单（系统菜单栏承接，见 main.ts createMenu）。
+ *    - 左（全平台同构的功能区，最左起）：侧栏开关（nuwax 报告存在二级菜单才渲染）
+ *      → 设置 → 历史导航（后退/前进）→ statusEntry（服务异常点）；
+ *    - 左（仅 Win/Linux，功能区之后）：自绘菜单栏 关于(A)/编辑(E)/窗口(W)/帮助(H)
+ *      （antd Dropdown，12px 菜单文字）；编辑动作经 menu:editAction 路由到焦点
+ *      webContents（webview guest 优先），页面/窗口动作复用 App 注入的
+ *      onBack/onForward/onReload 与 window:* IPC；
+ *    - 右（仅 Win/Linux）：贴角窗口三键（46×36，captionGlyphs 的 1px 细线字形，
+ *      原生观感）；全平台仅 updateEntry（更新入口）按需注入。
  * 3) 编辑动作经 menu:editAction 路由到焦点 webContents；页面/窗口动作复用
  *    App 注入的 onBack/onForward/onReload 与 window:* IPC。
  *
@@ -22,7 +23,13 @@
 import React, { useEffect, useState } from "react";
 import { Button, Dropdown, Tooltip } from "antd";
 import type { MenuProps } from "antd";
-import { MenuFoldOutlined, MenuUnfoldOutlined } from "@ant-design/icons";
+import {
+  MenuFoldOutlined,
+  MenuUnfoldOutlined,
+  SettingOutlined,
+  LeftOutlined,
+  RightOutlined,
+} from "@ant-design/icons";
 import { MinGlyph, MaxGlyph, RestoreGlyph, CloseGlyph } from "./captionGlyphs";
 
 /** macOS 用 navigator.platform 判定（渲染器无 process.platform）。 */
@@ -142,6 +149,21 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
       menuCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />,
     );
 
+  const settingsBtn = iconBtn(
+    "设置",
+    false,
+    onOpenSettings,
+    <SettingOutlined />,
+  );
+
+  /** 历史导航：后退/前进（能力由 webview 事件推送，不可用时置灰）。 */
+  const historyNav = (
+    <>
+      {iconBtn("后退", !canGoBack, onBack, <LeftOutlined />)}
+      {iconBtn("前进", !canGoForward, onForward, <RightOutlined />)}
+    </>
+  );
+
   /** Win/Linux 自绘菜单栏（参考产品同款四项）。 */
   const menuBar = !isMac && (
     <div
@@ -156,9 +178,6 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
       <TopMenu
         label="关于(A)"
         items={[
-          // 设置不在顶行（参考样式顶行无齿轮），由此入口承接
-          { key: "settings", label: "设置", onClick: onOpenSettings },
-          { type: "divider" },
           { key: "about", label: "关于与检查更新", onClick: onOpenAbout },
         ]}
       />
@@ -259,7 +278,8 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
           ...DRAG,
         }}
       >
-        {/* 左侧：侧栏开关 +（仅 Win/Linux）自绘菜单栏 */}
+        {/* 左侧功能区（全平台同构）：侧栏开关 → 设置 → 历史导航 → 服务状态，
+            其右紧跟（仅 Win/Linux）自绘菜单栏；右侧只留窗口三键（±更新入口） */}
         <div
           style={{
             display: "flex",
@@ -270,13 +290,16 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
           }}
         >
           {sidebarToggle}
+          {settingsBtn}
+          {historyNav}
+          {statusEntry}
           {menuBar}
         </div>
 
         {/* 中间留白：拖拽手柄 */}
         <div style={{ flex: 1 }} />
 
-        {/* 右侧：服务状态 + 更新入口（由 App.tsx 按需注入） */}
+        {/* 右侧：更新入口（由 App.tsx 按需注入） */}
         <div
           style={{
             display: "flex",
@@ -286,7 +309,6 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
             ...NO_DRAG,
           }}
         >
-          {statusEntry}
           {updateEntry}
         </div>
 
