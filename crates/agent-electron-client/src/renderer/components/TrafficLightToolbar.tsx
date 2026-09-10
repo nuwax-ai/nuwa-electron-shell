@@ -139,15 +139,16 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
     </Tooltip>
   );
 
-  /** 侧栏开关：仅当 nuwax 报告当前页存在二级菜单时渲染（无则隐藏）。 */
-  const sidebarToggle =
-    menuAvailable &&
-    iconBtn(
-      menuCollapsed ? "展开侧栏" : "收起侧栏",
-      false,
-      onToggleMenu,
-      menuCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />,
-    );
+  /**
+   * 侧栏开关：常驻左侧（折叠/展开按钮固定可见）；当前页无二级菜单时置灰
+   * （点了无目标可折叠），有则可折叠/展开。
+   */
+  const sidebarToggle = iconBtn(
+    menuCollapsed ? "展开侧栏" : "收起侧栏",
+    !menuAvailable,
+    onToggleMenu,
+    menuCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />,
+  );
 
   const settingsBtn = iconBtn(
     "设置",
