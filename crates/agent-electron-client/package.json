@@ -7,7 +7,7 @@
   "license": "MIT",
   "homepage": "https://github.com/nuwax-ai/nuwaclaw",
   "scripts": {
-    "dev": "dotenv -e .env.development -- cross-env NODE_ENV=development concurrently \"npm run dev:vite\" \"npm run dev:electron\"",
+    "dev": "node scripts/dev/ensure-resources.js && dotenv -e .env.development -- cross-env NODE_ENV=development concurrently \"npm run dev:vite\" \"npm run dev:electron\"",
     "dev:vite": "vite --force",
     "dev:electron": "node scripts/dev/wait-vite.js && npm run prepare:mcp-proxy && npm run build:main:dev && dotenv -e .env.development -- cross-env NODE_ENV=development electron .",
     "prebuild:main:dev": "echo \"agent-kit from npm, skip local build\"",

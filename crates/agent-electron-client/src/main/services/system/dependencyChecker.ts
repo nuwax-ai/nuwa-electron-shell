@@ -51,6 +51,11 @@ export interface LocalDependencyConfig {
   binName?: string;
   installerUrl?: string;
   postInstallHint?: string;
+  /**
+   * bundled 依赖的 npm 兜底安装通道：resources 缺失时可经 npm 安装到
+   * 应用数据目录 node_modules（运行时已有回退读取），不必重新打包/重装客户端。
+   */
+  npmFallback?: { packageName: string; version: string };
 }
 
 export interface LocalDependencyItem extends LocalDependencyConfig {
@@ -60,6 +65,8 @@ export interface LocalDependencyItem extends LocalDependencyConfig {
   binPath?: string;
   errorMessage?: string;
   meetsRequirement?: boolean;
+  /** UI 判定：缺失时是否可通过应用内安装动作修复（npm 兜底/下载通道）。 */
+  runtimeInstallable?: boolean;
 }
 
 // ==================== Required Dependencies ====================
@@ -91,7 +98,9 @@ export function getSetupRequiredDependencies(): LocalDependencyConfig[] {
       description: t(I18N_KEYS.Pages.Dependencies.DESC_FILE_SERVER),
       required: true,
       binName: "nuwax-file-server",
-      installVersion: "1.2.4",
+      // npm 兜底通道版本须与构建期 bundled 产物（prepare:nuwax-file-server）一致
+      installVersion: "1.4.3",
+      npmFallback: { packageName: "nuwax-file-server", version: "1.4.3" },
     },
     {
       name: "nuwaxcode",
@@ -109,7 +118,8 @@ export function getSetupRequiredDependencies(): LocalDependencyConfig[] {
       description: t(I18N_KEYS.Pages.Dependencies.DESC_CLAUDE_CODE_ACP),
       required: true,
       binName: "claude-code-acp-ts",
-      installVersion: "0.44.0",
+      installVersion: "0.65.0",
+      npmFallback: { packageName: "claude-code-acp-ts", version: "0.65.0" },
     },
     {
       name: "ripgrep",
@@ -126,7 +136,11 @@ export function getSetupRequiredDependencies(): LocalDependencyConfig[] {
       description: t(I18N_KEYS.Pages.Dependencies.DESC_CODEX_ACP),
       required: true,
       binName: "nuwax-codex-acp-ts",
-      installVersion: "1.2.4",
+      installVersion: "1.2.8",
+      npmFallback: {
+        packageName: "@nuwax-ai/nuwax-codex-acp-ts",
+        version: "1.2.8",
+      },
     },
   ];
 }

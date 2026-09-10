@@ -208,6 +208,8 @@ export interface LocalDependencyItem {
   binPath?: string;
   errorMessage?: string;
   meetsRequirement?: boolean;
+  /** 缺失时是否可经应用内安装动作修复（npm 兜底/nuwaxcode 下载通道） */
+  runtimeInstallable?: boolean;
 }
 
 export interface DependenciesAPI {

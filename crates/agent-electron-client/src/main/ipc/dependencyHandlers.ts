@@ -125,11 +125,41 @@ export function registerDependencyHandlers(): void {
       packageName: string,
       options?: { registry?: string; version?: string },
     ) => {
-      const { installNpmPackage } =
-        await import("../services/system/dependencies");
+      const deps = await import("../services/system/dependencies");
+      const { installNpmPackage } = deps;
       log.info(`[IPC] Installing package: ${packageName}`);
+
+      // nuwaxcode：原生二进制，走 OSS 依赖下载通道（非 npm）
+      if (packageName === "nuwaxcode") {
+        try {
+          const { downloadNuwaxcode } =
+            await import("../services/system/nuwaxcodeDownloader");
+          const result = await downloadNuwaxcode();
+          return {
+            success: result.success,
+            version: result.version,
+            error: result.error,
+          };
+        } catch (error) {
+          log.error("[IPC] nuwaxcode download failed:", error);
+          return { success: false, error: String(error) };
+        }
+      }
+
+      // bundled 依赖的 npm 兜底：按 required 清单映射到真实 npm 包名与版本
+      const npmFallback = deps.getNpmFallbackFor(packageName);
+      const target = npmFallback
+        ? {
+            name: npmFallback.packageName,
+            version: options?.version ?? npmFallback.version,
+          }
+        : { name: packageName, version: options?.version };
+
       try {
-        const result = await installNpmPackage(packageName, options);
+        const result = await installNpmPackage(
+          target.name,
+          target.version ? { version: target.version } : undefined,
+        );
         return result;
       } catch (error) {
         log.error("[IPC] Install failed:", error);

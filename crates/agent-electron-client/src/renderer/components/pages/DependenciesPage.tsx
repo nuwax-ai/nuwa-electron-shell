@@ -260,6 +260,9 @@ export default function DependenciesPage() {
 
         const installableDeps = depsResult.results.filter(
           (d) =>
+            // bundled 中可经应用内安装修复的（npm 兜底/nuwaxcode 下载通道）
+            // 也纳入列表——此前把 bundled 全部过滤，导致「前往安装」成为死路
+            d.runtimeInstallable ||
             d.type === "npm-local" ||
             d.type === "npm-global" ||
             d.type === "shell-installer",

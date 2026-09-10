@@ -52,7 +52,11 @@ import { t } from "../../services/core/i18n";
 import { resolveDepDisplayName } from "../../utils/dependencyI18n";
 import styles from "../../styles/components/ClientPage.module.css";
 import { FEATURES } from "@shared/featureFlags";
-import { normalizeAgentEngine, normalizeOptionalPort } from "@shared/constants";
+import {
+  normalizeAgentEngine,
+  normalizeOptionalPort,
+  DEFAULT_FILE_SERVER_PORT,
+} from "@shared/constants";
 
 // ======================== Types =================
 type TabKey =
@@ -311,8 +315,9 @@ function ClientPage({
         const step1 = (await window.electronAPI?.settings.get(
           "step1_config",
         )) as { fileServerPort?: number } | null;
+        // 回退端口用聚合配置默认值（60005+offset），与 serviceManager 一致
         result = await window.electronAPI?.fileServer.start(
-          step1?.fileServerPort ?? 60000,
+          step1?.fileServerPort ?? DEFAULT_FILE_SERVER_PORT,
         );
       } else if (key === "lanproxy") {
         const clientKey = (await window.electronAPI?.settings.get(

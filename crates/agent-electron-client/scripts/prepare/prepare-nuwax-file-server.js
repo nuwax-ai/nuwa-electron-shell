@@ -46,6 +46,13 @@ function exec(cmd, opts = {}) {
 }
 
 /**
+ * 跨平台递归复制（替代 cp -R：Windows 无 cp 命令）。
+ */
+function copyDir(src, dest) {
+  fs.cpSync(src, dest, { recursive: true });
+}
+
+/**
  * 在指定仓库执行 git 命令，返回 stdout（trim 后）。
  * @param {string} repoDir
  * @param {string} args git 子命令参数（不含 git 前缀）
@@ -157,7 +164,7 @@ function copyToResources(remoteHash) {
   fs.mkdirSync(destDir, { recursive: true });
 
   console.log('[prepare-nuwax-file-server] 复制 dist/...');
-  exec(`cp -R "${path.join(SOURCE_DIR, 'dist')}" "${destDir}/"`);
+  copyDir(path.join(SOURCE_DIR, 'dist'), path.join(destDir, 'dist'));
 
   fs.copyFileSync(
     path.join(SOURCE_DIR, 'package.json'),
@@ -165,7 +172,10 @@ function copyToResources(remoteHash) {
   );
 
   console.log('[prepare-nuwax-file-server] 复制 node_modules/...');
-  exec(`cp -R "${path.join(SOURCE_DIR, 'node_modules')}" "${destDir}/"`);
+  copyDir(
+    path.join(SOURCE_DIR, 'node_modules'),
+    path.join(destDir, 'node_modules'),
+  );
 
   const licenseSrc = path.join(SOURCE_DIR, 'LICENSE');
   if (fs.existsSync(licenseSrc)) {

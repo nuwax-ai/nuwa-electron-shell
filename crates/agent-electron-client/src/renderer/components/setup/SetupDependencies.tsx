@@ -53,6 +53,9 @@ export interface DisplayDependencyItem {
   installUrl?: string;
   /** 初始化安装/升级时使用的固定版本 */
   installVersion?: string;
+  required?: boolean;
+  /** 缺失时是否可经应用内安装动作修复（npm 兜底/nuwaxcode 下载通道） */
+  runtimeInstallable?: boolean;
 }
 
 /** Mock API 接口（用于测试） */
@@ -246,12 +249,34 @@ export default function SetupDependencies({
 
       const toInstall = currentDeps.filter(
         (d) =>
-          (d.type === "npm-local" ||
-            d.type === "npm-global" ||
-            d.type === "shell-installer") &&
           d.status !== "installed" &&
-          d.status !== "bundled",
+          d.status !== "bundled" &&
+          // bundled 依赖中可经应用内安装修复的（npm 兜底/nuwaxcode 下载通道）
+          // 也纳入安装列表；否则会"0 项可装→假完成"死循环
+          (d.runtimeInstallable ||
+            d.type === "npm-local" ||
+            d.type === "npm-global" ||
+            d.type === "shell-installer"),
       );
+
+      // 必需但无法经应用内安装修复的 bundled 缺失（如 uv/ripgrep）：
+      // 显式失败并给人工指引，不再走假完成
+      const unfixable = currentDeps.filter(
+        (d) =>
+          d.required &&
+          d.status !== "installed" &&
+          d.status !== "bundled" &&
+          !d.runtimeInstallable &&
+          d.type === "bundled",
+      );
+      if (unfixable.length > 0) {
+        setInstallPhase("error");
+        setInstallError(
+          `${unfixable.map((d) => d.displayName).join("、")} 为安装包内置组件，` +
+            "缺失时请重新安装客户端；开发模式请在项目目录运行 npm run prepare:all",
+        );
+        return;
+      }
 
       const total = toInstall.length;
       if (total === 0) {

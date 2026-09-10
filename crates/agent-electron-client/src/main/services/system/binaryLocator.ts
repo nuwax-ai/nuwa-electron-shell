@@ -368,7 +368,18 @@ export function getNuwaxcodeBundledBinPath(): string | null {
     "bin",
     binary,
   );
-  return fs.existsSync(bundledPath) ? bundledPath : null;
+  if (fs.existsSync(bundledPath)) return bundledPath;
+
+  // 回退：应用数据目录（nuwaxcode 运行时下载通道的安装位置，
+  // 目录布局与 resources 打包布局一致）
+  const downloadedPath = path.join(
+    getAppDataDir(),
+    "nuwaxcode",
+    `${platform}-${arch}`,
+    "bin",
+    binary,
+  );
+  return fs.existsSync(downloadedPath) ? downloadedPath : null;
 }
 
 // ==================== codex-acp ====================

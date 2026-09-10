@@ -218,6 +218,24 @@ export async function checkAllDependencies(options?: {
             } catch {
               item.status = "missing";
             }
+            break;
+          }
+          // bundled 缺失 → npm 兜底：应用数据目录 node_modules（服务启动
+          // serviceManager 对该路径有同样的回退读取），装过即视为可用
+          const npmDir = path.join(getAppNodeModules(), dep.name);
+          const serverJs = path.join(npmDir, "dist", "server.js");
+          if (fs.existsSync(serverJs)) {
+            try {
+              const pkg = JSON.parse(
+                fs.readFileSync(path.join(npmDir, "package.json"), "utf-8"),
+              );
+              item.status = "bundled";
+              item.version = pkg.version;
+              item.binPath = npmDir;
+            } catch {
+              item.status = "bundled";
+              item.binPath = npmDir;
+            }
           } else {
             item.status = "missing";
           }
@@ -234,6 +252,22 @@ export async function checkAllDependencies(options?: {
               item.binPath = bundledDir;
             } catch {
               item.status = "missing";
+            }
+            break;
+          }
+          // npm 兜底：acpClient.getAcpPackageDir 对该路径有同样的回退读取
+          const acpNpmDir = path.join(getAppNodeModules(), dep.name);
+          if (fs.existsSync(path.join(acpNpmDir, "package.json"))) {
+            try {
+              const pkg = JSON.parse(
+                fs.readFileSync(path.join(acpNpmDir, "package.json"), "utf-8"),
+              );
+              item.status = "bundled";
+              item.version = pkg.version;
+              item.binPath = acpNpmDir;
+            } catch {
+              item.status = "bundled";
+              item.binPath = acpNpmDir;
             }
           } else {
             item.status = "missing";
@@ -253,6 +287,30 @@ export async function checkAllDependencies(options?: {
               item.binPath = bundledDir;
             } catch {
               item.status = "bundled";
+            }
+            break;
+          }
+          // npm 兜底：agent-kit resolveCodexAcp 在无 entryOverride 时按包名
+          // require.resolve（应用 node_modules 内即可用）
+          const codexNpmDir = path.join(
+            getAppNodeModules(),
+            "@nuwax-ai",
+            "nuwax-codex-acp-ts",
+          );
+          if (fs.existsSync(path.join(codexNpmDir, "package.json"))) {
+            try {
+              const pkg = JSON.parse(
+                fs.readFileSync(
+                  path.join(codexNpmDir, "package.json"),
+                  "utf-8",
+                ),
+              );
+              item.status = "bundled";
+              item.version = pkg.version;
+              item.binPath = codexNpmDir;
+            } catch {
+              item.status = "bundled";
+              item.binPath = codexNpmDir;
             }
           } else {
             item.status = "missing";
@@ -287,6 +345,11 @@ export async function checkAllDependencies(options?: {
       item.status = "error";
       item.errorMessage = String(error);
     }
+
+    // 缺失时是否可经应用内安装动作修复：npm 兜底（file-server/ACP 类）
+    // 或下载通道（nuwaxcode）；uv/ripgrep 等保持仅 bundled + 人工指引
+    item.runtimeInstallable =
+      Boolean(dep.npmFallback) || dep.name === "nuwaxcode";
 
     results.push(item);
   }
@@ -326,6 +389,7 @@ export async function installMissingDependencies(): Promise<{
   for (const dep of deps) {
     const needInstall =
       (dep.status === "missing" && dep.required) ||
+      (dep.status === "missing" && Boolean(dep.npmFallback)) ||
       (dep.status === "outdated" &&
         dep.installVersion &&
         dep.type === "npm-local");
@@ -350,6 +414,16 @@ export async function installMissingDependencies(): Promise<{
         success: result.success,
         error: result.error,
       });
+    } else if (dep.npmFallback) {
+      // bundled 经 npm 兜底通道装进应用数据目录 node_modules（服务侧已有同路径回退）
+      const result = await installNpmPackage(dep.npmFallback.packageName, {
+        version: dep.npmFallback.version,
+      });
+      results.push({
+        name: dep.name,
+        success: result.success,
+        error: result.error,
+      });
     } else {
       results.push({
         name: dep.name,
@@ -368,6 +442,16 @@ export async function installMissingDependencies(): Promise<{
   }
 
   return { success: results.every((r) => r.success), results };
+}
+
+/** bundled 依赖的 npm 兜底映射查询（无则 null）。供安装 IPC 分流。 */
+export function getNpmFallbackFor(
+  name: string,
+): { packageName: string; version: string } | null {
+  return (
+    getSetupRequiredDependencies().find((d) => d.name === name)?.npmFallback ??
+    null
+  );
 }
 
 export async function syncInitDependencies(): Promise<{ updated: string[] }> {

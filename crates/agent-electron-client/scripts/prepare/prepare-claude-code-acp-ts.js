@@ -45,6 +45,18 @@ function exec(cmd, opts = {}) {
   execSync(cmd, { stdio: 'inherit', ...opts });
 }
 
+/**
+ * 跨平台递归复制（替代 cp -R：Windows 无 cp 命令）。
+ */
+function copyDir(src, dest) {
+  fs.cpSync(src, dest, { recursive: true });
+}
+
+/** 同步等待（替代 sleep：Windows cmd 无 sleep 命令）。 */
+function sleepMs(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
 function execGit(cmd, opts = {}) {
   return exec(`git ${cmd}`, opts);
 }
@@ -266,7 +278,7 @@ function main() {
           console.warn(
             `[prepare-claude-code-acp-ts] git 更新失败（尝试 ${attempt}/3），1s 后重试...`,
           );
-          execSync('sleep 1', { stdio: 'pipe' });
+          sleepMs(1000);
         }
       }
     }
@@ -280,14 +292,17 @@ function main() {
   if (!hasBuild || !hasNodeModules) {
     if (fs.existsSync(path.join(SOURCE_DIR, 'node_modules'))) {
       console.log('[prepare-claude-code-acp-ts] 清理旧的 node_modules...');
-      exec(`rm -rf "${path.join(SOURCE_DIR, 'node_modules')}"`);
+      fs.rmSync(path.join(SOURCE_DIR, 'node_modules'), {
+        recursive: true,
+        force: true,
+      });
     }
 
     console.log('[prepare-claude-code-acp-ts] 安装依赖...');
-    exec(`cd "${SOURCE_DIR}" && npm install --ignore-scripts`);
+    exec('npm install --ignore-scripts', { cwd: SOURCE_DIR });
 
     console.log('[prepare-claude-code-acp-ts] 构建项目...');
-    exec(`cd "${SOURCE_DIR}" && npx tsc`);
+    exec('npx tsc', { cwd: SOURCE_DIR });
   } else {
     console.log('[prepare-claude-code-acp-ts] 构建产物已就绪，跳过构建');
   }
@@ -302,7 +317,7 @@ function main() {
   fs.mkdirSync(destDir, { recursive: true });
 
   console.log('[prepare-claude-code-acp-ts] 复制 dist/...');
-  exec(`cp -R "${path.join(SOURCE_DIR, 'dist')}" "${destDir}/"`);
+  copyDir(path.join(SOURCE_DIR, 'dist'), path.join(destDir, 'dist'));
 
   fs.copyFileSync(
     path.join(SOURCE_DIR, 'package.json'),
@@ -310,7 +325,10 @@ function main() {
   );
 
   console.log('[prepare-claude-code-acp-ts] 复制 node_modules/...');
-  exec(`cp -R "${path.join(SOURCE_DIR, 'node_modules')}" "${destDir}/"`);
+  copyDir(
+    path.join(SOURCE_DIR, 'node_modules'),
+    path.join(destDir, 'node_modules'),
+  );
 
   const licenseSrc = path.join(SOURCE_DIR, 'LICENSE');
   if (fs.existsSync(licenseSrc)) {
