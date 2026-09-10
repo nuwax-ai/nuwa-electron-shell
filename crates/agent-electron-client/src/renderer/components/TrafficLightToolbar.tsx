@@ -267,9 +267,9 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
           display: "flex",
           alignItems: "center",
           paddingLeft: isMac ? 80 : 8,
-          // Win/Linux 右上角被贴角的窗口控制三键（46×3=138px）占据，
+          // Win/Linux 右上角被贴角的窗口控制三键（40×28，3 键共 120px）占据，
           // 容器留出对应右内边距，防止更新入口等流内元素被其覆盖
-          paddingRight: isMac ? 4 : 142,
+          paddingRight: isMac ? 4 : 128,
           // 全平台透明浮层：顶行不涂底色，透出 webview 顶部避让带的页面自身
           // 背景（nuwax 顶带即页面 body 底色），与内容天然无缝、随主题自动一致；
           // 实底涂色会在页面底色与容器色有微差时形成可见断层（评审否决项）
@@ -314,16 +314,16 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
         </div>
 
         {/* Win/Linux 自绘窗口控制按钮（mac 用原生红绿灯）：
-            Windows 标题栏样式——absolute 贴死窗口右上角（不受容器 padding/居中影响），
-            方角实底无悬浮装饰（index.css .toolbar-ctrl-group，
-            背景走 --color-bg-container 变量：女娲推送时随米白，暗色回落壳自身色）；
+            absolute 贴窗口右上角并垂直居中（40×28，不顶满行高——评审反馈
+            46×36 观感过大）；方角、hover 加深、关闭键红底白字见
+            index.css .toolbar-ctrl-*（背景随 --color-bg-container 主题）；
             字形为 captionGlyphs 的 1px 细线 SVG，对齐原生标题栏观感 */}
         {!isMac && (
           <div
             className="toolbar-ctrl-group"
             style={{
               position: "absolute",
-              top: 0,
+              top: 4,
               right: 0,
               display: "flex",
               alignItems: "stretch",
@@ -360,8 +360,8 @@ const CtrlButton: React.FC<{
     onClick={onClick}
     className={`toolbar-ctrl-btn${danger ? " toolbar-ctrl-btn--danger" : ""}`}
     style={{
-      width: 46, // Windows 标题栏三键标准宽度
-      height: 36,
+      width: 40, // 较原生 46 略收窄（评审反馈 46×36 观感过大）
+      height: 28,
       border: "none",
       display: "flex",
       alignItems: "center",
