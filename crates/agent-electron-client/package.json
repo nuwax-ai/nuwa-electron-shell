@@ -284,7 +284,8 @@
         "from": "resources/agent-gui-server",
         "to": "agent-gui-server",
         "filter": [
-          "**/*"
+          "**/*",
+          "!**/node_modules/.bin/**"
         ]
       },
       {
@@ -300,7 +301,8 @@
         "from": "resources/nuwax-codex-acp-ts",
         "to": "nuwax-codex-acp-ts",
         "filter": [
-          "**/*"
+          "**/*",
+          "!**/node_modules/.bin/**"
         ]
       },
       {
@@ -315,7 +317,8 @@
         "from": "resources/claude-code-acp-ts",
         "to": "claude-code-acp-ts",
         "filter": [
-          "**/*"
+          "**/*",
+          "!**/node_modules/.bin/**"
         ]
       },
       {
