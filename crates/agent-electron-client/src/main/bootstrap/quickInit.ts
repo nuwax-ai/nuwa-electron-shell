@@ -69,7 +69,7 @@ function pickPort(...values: unknown[]): number {
 /**
  * 读取快捷初始化配置
  *
- * 优先级（per-field）: <identifier>.json（社区版 nuwaclaw.json / 商业版 nuwawork.json，
+ * 优先级（per-field）: <identifier>.json（社区版 nuwaclaw.json / 商业版 nuwax.json，
  * 与 migrate.ts 的配置改名目标一致）→ 环境变量 → 默认值
  * 结果缓存，每次启动只读一次
  */
