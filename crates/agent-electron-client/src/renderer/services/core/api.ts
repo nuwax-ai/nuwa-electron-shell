@@ -5,6 +5,7 @@
 
 import { message } from "antd";
 import { DEFAULT_SERVER_HOST, DEFAULT_API_TIMEOUT } from "@shared/constants";
+import { getNuwaxAccessTokenKey } from "@shared/utils/domain";
 import { logger } from "../utils/logService";
 import { t } from "./i18n";
 
@@ -56,6 +57,23 @@ const DEFAULT_CONFIG: RequestConfig = {
   timeout: DEFAULT_API_TIMEOUT,
 };
 
+/** 读目标域的 webview 登录 token（桥键空间）；非 Electron 环境/无 token 返回 null。 */
+async function resolveBearerToken(baseUrl: string): Promise<string | null> {
+  if (typeof window === "undefined") return null;
+  const settingsGet = window.electronAPI?.settings?.get?.bind(
+    window.electronAPI.settings,
+  );
+  if (!settingsGet) return null;
+  const key = getNuwaxAccessTokenKey(baseUrl);
+  if (!key) return null;
+  try {
+    const token = await settingsGet(key);
+    return typeof token === "string" && token ? token : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * 统一的 API 请求函数
  */
@@ -72,7 +90,15 @@ export async function apiRequest<T>(
   } = {},
 ): Promise<T> {
   const config = { ...DEFAULT_CONFIG, ...options };
-  const fullUrl = `${config.baseUrl}${url}`;
+  // baseUrl 为 undefined/空串时（options 展开会覆盖默认值）回落内置域名，
+  // 保证请求永远是拼好前缀的完整地址，不出现相对路径或 "undefined/" 前缀。
+  const baseUrl = config.baseUrl || DEFAULT_SERVER_HOST;
+  const fullUrl = `${baseUrl}${url}`;
+
+  // webview 登录态为唯一事实源：壳侧后端调用统一注入 webview 同步来的 JWT
+  // （桥键空间 nuwax.accessToken.<origin>，按本次请求的目标域取）。无 token
+  // （未登录）不注入，由后端按公开/鉴权接口自行判定。
+  const bearerToken = await resolveBearerToken(baseUrl);
 
   // 使用 AbortSignal.timeout 实现请求超时，避免网络挂起时永久阻塞。
   // 运行时要求：Electron 40+（Chromium 120+）支持 AbortSignal.timeout；若需兼容更旧版本需 polyfill（如 setTimeout + AbortController）。
@@ -80,6 +106,7 @@ export async function apiRequest<T>(
   const fetchOptions: RequestInit = {
     method: options.method || "POST",
     headers: {
+      ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
       "Content-Type": "application/json",
       ...config.headers,
     },

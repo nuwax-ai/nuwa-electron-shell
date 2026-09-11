@@ -41,11 +41,7 @@ import {
   LoadingOutlined,
 } from "@ant-design/icons";
 import { QRCodeSVG } from "qrcode.react";
-import {
-  loginAndRegister,
-  getCurrentAuth,
-  syncConfigToServer,
-} from "../../services/core/auth";
+import { getCurrentAuth, syncConfigToServer } from "../../services/core/auth";
 import type { ServiceItem } from "../../App";
 import { buildRedirectUrl } from "../../services/utils/sessionUrl";
 import { t } from "../../services/core/i18n";
@@ -79,8 +75,6 @@ interface ClientPageProps {
   authRefreshTrigger?: number;
   /** 登录/注销后通知父组件刷新顶部栏用户名等 */
   onAuthChange?: () => void;
-  /** 登录流程启动服务前通知父组件标记（内存变量，不持久化） */
-  onLoginStarted?: () => void;
   /** 登录并启服成功后通知父组件进入首页（配置域名） */
   onLoginComplete?: () => void;
   /** 开始会话：打开 sandbox redirect URL */
@@ -108,7 +102,6 @@ function ClientPage({
   onRefreshServices,
   authRefreshTrigger,
   onAuthChange,
-  onLoginStarted,
   onLoginComplete,
   onStartSession,
   isWebviewLoggedIn,
@@ -135,12 +128,6 @@ function ClientPage({
     domain: null,
   });
   const [authLoading, setAuthLoading] = useState(true);
-
-  // ---------- Login form ----------
-  const [loginDomain, setLoginDomain] = useState("");
-  const [loginUsername, setLoginUsername] = useState("");
-  const [loginPassword, setLoginPassword] = useState("");
-  const [loginLoading, setLoginLoading] = useState(false);
 
   // ---------- Services ----------
   const [stoppingServices, setStoppingServices] = useState<Set<string>>(
@@ -176,13 +163,11 @@ function ClientPage({
         userId: auth.userInfo?.id,
       });
       if (!auth.isLoggedIn) {
-        // Pre-fill domain from step1 config
+        // 未登录：业务域名展示兜底取 step1 配置（企业登录/默认域名）
         const step1 = (await window.electronAPI?.settings.get(
           "step1_config",
         )) as { serverHost?: string } | null;
         if (step1?.serverHost) {
-          setLoginDomain(step1.serverHost);
-          // 未登录时，同步更新展示兜底，确保输入框默认域名可用于后续显示兜底。
           setDisplayDomainFallback(step1.serverHost);
         }
       } else {
@@ -197,63 +182,10 @@ function ClientPage({
     }
   }, []);
 
-  const handleLogin = async () => {
-    if (!loginDomain) {
-      message.warning(t("Claw.Client.domainRequired"));
-      return;
-    }
-    if (!loginUsername) {
-      message.warning(t("Claw.Client.accountRequired"));
-      return;
-    }
-    if (!loginPassword) {
-      message.warning(t("Claw.Client.codeRequired"));
-      return;
-    }
-
-    setLoginLoading(true);
-    try {
-      // 记录用户本次明确输入的业务域名，作为登录成功后的展示兜底来源之一。
-      // 说明：这里的域名语义是“业务访问域名”，与 reg 返回的 lanproxy serverHost 不是同一概念。
-      setDisplayDomainFallback(loginDomain);
-      await loginAndRegister(loginUsername, loginPassword, {
-        domain: loginDomain,
-      });
-      setLoginPassword("");
-      await loadAuth();
-      // 通知父组件：服务由登录流程启动（内存变量，不持久化)
-      onLoginStarted?.();
-
-      // 1. 先调用 reg 接口，获取最新配置（serverHost/serverPort）
-      try {
-        await syncConfigToServer({ suppressToast: true });
-      } catch (e) {
-        console.error("[ClientPage] Reg sync failed after login:", e);
-      }
-
-      // 2. reg 返回后，step by step 启动服务
-      // loginAndRegister 内部已调用 reg 接口并保存 serverHost/serverPort，无需再次调用
-      // step by step 启动服务
-      const startupServiceKeys = await getStartupServiceKeys();
-      for (const key of startupServiceKeys) {
-        await handleStartService(key, true);
-      }
-
-      // 通知父组件刷新顶部栏用户名/电脑名称
-      onAuthChange?.();
-      await onRefreshServices();
-      onLoginComplete?.();
-    } catch {
-      // 错误提示由 loginAndRegister 内部统一展示，此处不再重复 toast
-      setLoginPassword("");
-    } finally {
-      setLoginLoading(false);
-    }
-  };
-
-  // 退出登录已统一到 nuwax webview 用户菜单承担（Phase 2 登录收敛），原生 handleLogout
-  // 连同客户端页的退出按钮一并移除；登出触发的停服务由 bridge auth:clear →
-  // stopAllServicesNow 在 main 侧统一处理。
+  // 登录已统一到 nuwax webview /Login（登录态以 webview 为唯一事实源）：原生
+  // handleLogin 用户名密码表单已随旧登录流移除，登录联动（reg+重启服务）由
+  // main 桥 persistToken → nuwax:login-confirmed → App.restartAllServices 承担。
+  // 退出登录同理：webview 用户菜单 → 桥 auth:clear → main 停全部服务并清壳侧登录态。
 
   const getRedirectUrl = useCallback(() => {
     if (!authState.domain || !authState.userId) return "";
@@ -651,8 +583,8 @@ function ClientPage({
       );
     }
 
-    // 未登录：登录已统一到 nuwax webview /Login（用户定调），此处仅引导前往，不再提供
-    // 原生 domain/账号/密码登录表单（原生 configKey 登录链路废弃；handleLogin 暂留 dormant，Phase 3 清理）。
+    // 未登录：登录已统一到 nuwax webview /Login（登录态以 webview 为唯一事实源），
+    // 原生 domain/账号/密码登录表单已随旧登录流移除，此处仅引导前往。
     // webview 未登录 → 不显「已登录」区块，引导用户去 webview 登录（以 webview 为最优先）。
     return (
       <div className={styles.sectionBody}>

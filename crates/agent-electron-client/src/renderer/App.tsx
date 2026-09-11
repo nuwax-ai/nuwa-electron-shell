@@ -40,21 +40,22 @@ import {
   Step1Config,
   DEFAULT_STEP1_CONFIG,
 } from "./services/core/setup";
-import {
-  syncConfigToServer,
-  normalizeServerHost,
-  loginAndRegister,
-  isLoggedIn,
-} from "./services/core/auth";
+import { syncConfigToServer, normalizeServerHost } from "./services/core/auth";
 import {
   APP_DISPLAY_NAME,
   AUTH_KEYS,
+  DEFAULT_SERVER_HOST,
   normalizeAgentEngine,
 } from "@shared/constants";
 import type { QuickInitConfig } from "@shared/types/quickInit";
 import type { UpdateState } from "@shared/types/updateTypes";
-import { t, getCurrentLang } from "./services/core/i18n";
-import SetupWizard from "./components/setup/SetupWizard";
+import {
+  t,
+  getCurrentLang,
+  setCurrentLang,
+  prefetchLangMap,
+} from "./services/core/i18n";
+import { getNuwaxAccessTokenKey } from "@shared/utils/domain";
 import SetupDependencies from "./components/setup/SetupDependencies";
 import ClientPage from "./components/pages/ClientPage";
 import SettingsPage from "./components/pages/SettingsPage";
@@ -177,7 +178,8 @@ async function applyQuickInitToDb(config: QuickInitConfig): Promise<void> {
   };
   await setupService.saveStep1Config(step1);
 
-  // 2. 更新 savedKey
+  // 2. 更新 savedKey（无界面部署种子凭证；reg 由 AutoReconnect 以
+  //    token-or-savedKey 判定统一触发，不再在此静默注册）
   const domain = normalizeServerHost(config.serverHost);
   await window.electronAPI?.settings.set(AUTH_KEYS.SAVED_KEY, config.savedKey);
   if (config.username) {
@@ -187,17 +189,6 @@ async function applyQuickInitToDb(config: QuickInitConfig): Promise<void> {
     } catch {
       // domain 解析失败时跳过域名级 savedKey 存储
     }
-  }
-
-  // 3. 静默重新注册（更新服务端设备信息）
-  try {
-    await loginAndRegister(config.username, "", {
-      suppressToast: true,
-      domain,
-    });
-  } catch (error) {
-    // 注册失败不阻塞启动，已有的 auth 信息仍可用
-    console.warn("[App] Quick init silent registration failed:", error);
   }
 }
 
@@ -212,9 +203,6 @@ function App() {
     detail?: string[];
     elapsedMs?: number;
   } | null>(null);
-  const setupJustCompleted = useRef(false);
-  // 内存变量：标记服务是否由登录流程启动（不持久化）
-  const loginStartedRef = useRef(false);
 
   // ============================================
   // 主题状态
@@ -465,6 +453,12 @@ function App() {
     }
   }, []);
 
+  // 稳定引用：供事件监听器调用 restartAllServices，避免监听器闭包过期
+  const restartAllServicesRef = useRef(restartAllServices);
+  useEffect(() => {
+    restartAllServicesRef.current = restartAllServices;
+  }, [restartAllServices]);
+
   // ============================================
   // 核心状态
   // ============================================
@@ -615,18 +609,15 @@ function App() {
   // 登录态同步（控制平台 Tab 是否展示）
   // ============================================
   const refreshAuthState = useCallback(async () => {
-    // isAuthLoggedIn 以 nuwax webview token 为唯一真实源（由 main 推送的 nuwax:authChanged
-    // 事件驱动，见下方监听器），此处不再用 configKey 覆盖——否则 nuwaclaw configKey 残留会让
-    // 顶栏显示「伪已登录」，与 webview 实际未登录不一致。用户定：以 webview 状态为最优先。
-    // 此处 loggedIn 决定 username 显示与默认 tab：以 nuwax webview 登录态
-    //（isAuthLoggedIn，nuwax:authChanged 驱动）为最优先——configKey 仅在
-    // webview 尚未上报（冷启动早期）时兜底，修「设置里显示未登录不同步」。
-    const loggedIn = isAuthLoggedIn || (await isLoggedIn());
+    // webview 登录态为唯一事实源（isAuthLoggedIn，由 main 推送的
+    // nuwax:authChanged 驱动，见下方监听器）。壳侧 configKey 判定已退役——
+    // 残留 configKey 不再让顶栏显示「伪已登录」。
+    const loggedIn = isAuthLoggedIn;
 
     if (!loggedIn) {
       setUsername("");
       // 沉浸式 nuwax 为主视图，鉴权交给 nuwax 自身 /Login 页，
-      // 不因 nuwaclaw sandbox 未登录而强制回到 config 外壳
+      // 不因未注册而强制回到 config 外壳
       setActiveTab("client");
       return;
     }
@@ -675,6 +666,54 @@ function App() {
     window.electronAPI?.on("nuwax:authChanged", onNuwaxAuthChanged as any);
     return () => {
       window.electronAPI?.off("nuwax:authChanged", onNuwaxAuthChanged as any);
+    };
+  }, []);
+
+  // 登录成功联动（main 桥 persistToken → nuwax:login-confirmed，仅 /Login 登录
+  // 成功时触发，token 刷新不走）：走「reg 同步 → 重启全部服务」链路（与设置页
+  // 重启同一条 restartAllServices 路径）。webview 登录态为唯一事实源——首登/
+  // 重登后由这里完成壳侧注册刷新（Bearer 注入 + savedKey 兼容）与服务拉起。
+  useEffect(() => {
+    const log = createLogger("LoginConfirmed");
+    const onLoginConfirmed = () => {
+      log.info("login-confirmed → reg sync + restart services");
+      restartAllServicesRef
+        .current()
+        .then(() => log.info("reg+restart done"))
+        .catch((e) => {
+          log.error("reg+restart failed:", e);
+        });
+    };
+    window.electronAPI?.on("nuwax:login-confirmed", onLoginConfirmed as any);
+    return () => {
+      window.electronAPI?.off("nuwax:login-confirmed", onLoginConfirmed as any);
+    };
+  }, []);
+
+  // webview 多语言同步（main 转发 nuwax:lang-changed，来源 nuwax 语言开关/设置/
+  // 登录后用户资料同步）：壳 UI 文案与主进程语言跟随。与设置页切换同链路
+  //（setCurrentLang + 预拉翻译 + 主进程同步），但不整窗 reload——避免连带
+  // 重载 webview 丢失会话态；context lang 变更驱动消费组件重渲染。
+  useEffect(() => {
+    const log = createLogger("LangSync");
+    const onLangChanged = (payload: { lang?: string }) => {
+      const lang = typeof payload?.lang === "string" ? payload.lang : "";
+      if (!lang || lang.toLowerCase() === getCurrentLang()) return;
+      log.info("webview lang →", lang);
+      void (async () => {
+        try {
+          await setCurrentLang(lang);
+          setI18nLang(getCurrentLang());
+          void prefetchLangMap(lang).catch(() => {});
+          await window.electronAPI?.i18n?.setLang(lang);
+        } catch (e) {
+          log.error("apply failed:", e);
+        }
+      })();
+    };
+    window.electronAPI?.on("nuwax:lang-changed", onLangChanged as any);
+    return () => {
+      window.electronAPI?.off("nuwax:lang-changed", onLangChanged as any);
     };
   }, []);
 
@@ -744,11 +783,6 @@ function App() {
   const handleAuthChange = useCallback(async () => {
     await refreshAuthState();
   }, [refreshAuthState]);
-
-  // 标记服务由登录流程启动（内存变量，不持久化）
-  const handleLoginStarted = useCallback(() => {
-    loginStartedRef.current = true;
-  }, []);
 
   // ============================================
   // 主界面下必需依赖检查：仅当存在「未安装」或「错误」时进入依赖安装
@@ -1054,35 +1088,27 @@ function App() {
 
     const log = createLogger("AutoReconnect");
     const autoReconnect = async () => {
-      // 如果 ClientPage handleLogin 已经启动了服务，跳过自动重连
-      if (loginStartedRef.current) {
-        loginStartedRef.current = false;
-        log.info("skipped (login flow)");
-        return;
-      }
-
-      // 如果向导刚完成，启动所有服务
-      if (setupJustCompleted.current) {
-        setupJustCompleted.current = false;
-        log.info("setup completed, starting services");
-        await startServicesSequentially(await getStartupServiceKeys());
-        openBrowserHome();
-        return;
-      }
-
       try {
+        // webview 登录态为唯一事实源：token（serverHost 域桥键）存在即视为已登录，
+        // reg 走 Bearer 注入；savedKey 兜底（quickInit 无界面部署种子场景）。
+        const step1 = (await window.electronAPI?.settings.get(
+          "step1_config",
+        )) as { serverHost?: string } | null;
+        const domain = normalizeServerHost(
+          step1?.serverHost || DEFAULT_SERVER_HOST,
+        );
+        const tokenKey = getNuwaxAccessTokenKey(domain);
+        const token = tokenKey
+          ? ((await window.electronAPI?.settings.get(tokenKey)) as
+              | string
+              | null)
+          : null;
         const savedKey =
           await window.electronAPI?.settings.get("auth.saved_key");
 
-        if (savedKey) {
-          // 用户已退出登录时（configKey 被清除），不自动重连
-          const configKey =
-            await window.electronAPI?.settings.get("auth.config_key");
-          if (!configKey) {
-            log.info("skipped (logged out)");
-            return;
-          }
-
+        if (token) {
+          // webview 登录态为唯一事实源：token 在即已登录——含「登出后重登」
+          // （configKey 属 reg 派生缓存，登出被清，不能作已登录判定）。
           const result = await syncConfigToServer({ suppressToast: true });
 
           if (result) {
@@ -1100,7 +1126,29 @@ function App() {
             await startServicesSequentially(await getStartupServiceKeys());
             openBrowserHome();
           } else {
-            log.warn("reg failed, using local config");
+            // reg 失败（如后端未放开 token 鉴权且无存量 savedKey）：reg 是登录
+            // 联动的职责，这里不再兜底起服务，等待 login-confirmed 或后端就绪。
+            log.warn("reg failed (token path), waiting for backend/login flow");
+          }
+        } else if (savedKey) {
+          // savedKey 兜底（quickInit 无界面部署）：configKey 在=未登出，才重连
+          const configKey =
+            await window.electronAPI?.settings.get("auth.config_key");
+          if (!configKey) {
+            log.info("skipped (logged out)");
+            return;
+          }
+
+          const result = await syncConfigToServer({ suppressToast: true });
+
+          if (result) {
+            log.info("reg ok (savedKey path), starting services");
+            setOnlineStatus(result.online);
+            setAuthRefreshTrigger((v) => v + 1);
+            await startServicesSequentially(await getStartupServiceKeys());
+            openBrowserHome();
+          } else {
+            log.warn("reg failed (savedKey path), using local config");
             notification.info({
               message: t("Claw.App.AutoReconnectFailed"),
               description: t("Claw.App.AutoReconnectFailedDetail"),
@@ -1111,7 +1159,7 @@ function App() {
             openBrowserHome();
           }
         } else {
-          log.info("skipped (no savedKey)");
+          log.info("skipped (no webview token & no savedKey)");
         }
       } catch (error) {
         log.error("failed:", error);
@@ -1354,14 +1402,6 @@ function App() {
   }, [openInBrowser]);
 
   // ============================================
-  // 向导完成回调
-  // ============================================
-  const handleSetupComplete = () => {
-    setupJustCompleted.current = true;
-    setIsSetupComplete(true);
-  };
-
-  // ============================================
   // 状态 Badge
   // ============================================
   const badge = STATUS_CONFIG[agentStatus] || STATUS_CONFIG.idle;
@@ -1439,6 +1479,7 @@ function App() {
       <I18nContext.Provider value={i18nContextValue}>
         <ConfigProvider theme={currentTheme}>
           <div className="app-loading">
+            <img src="/icon.png" alt="" className="app-loading-icon" />
             <Spin size="large" />
             <div className="app-loading-text">{t("Claw.App.Loading")}</div>
           </div>
@@ -1448,10 +1489,9 @@ function App() {
   }
 
   // ============================================
-  // 渲染：初始化向导
-  // 登录已统一到 nuwax webview /Login，外壳首屏直接进 webview，不再渲染 SetupWizard。
-  // （handleSetupComplete / setupJustCompleted / <SetupWizard> import 暂作 dormant 入口保留，
-  //  随 Phase 3 登录统一收尾一并清理。）
+  // 渲染：主界面
+  // 登录已统一到 nuwax webview /Login（登录态以 webview 为唯一事实源），
+  // 外壳首屏直接进 webview；SetupWizard 已随旧原生登录流一并移除。
   // ============================================
 
   // ============================================
@@ -1481,6 +1521,7 @@ function App() {
       <I18nContext.Provider value={i18nContextValue}>
         <ConfigProvider theme={currentTheme}>
           <div className="app-loading">
+            <img src="/icon.png" alt="" className="app-loading-icon" />
             {servicesGate && !servicesGate.ok ? (
               <>
                 <div
@@ -1853,7 +1894,6 @@ function App() {
                           onRefreshServices={pollServicesStatus}
                           authRefreshTrigger={authRefreshTrigger}
                           onAuthChange={handleAuthChange}
-                          onLoginStarted={handleLoginStarted}
                           onLoginComplete={openBrowserHome}
                           onStartSession={openStartSession}
                           onGotoLogin={() => setMainViewMode("browser")}

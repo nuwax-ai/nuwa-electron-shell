@@ -5,7 +5,6 @@ export {
   DEFAULT_STEP1_CONFIG,
 } from "./core/setup";
 export {
-  loginAndRegister,
   logout,
   getCurrentAuth,
   getAuthErrorMessage,

@@ -109,6 +109,15 @@ const auth = {
   clear(): Promise<boolean> {
     return ipcRenderer.invoke("auth:clear");
   },
+  /**
+   * 企业登录：切换客户端后端域名并重新初始化（写业务域名配置 + 立即停全部
+   * 本地服务 + webview 重载到新域登录页）。仅壳内有效；浏览器端返回未处理。
+   */
+  configureServerHost(
+    host: string,
+  ): Promise<{ success: boolean; serverHost?: string; error?: string }> {
+    return ipcRenderer.invoke("auth:configureServerHost", host);
+  },
 };
 
 /**
@@ -190,6 +199,17 @@ const layout = {
 };
 
 /**
+ * i18n 命名空间：nuwax → 壳的语言同步（guest→host，fire-and-forget）。
+ * nuwax 切换多语言时推送当前语言，壳的 UI 文案与主进程语言跟随切换。
+ */
+const i18n = {
+  /** 推送当前语言给壳（如 en-US / zh-CN）。 */
+  syncLang(lang: string): void {
+    ipcRenderer.send("nuwax:lang-sync", { lang });
+  },
+};
+
+/**
  * host 命名空间：宿主身份只读信息（host→nuwax）。
  * nuwax 凭 getProduct() 区分宿主产品：`nuwaclaw`（社区版）/ `nuwax`（商业版，
  * 2026-09 前为 nuwawork，存量宿主仍可能返回历史值），
@@ -211,5 +231,6 @@ contextBridge.exposeInMainWorld("NuwaClawBridge", {
   events,
   theme,
   layout,
+  i18n,
   host,
 });

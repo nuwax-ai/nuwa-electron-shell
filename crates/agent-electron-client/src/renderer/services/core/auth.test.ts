@@ -1,10 +1,11 @@
 /**
- * 单元测试: auth (快捷登录 / savedKey 认证)
+ * 单元测试: auth（webview 登录态为唯一事实源）
  *
  * 覆盖场景:
- * - savedKey 认证下 username/password 为空的登录判断
- * - syncConfigToServer / reRegisterClient 的 guard 条件
- * - logout 后用账号密码重新登录
+ * - isLoggedIn / getCurrentAuth 的 configKey 判定
+ * - syncConfigToServer 的凭证 guard：webview token（桥键空间）优先，savedKey 兜底
+ * - JWT sub 补齐 username、域名级 savedKey 选取
+ * - logout 清登录态（savedKey 属派生缓存保留，主进程 auth:clear 负责全清）
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -55,8 +56,15 @@ vi.mock("./api", () => ({
 // ==================== Helpers ====================
 
 const DOMAIN = "https://testagent.xspaceagi.com";
+const TOKEN_KEY = `nuwax.accessToken.${DOMAIN}`;
 const SAVED_KEY = "test-saved-key-abc123";
 const CONFIG_KEY_FROM_SERVER = "server-returned-config-key";
+
+/** 伪造 JWT（payload 含 sub），auth.ts 仅解码不验签 */
+function makeJwt(sub: string): string {
+  const payload = Buffer.from(JSON.stringify({ sub })).toString("base64url");
+  return `header.${payload}.signature`;
+}
 
 function makeRegisterResponse(overrides?: Partial<Record<string, unknown>>) {
   return {
@@ -79,7 +87,7 @@ function makeRegisterResponse(overrides?: Partial<Record<string, unknown>>) {
 
 // ==================== Tests ====================
 
-describe("auth - savedKey 认证 (快捷登录)", () => {
+describe("auth - webview 登录态为唯一事实源", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     store = {};
@@ -97,23 +105,14 @@ describe("auth - savedKey 认证 (快捷登录)", () => {
   describe("isLoggedIn", () => {
     it("应以 configKey 为准，不依赖 username", async () => {
       store["auth.config_key"] = "some-config-key";
-      // username 不存在
       const { isLoggedIn } = await loadAuth();
       expect(await isLoggedIn()).toBe(true);
     });
 
     it("configKey 为空时应返回 false", async () => {
       store["auth.username"] = "user1";
-      // configKey 不存在
       const { isLoggedIn } = await loadAuth();
       expect(await isLoggedIn()).toBe(false);
-    });
-
-    it("username 为空字符串 + configKey 存在 → 已登录", async () => {
-      store["auth.username"] = "";
-      store["auth.config_key"] = "key";
-      const { isLoggedIn } = await loadAuth();
-      expect(await isLoggedIn()).toBe(true);
     });
   });
 
@@ -130,15 +129,26 @@ describe("auth - savedKey 认证 (快捷登录)", () => {
     });
   });
 
+  // ---------- decodeJwtSub ----------
+
+  describe("decodeJwtSub", () => {
+    it("应解出 JWT payload 的 sub", async () => {
+      const { decodeJwtSub } = await loadAuth();
+      expect(decodeJwtSub(makeJwt("1801147397"))).toBe("1801147397");
+    });
+
+    it("非 JWT 形态应返回 null", async () => {
+      const { decodeJwtSub } = await loadAuth();
+      expect(decodeJwtSub("not-a-jwt")).toBeNull();
+      expect(decodeJwtSub("")).toBeNull();
+    });
+  });
+
   // ---------- syncConfigToServer ----------
 
   describe("syncConfigToServer", () => {
-    it("username 和 password 均为空字符串 + 无 savedKey → 应拒绝（P1-5 修复验证）", async () => {
-      // 修复前：空字符串不等于 null，会绕过 guard 向后端发空凭证请求
-      // 修复后：!'' === true，正确拦截
-      store["auth.username"] = "";
-      store["auth.password"] = "";
-      // 不设置 savedKey
+    it("无 webview token 且无 savedKey → 应拒绝（未登录且未注册）", async () => {
+      store["auth.username"] = "user1";
       store["step1_config"] = { serverHost: DOMAIN };
 
       const { syncConfigToServer } = await loadAuth();
@@ -148,10 +158,10 @@ describe("auth - savedKey 认证 (快捷登录)", () => {
       expect(mockRegisterClient).not.toHaveBeenCalled();
     });
 
-    it("username/password 为空字符串 + 有 savedKey → 应正常同步", async () => {
-      store["auth.username"] = "";
-      store["auth.password"] = "";
-      store["auth.saved_key"] = SAVED_KEY;
+    it("有 savedKey（无 token）→ 应正常同步（quickInit 部署种子场景）", async () => {
+      store["auth.username"] = "user1";
+      // domain+username 级键（多账号隔离设计：有 username 时不回退全局 key）
+      store["auth.saved_keys.testagent.xspaceagi.com_user1"] = SAVED_KEY;
       store["step1_config"] = { serverHost: DOMAIN };
 
       const { syncConfigToServer } = await loadAuth();
@@ -161,16 +171,15 @@ describe("auth - savedKey 认证 (快捷登录)", () => {
       expect(result!.configKey).toBe(CONFIG_KEY_FROM_SERVER);
       expect(mockRegisterClient).toHaveBeenCalledTimes(1);
 
-      // 验证请求参数
       const [params] = mockRegisterClient.mock.calls[0];
-      expect(params.username).toBe("");
+      expect(params.username).toBe("user1");
       expect(params.password).toBe("");
       expect(params.savedKey).toBe(SAVED_KEY);
     });
 
-    it("username/password 为 null + 有 savedKey → 应正常同步", async () => {
-      // username/password 未设置（null）
-      store["auth.saved_key"] = SAVED_KEY;
+    it("有 webview token（无 savedKey）→ 应同步且不携带 savedKey（首登注册路径）", async () => {
+      // Bearer 由 apiRequest 按域注入（此处 mock 了 api 层），body 不需要凭证
+      store[TOKEN_KEY] = makeJwt("1801147397");
       store["step1_config"] = { serverHost: DOMAIN };
 
       const { syncConfigToServer } = await loadAuth();
@@ -178,193 +187,75 @@ describe("auth - savedKey 认证 (快捷登录)", () => {
 
       expect(result).not.toBeNull();
       const [params] = mockRegisterClient.mock.calls[0];
-      expect(params.username).toBe("");
+      expect(params.username).toBe("1801147397"); // JWT sub 补齐
       expect(params.password).toBe("");
+      expect(params.savedKey).toBeUndefined();
+      // username 应从 sub 落库（域名级 savedKey 分键依赖）
+      expect(store["auth.username"]).toBe("1801147397");
+    });
+
+    it("token 与 savedKey 并存 → username+savedKey 兼容发送", async () => {
+      store[TOKEN_KEY] = makeJwt("1801147397");
+      store["auth.username"] = "1801147397";
+      store["auth.saved_keys.testagent.xspaceagi.com_1801147397"] = SAVED_KEY;
+      store["step1_config"] = { serverHost: DOMAIN };
+
+      const { syncConfigToServer } = await loadAuth();
+      const result = await syncConfigToServer({ suppressToast: true });
+
+      expect(result).not.toBeNull();
+      const [params] = mockRegisterClient.mock.calls[0];
+      expect(params.username).toBe("1801147397");
       expect(params.savedKey).toBe(SAVED_KEY);
     });
 
-    it("无 username/password/savedKey → 应拒绝", async () => {
-      store["step1_config"] = { serverHost: DOMAIN };
-
-      const { syncConfigToServer } = await loadAuth();
-      const result = await syncConfigToServer({ suppressToast: true });
-
-      expect(result).toBeNull();
-      expect(mockRegisterClient).not.toHaveBeenCalled();
-    });
-
-    it("有 username 但无 savedKey → 应拒绝（密码不再持久化，必须依赖 savedKey）", async () => {
+    it("有 username → 应使用域名级 savedKey 而非全局 key（多账号隔离）", async () => {
       store["auth.username"] = "user1";
-      // 密码不再持久化保存，不设置 savedKey 时无法同步
-      store["step1_config"] = { serverHost: DOMAIN };
-
-      const { syncConfigToServer } = await loadAuth();
-      const result = await syncConfigToServer({ suppressToast: true });
-
-      expect(result).toBeNull();
-      expect(mockRegisterClient).not.toHaveBeenCalled();
-    });
-  });
-
-  // ---------- reRegisterClient ----------
-
-  describe("reRegisterClient", () => {
-    it("username/password 为 null + 有 savedKey → 应正常重注册", async () => {
-      store["auth.saved_key"] = SAVED_KEY;
-
-      const { reRegisterClient } = await loadAuth();
-      const result = await reRegisterClient();
-
-      expect(result).not.toBeNull();
-      expect(mockRegisterClient).toHaveBeenCalledTimes(1);
-    });
-
-    it("无任何凭证 → 应拒绝", async () => {
-      const { reRegisterClient } = await loadAuth();
-      const result = await reRegisterClient();
-
-      expect(result).toBeNull();
-      expect(mockRegisterClient).not.toHaveBeenCalled();
-    });
-
-    it("有 domain+username → 应使用域名级 savedKey，而非全局 key（P0-1 修复验证）", async () => {
-      // 域名级 key 与全局 key 故意不同，验证使用的是域名级
-      store["auth.username"] = "user1";
-      store["lanproxy.server_host"] = DOMAIN; // AUTH_KEYS.LANPROXY_SERVER_HOST
       store["auth.saved_keys.testagent.xspaceagi.com_user1"] =
         "domain-specific-key";
       store["auth.saved_key"] = "global-key-different";
+      store["step1_config"] = { serverHost: DOMAIN };
 
-      const { reRegisterClient } = await loadAuth();
-      await reRegisterClient();
-
-      const [params] = mockRegisterClient.mock.calls[0];
-      // 应使用域名级 savedKey，不应使用全局 key
-      expect(params.savedKey).toBe("domain-specific-key");
-    });
-
-    it("多账号切换：当前用户无专属 savedKey 时，应拒绝（不应使用全局 key 中其他账号的凭证）", async () => {
-      // 模拟用户A之前登录，全局 key 被覆盖为 A 的凭证
-      store["auth.saved_keys.testagent.xspaceagi.com_userA"] = "key-for-userA";
-      store["auth.saved_key"] = "key-for-userA"; // 全局 key 指向 A
-
-      // 当前切换为用户B（没有域名级专属 key）
-      store["auth.username"] = "userB";
-      store["lanproxy.server_host"] = DOMAIN; // AUTH_KEYS.LANPROXY_SERVER_HOST
-      // 不设置 auth.saved_keys.*.userB
-
-      const { reRegisterClient } = await loadAuth();
-      const result = await reRegisterClient();
-
-      // 用户B无专属 key，应拒绝重注册，不应使用用户A的 key
-      expect(result).toBeNull();
-      expect(mockRegisterClient).not.toHaveBeenCalled();
-    });
-
-    it("无 domain 信息时 → 应回退到全局 savedKey", async () => {
-      // 没有 domain 配置，只有全局 key
-      store["auth.username"] = "user1";
-      // 不设置 lanproxy_server_host 和 step1_config
-      store["auth.saved_key"] = SAVED_KEY;
-
-      const { reRegisterClient } = await loadAuth();
-      const result = await reRegisterClient();
+      const { syncConfigToServer } = await loadAuth();
+      const result = await syncConfigToServer({ suppressToast: true });
 
       expect(result).not.toBeNull();
       const [params] = mockRegisterClient.mock.calls[0];
-      // 无 domain 时 fallback 到全局 key
-      expect(params.savedKey).toBe(SAVED_KEY);
+      expect(params.savedKey).toBe("domain-specific-key");
     });
-  });
 
-  // ---------- loginAndRegister ----------
-
-  describe("loginAndRegister", () => {
-    it("空 username + 空 password + savedKey → 应正常登录", async () => {
-      store["auth.saved_key"] = SAVED_KEY;
+    it("reg 成功后 configKey/savedKey 应落库（lanproxy 派生凭证）", async () => {
+      store["auth.username"] = "user1";
+      store["auth.saved_keys.testagent.xspaceagi.com_user1"] = SAVED_KEY;
       store["step1_config"] = { serverHost: DOMAIN };
 
-      const { loginAndRegister } = await loadAuth();
-      const result = await loginAndRegister("", "", {
-        suppressToast: true,
-        domain: DOMAIN,
-      });
+      const { syncConfigToServer } = await loadAuth();
+      await syncConfigToServer({ suppressToast: true });
 
-      expect(result.configKey).toBe(CONFIG_KEY_FROM_SERVER);
-
-      // 验证登录后存储了 configKey
       expect(store["auth.config_key"]).toBe(CONFIG_KEY_FROM_SERVER);
-      // savedKey 更新为服务端返回的 configKey
       expect(store["auth.saved_key"]).toBe(CONFIG_KEY_FROM_SERVER);
-    });
-
-    it("正常 username + password → 应正常登录（密码不持久化）", async () => {
-      store["step1_config"] = { serverHost: DOMAIN };
-
-      const { loginAndRegister } = await loadAuth();
-      const result = await loginAndRegister("zhangsan", "abc123", {
-        suppressToast: true,
-        domain: DOMAIN,
-      });
-
-      expect(result.configKey).toBe(CONFIG_KEY_FROM_SERVER);
-      expect(store["auth.username"]).toBe("zhangsan");
-      // 密码不再持久化保存
-      expect(store["auth.password"]).toBeUndefined();
-      // savedKey 应保存
-      expect(store["auth.saved_key"]).toBe(CONFIG_KEY_FROM_SERVER);
+      expect(store["auth.saved_keys.testagent.xspaceagi.com_user1"]).toBe(
+        CONFIG_KEY_FROM_SERVER,
+      );
     });
   });
 
-  // ---------- 完整场景: 快捷登录 → 退出 → 重新登录 ----------
+  // ---------- logout ----------
 
-  describe("完整流程: 快捷登录 → logout → 账号密码登录", () => {
-    it("退出后用账号密码重新登录应成功", async () => {
-      const auth = await loadAuth();
-
-      // 1. 快捷登录（模拟 QuickInit: 空 username + savedKey）
+  describe("logout", () => {
+    it("应清登录态键（configKey/username/userInfo），savedKey 派生缓存保留给主进程统一清理", async () => {
+      store["auth.config_key"] = "key";
+      store["auth.username"] = "user1";
       store["auth.saved_key"] = SAVED_KEY;
-      store["step1_config"] = { serverHost: DOMAIN };
 
-      await auth.loginAndRegister("", "", {
-        suppressToast: true,
-        domain: DOMAIN,
-      });
-      expect(await auth.isLoggedIn()).toBe(true);
+      const { logout, isLoggedIn } = await loadAuth();
+      await logout();
 
-      // 2. 退出登录
-      await auth.logout();
-      expect(await auth.isLoggedIn()).toBe(false);
-      // savedKey 应保留
-      expect(store["auth.saved_key"]).toBe(CONFIG_KEY_FROM_SERVER);
-      // configKey 应清除
+      expect(await isLoggedIn()).toBe(false);
       expect(store["auth.config_key"]).toBeUndefined();
-
-      // 3. 用新账号密码登录
-      const newConfigKey = "new-config-key-for-zhangsan";
-      mockRegisterClient.mockResolvedValueOnce(
-        makeRegisterResponse({ configKey: newConfigKey }),
-      );
-
-      await auth.loginAndRegister("zhangsan", "dynamic-code", {
-        suppressToast: true,
-        domain: DOMAIN,
-      });
-
-      expect(await auth.isLoggedIn()).toBe(true);
-      expect(store["auth.username"]).toBe("zhangsan");
-      expect(store["auth.config_key"]).toBe(newConfigKey);
-      // 域名级 savedKey 应保存
-      expect(store["auth.saved_keys.testagent.xspaceagi.com_zhangsan"]).toBe(
-        newConfigKey,
-      );
-
-      // 4. syncConfigToServer 应能正常工作
-      mockRegisterClient.mockResolvedValueOnce(
-        makeRegisterResponse({ configKey: newConfigKey }),
-      );
-      const syncResult = await auth.syncConfigToServer({ suppressToast: true });
-      expect(syncResult).not.toBeNull();
+      expect(store["auth.username"]).toBeUndefined();
+      // renderer 侧 logout 不动 savedKey；全清在 main 桥 auth:clear
+      expect(store["auth.saved_key"]).toBe(SAVED_KEY);
     });
   });
 });

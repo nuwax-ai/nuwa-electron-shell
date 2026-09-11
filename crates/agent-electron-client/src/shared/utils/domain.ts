@@ -4,6 +4,28 @@
  */
 
 /**
+ * webview 登录 token（JWT）存储键前缀，与主进程桥（nuwaxBridgeHandlers 的
+ * auth:getToken/persistToken、loopbackGateway Bearer 代注）同一键空间。
+ * 注意 origin 含协议与端口（new URL().origin），与 hostname 键空间（auth.tokens.*）不同。
+ */
+export const NUWAX_ACCESS_TOKEN_PREFIX = "nuwax.accessToken.";
+
+/**
+ * 生成 webview 登录 token 的域名级存储键（桥键空间 `nuwax.accessToken.<origin>`）。
+ *
+ * @example getNuwaxAccessTokenKey("https://testagent.xspaceagi.com") // "nuwax.accessToken.https://testagent.xspaceagi.com"
+ * @example getNuwaxAccessTokenKey("testagent.xspaceagi.com") // 同上（自动补 https://）
+ */
+export function getNuwaxAccessTokenKey(baseUrl: string): string | null {
+  try {
+    const raw = /^https?:\/\//i.test(baseUrl) ? baseUrl : `https://${baseUrl}`;
+    return `${NUWAX_ACCESS_TOKEN_PREFIX}${new URL(raw).origin}`;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * 将域名标准化为存储键的一部分
  * 提取 hostname，移除协议、端口、路径
  *
