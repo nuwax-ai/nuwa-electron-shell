@@ -10,7 +10,7 @@ import type { AgentEngineType } from "@shared/types/electron";
 // ==================== 应用名称 ====================
 
 /**
- * 品牌注入（nuwa-work 商业版拆仓用）：
+ * 品牌注入（nuwax-client 商业版拆仓用）：
  * 默认值 = 社区版。商业版构建时通过环境变量覆盖，由 build-main-esbuild.js / vite.config.ts
  * 在构建期把 process.env.<KEY> 静态替换为字面量（renderer 无 process，靠 vite define 注入）。
  * vitest 与本地 dev 不设 env，回落默认值，行为不变。
@@ -62,7 +62,7 @@ export const WEBVIEW_POPUP_MIN_HEIGHT = DEFAULT_WINDOW_MIN_HEIGHT;
 
 // ==================== 端口配置 ====================
 //
-// 端口偏移注入（nuwa-work 商业版构建用）：NUWAX_PORT_OFFSET 构建期注入（经
+// 端口偏移注入（nuwax-client 商业版构建用）：NUWAX_PORT_OFFSET 构建期注入（经
 // esbuild/vite define），商业版注 1000 得 19099 / 61002~61009 / 61173，与社区版
 // nuwaclaw（60xxx 序列）及 nuwa-cli（gateway 60016 / file-server 60015 /
 // lanproxy 10076）三方同机错开、双开不冲突。默认 0 = 社区版原端口不变。

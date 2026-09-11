@@ -20,7 +20,7 @@
 #   ./sign-release-win-v2.sh 0.9.2 --no-bundle-download   # 强制与 v1 相同逐文件下载
 #
 # Environment (optional):
-#   SIGN_RELEASE_REPO        目标 GitHub 仓库（默认 nuwax-ai/nuwaclaw；nuwa-work 商业版传 nuwax-ai/nuwa-work）
+#   SIGN_RELEASE_REPO        目标 GitHub 仓库（默认 nuwax-ai/nuwaclaw；nuwax-client 商业版传 nuwax-ai/nuwax-client）
 #   SIGN_WORK_DIR            本地工作目录（默认 /c/tmp/nuwaclaw-sign）
 #   SIGN_WIN_ARTIFACT_PREFIX 产物名前缀（默认 NuwaClaw；须与 CI 构建的 productName 前缀一致）
 #   SIGN_WIN_UNSIGNED_BUNDLE 未签名 zip 在 Release 上的文件名（默认 <前缀>-<ver>-unsigned-win.zip）
@@ -59,7 +59,7 @@ resolve_pkg_json() {
 
 # 产物名前缀：优先 env 显式覆盖，其次取 package.json productName
 # （electron-builder 的 nsis/msi artifactName 均为 ${productName} 派生，自动对齐 CI 产物名）。
-# 给非本仓 checkout 的目标（如 nuwa-work）签名时，用 SIGN_WIN_ARTIFACT_PREFIX 显式指定商业版前缀。
+# 给非本仓 checkout 的目标（如 nuwax-client）签名时，用 SIGN_WIN_ARTIFACT_PREFIX 显式指定商业版前缀。
 PKG_JSON_FOR_PREFIX="$(resolve_pkg_json)"
 PRODUCT_NAME_FOR_PREFIX="$(node -p "require('$PKG_JSON_FOR_PREFIX').build.productName || require('$PKG_JSON_FOR_PREFIX').productName" 2>/dev/null || true)"
 ARTIFACT_PREFIX="${SIGN_WIN_ARTIFACT_PREFIX:-${PRODUCT_NAME_FOR_PREFIX:-NuwaClaw}}"

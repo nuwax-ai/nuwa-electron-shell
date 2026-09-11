@@ -34,7 +34,7 @@
 set -e
 
 # 正式发布仓库：Electron 包在 nuwaclaw 仓库的 Releases 中（如 electron-v0.9.0）
-# nuwa-work 商业版：SYNC_OSS_REPO=nuwax-ai/nuwa-work（须与 sign:win 的 SIGN_RELEASE_REPO 一致）
+# nuwax-client 商业版：SYNC_OSS_REPO=nuwax-ai/nuwax-client（须与 sign:win 的 SIGN_RELEASE_REPO 一致）
 REPO="${SYNC_OSS_REPO:-${GITHUB_REPOSITORY:-nuwax-ai/nuwaclaw}}"
 
 # 产物名前缀：优先 env 覆盖，其次取 package.json build.productName（与 CI artifactName 的 ${productName} 对齐）
@@ -283,7 +283,7 @@ ensure_windows_signed_for_stable() {
 
 ensure_windows_signed_for_stable
 
-# workflow_dispatch 需要 ref：优先显式覆盖（nuwa-work 等超仓场景，ref 必须是目标仓库自己的分支），
+# workflow_dispatch 需要 ref：优先显式覆盖（nuwax-client 等超仓场景，ref 必须是目标仓库自己的分支），
 # 其次当前分支（workflow 定义需在该分支上存在），无远程追踪时回退仓库默认分支。
 # 注意：@{u} 形如 origin/feature/electron-client-0.11，仅剥第一段 remote 名，
 # 保留分支自身的斜杠（feature/...），否则 GitHub 会 422 "No ref found"。

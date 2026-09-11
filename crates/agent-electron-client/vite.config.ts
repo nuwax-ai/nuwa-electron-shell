@@ -23,7 +23,7 @@ function getFeatureFlags(mode: string) {
 }
 
 export default defineConfig(({ mode }) => {
-  // 品牌注入（nuwa-work 商业版）：renderer 无 process 运行时，靠 define 注入；
+  // 品牌注入（nuwax-client 商业版）：renderer 无 process 运行时，靠 define 注入；
   // 未设置时替换为空串，constants.ts 里回落默认值（社区版）。loadEnv 同时读 .env 文件与 shell env
   const brandingEnv = loadEnv(mode, __dirname, 'NUWAX_');
   const brandingDefines = {
