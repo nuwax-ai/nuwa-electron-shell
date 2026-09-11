@@ -48,9 +48,18 @@ function exec(cmd, opts = {}) {
 /**
  * 跨平台递归复制（替代 cp -R：Windows 无 cp 命令）。
  */
-function copyDir(src, dest) {
-  fs.cpSync(src, dest, { recursive: true });
+function copyDir(src, dest, filter) {
+  fs.cpSync(src, dest, { recursive: true, ...(filter ? { filter } : {}) });
 }
+
+/**
+ * node_modules 复制过滤器：跳过 .bin 目录。npm install 生成的 .bin 全是
+ * 绝对路径符号链接（指向 sources/ 构建机本地路径），随包进入 electron-builder
+ * 产物会让 mac codesign --deep 报 invalid symlink（v1.0.0/v1.0.2 发布阻塞根因）；
+ * 这些 CLI shim 运行时无消费者，直接不复制。
+ */
+const nodeModulesCopyFilter = (src) =>
+  !/(?:^|[\\/])node_modules[\\/]\.bin(?:[\\/]|$)/.test(src);
 
 /**
  * 在指定仓库执行 git 命令，返回 stdout（trim 后）。
@@ -171,10 +180,11 @@ function copyToResources(remoteHash) {
     path.join(destDir, 'package.json'),
   );
 
-  console.log('[prepare-nuwax-file-server] 复制 node_modules/...');
+  console.log('[prepare-nuwax-file-server] 复制 node_modules/（跳过 .bin 符号链接）...');
   copyDir(
     path.join(SOURCE_DIR, 'node_modules'),
     path.join(destDir, 'node_modules'),
+    nodeModulesCopyFilter,
   );
 
   const licenseSrc = path.join(SOURCE_DIR, 'LICENSE');

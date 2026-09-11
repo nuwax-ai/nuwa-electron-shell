@@ -35,7 +35,7 @@ import {
   DEFAULT_WINDOW_WIDTH,
 } from "@shared/constants";
 import { initLogging, updateLogLevel } from "./bootstrap/logConfig";
-import { initI18n, setMainLang } from "./services/i18n";
+import { initI18n, setMainLang, DEFAULT_MAIN_LANG } from "./services/i18n";
 import { createTrayManager, TrayStatus } from "./window/trayManager";
 import { createServiceManager } from "./window/serviceManager";
 import { initAutoUpdater, showUpdateDialogFlow } from "./services/autoUpdater";
@@ -672,13 +672,15 @@ app.whenReady().then(async () => {
   updateLogLevel(updateChannel || "stable");
 
   // 数据库就绪后，同步语言到主进程 i18n
-  // 优先级：本地保存 > Electron 系统语言 > 英文兜底
+  // 优先级：本地保存 > 产品默认（简体中文，不跟随系统语言）
+  // 说明：本地保存值仅代表「渲染进程解析过的结果」，渲染进程就绪后会经
+  // i18n:setLang 再次同步（含用户显式选择/webview 多语言）；此处不再用
+  // app.getLocale() 兜底——默认语言由产品决定，与系统语言无关。
   const savedLang = readSetting("i18n.active_lang") as string | undefined;
   if (savedLang) {
     setMainLang(savedLang);
   } else {
-    // 无本地偏好：用 Electron 系统语言（app.ready 后可靠）
-    setMainLang(app.getLocale() || "en");
+    setMainLang(DEFAULT_MAIN_LANG);
   }
 
   const ctx: HandlerContext = {
