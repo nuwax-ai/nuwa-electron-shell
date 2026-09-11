@@ -255,6 +255,8 @@
   "Claw.Client.loginFirst": "Please log in first to get proxy service config",
   "Claw.Client.startFailed": "Failed to start",
   "Claw.Client.loginFirstToStart": "Please log in first before starting services",
+  "Claw.Client.regSyncFailed": "Device registration failed; the proxy service can't start for now (other services will still start)",
+  "Claw.Client.proxyConfigMissing": "Proxy service config missing (device registration incomplete); can't start for now",
   "Claw.Client.loginInNuwax": "Not logged in",
   "Claw.Client.loginInNuwaxHint": "Please log in via the Nuwax main window",
   "Claw.Client.gotoLogin": "Go to login",

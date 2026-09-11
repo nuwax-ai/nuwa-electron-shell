@@ -255,6 +255,8 @@
   "Claw.Client.loginFirst": "请先登录以获取代理服务配置",
   "Claw.Client.startFailed": "启动失败",
   "Claw.Client.loginFirstToStart": "请先登录后再启动服务",
+  "Claw.Client.regSyncFailed": "设备注册失败，代理服务暂无法启动（其余服务照常启动）",
+  "Claw.Client.proxyConfigMissing": "代理服务配置缺失（设备注册未完成），暂无法启动",
   "Claw.Client.loginInNuwax": "未登录",
   "Claw.Client.loginInNuwaxHint": "请在女娲 Nuwax 主窗口完成登录",
   "Claw.Client.gotoLogin": "前往登录",

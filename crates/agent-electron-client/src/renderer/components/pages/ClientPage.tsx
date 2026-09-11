@@ -275,7 +275,17 @@ function ClientPage({
             | number
             | null);
         if (!serverIp || !clientKey || !serverPort) {
-          if (!silent) message.info(t("Claw.Client.loginFirst"));
+          // webview 已登录时配置缺失实为「设备注册未完成」（如首登注册被后端
+          // 拦截），此时「请先登录」有误导，改用注册未完成的提示。
+          if (!silent) {
+            message.info(
+              t(
+                isWebviewLoggedIn
+                  ? "Claw.Client.proxyConfigMissing"
+                  : "Claw.Client.loginFirst",
+              ),
+            );
+          }
           await onRefreshServices();
           return false;
         }
@@ -364,8 +374,11 @@ function ClientPage({
   };
 
   const handleStartAll = async () => {
-    // 未登录时禁止启动全部服务，避免 agent 无 apiKey / lanproxy 无 clientKey 的半启动状态
-    if (!authState.isLoggedIn) {
+    // 未登录（webview 登录态与壳侧注册态均无凭据）时禁止启动全部服务，避免
+    // lanproxy 无 clientKey 的半启动状态。webview 已登录但 reg 未完成
+    // （auth.config_key 缺失，如首登注册被后端拦截）时放行：先 reg，失败则
+    // 明示注册失败，不依赖注册凭据的服务照常启动。
+    if (!authState.isLoggedIn && !isWebviewLoggedIn) {
       message.warning(t("Claw.Client.loginFirstToStart"));
       return;
     }
@@ -393,9 +406,14 @@ function ClientPage({
     try {
       let startedCount = 0;
 
-      // 1. 先调用 reg 接口，获取最新配置（serverHost/serverPort）
+      // 1. 先调用 reg 接口，获取最新配置（serverHost/serverPort）。
+      // 返回 null = reg 失败/跳过（内部已 catch 不抛错）：明示注册失败，
+      // 代理服务将因缺 clientKey 无法启动，其余服务照常。
       try {
-        await syncConfigToServer({ suppressToast: true });
+        const regResult = await syncConfigToServer({ suppressToast: true });
+        if (!regResult) {
+          message.warning(t("Claw.Client.regSyncFailed"));
+        }
       } catch (e) {
         console.error("[ClientPage] Reg sync failed:", e);
       }
