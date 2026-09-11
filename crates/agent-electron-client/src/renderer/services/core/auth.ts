@@ -79,9 +79,13 @@ async function getSavedKey(
   domain?: string,
   username?: string,
 ): Promise<string | null> {
+  // 域名级键未命中时必须回落全局 auth.saved_key：quickInit/手工种子只写全局键，
+  // 而 username（JWT sub 补齐）常已存在——若无回落，reg 会带不上 savedKey，
+  // 后端在无有效凭据时报「动态认证码或密码不能为空」。
   if (domain && username) {
     const key = `${AUTH_KEYS.SAVED_KEYS_PREFIX}${normalizeDomain(domain)}_${username}`;
-    return settingsGet<string>(key);
+    const domainKey = await settingsGet<string>(key);
+    if (domainKey) return domainKey;
   }
   return settingsGet<string>(AUTH_KEYS.SAVED_KEY);
 }
