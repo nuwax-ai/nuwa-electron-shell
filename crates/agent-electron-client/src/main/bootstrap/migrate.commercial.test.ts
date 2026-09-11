@@ -1,9 +1,9 @@
 /**
- * 单元测试: migrate + 品牌注入（商业版 identifier=nuwawork + 端口偏移 1000）
+ * 单元测试: migrate + 品牌注入（商业版 identifier=nuwax + 端口偏移 1000）
  *
  * 模拟商业版构建产物行为（NUWAX_APP_IDENTIFIER/NUWAX_PORT_OFFSET 注入）：
- * 1. APP_DATA_DIR_NAME 派生为 .nuwawork
- * 2. .nuwaclaw → .nuwawork 整目录迁移（rename + DB/config 改名）
+ * 1. APP_DATA_DIR_NAME 派生为 .nuwax
+ * 2. .nuwaclaw → .nuwax 整目录迁移（rename + DB/config 改名）
  * 3. 目标已有数据 → 跳过
  * 4. migrateSettingsPaths 重写 step1_config.workspaceDir 的 .nuwaclaw 前缀
  * 5. 迁移的 quickInit 配置中旧默认端口改写为 +1000（自定义端口不动）
@@ -13,7 +13,7 @@ import { describe, it, expect, vi, beforeEach, afterAll } from "vitest";
 import * as path from "path";
 
 // 必须在动态 import constants/migrate 之前设置（构建期 define 的运行时等价物）
-process.env.NUWAX_APP_IDENTIFIER = "nuwawork";
+process.env.NUWAX_APP_IDENTIFIER = "nuwax";
 process.env.NUWAX_PORT_OFFSET = "1000";
 
 vi.mock("electron", () => ({
@@ -61,7 +61,7 @@ afterAll(() => {
   delete process.env.NUWAX_PORT_OFFSET;
 });
 
-describe("commercial branding (identifier=nuwawork)", () => {
+describe("commercial branding (identifier=nuwax)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockDbPrepare.mockReturnValue({ get: () => ({ count: 0 }) });
@@ -69,19 +69,19 @@ describe("commercial branding (identifier=nuwawork)", () => {
 
   it("derives APP_DATA_DIR_NAME from injected identifier", async () => {
     const { APP_DATA_DIR_NAME } = await import("@shared/constants");
-    expect(APP_DATA_DIR_NAME).toBe(".nuwawork");
+    expect(APP_DATA_DIR_NAME).toBe(".nuwax");
   });
 
-  it("renames .nuwaclaw → .nuwawork with db/config renames when target missing", async () => {
+  it("renames .nuwaclaw → .nuwax with db/config renames when target missing", async () => {
     const legacyDir = path.join("/mock/home", ".nuwaclaw");
-    const targetDir = path.join("/mock/home", ".nuwawork");
+    const targetDir = path.join("/mock/home", ".nuwax");
     mockExistsSync.mockImplementation((p: string) => {
       if (p === legacyDir) return true;
       // rename 之后在同一新目录里检查旧 DB / config 文件名
       if (p === path.join(targetDir, "nuwaclaw.db")) return true;
-      if (p === path.join(targetDir, "nuwawork.db")) return false;
+      if (p === path.join(targetDir, "nuwax.db")) return false;
       if (p === path.join(targetDir, "nuwaclaw.json")) return true;
-      if (p === path.join(targetDir, "nuwawork.json")) return false;
+      if (p === path.join(targetDir, "nuwax.json")) return false;
       return false;
     });
 
@@ -91,17 +91,17 @@ describe("commercial branding (identifier=nuwawork)", () => {
     expect(mockRenameSync).toHaveBeenCalledWith(legacyDir, targetDir);
     expect(mockRenameSync).toHaveBeenCalledWith(
       path.join(targetDir, "nuwaclaw.db"),
-      path.join(targetDir, "nuwawork.db"),
+      path.join(targetDir, "nuwax.db"),
     );
     expect(mockRenameSync).toHaveBeenCalledWith(
       path.join(targetDir, "nuwaclaw.json"),
-      path.join(targetDir, "nuwawork.json"),
+      path.join(targetDir, "nuwax.json"),
     );
   });
 
-  it("skips migration when target .nuwawork already has data", async () => {
+  it("skips migration when target .nuwax already has data", async () => {
     mockExistsSync.mockImplementation((p: string) => {
-      if (p.includes(".nuwawork")) return true;
+      if (p.includes(".nuwax")) return true;
       return false;
     });
     mockDbPrepare.mockReturnValue({ get: () => ({ count: 5 }) });
@@ -113,7 +113,7 @@ describe("commercial branding (identifier=nuwawork)", () => {
     expect(mockCopyFileSync).not.toHaveBeenCalled();
   });
 
-  it("rewrites step1_config.workspaceDir legacy prefix to .nuwawork", async () => {
+  it("rewrites step1_config.workspaceDir legacy prefix to .nuwax", async () => {
     mockReadSetting.mockReturnValue({
       workspaceDir: path.join("/mock/home", ".nuwaclaw", "workspace"),
     });
@@ -122,15 +122,15 @@ describe("commercial branding (identifier=nuwawork)", () => {
     migrateSettingsPaths();
 
     expect(mockWriteSetting).toHaveBeenCalledWith("step1_config", {
-      workspaceDir: path.join("/mock/home", ".nuwawork", "workspace"),
+      workspaceDir: path.join("/mock/home", ".nuwax", "workspace"),
     });
   });
 
   it("shifts legacy default quickInit ports (+1000) in migrated config, custom ports untouched", async () => {
     const legacyDir = path.join("/mock/home", ".nuwaclaw");
-    const targetDir = path.join("/mock/home", ".nuwawork");
+    const targetDir = path.join("/mock/home", ".nuwax");
     const oldConfig = path.join(targetDir, "nuwaclaw.json");
-    const newConfig = path.join(targetDir, "nuwawork.json");
+    const newConfig = path.join(targetDir, "nuwax.json");
     let renamedTo = "";
 
     mockRenameSync.mockImplementation((_o: string, n: string) => {
@@ -142,7 +142,7 @@ describe("commercial branding (identifier=nuwawork)", () => {
       if (p === oldConfig) return !renamedTo;
       if (p === newConfig) return !!renamedTo;
       if (p === path.join(targetDir, "nuwaclaw.db")) return true;
-      if (p === path.join(targetDir, "nuwawork.db")) return false;
+      if (p === path.join(targetDir, "nuwax.db")) return false;
       return false;
     });
     mockReadFileSync.mockImplementation(() =>

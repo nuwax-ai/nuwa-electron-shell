@@ -191,12 +191,13 @@ const layout = {
 
 /**
  * host 命名空间：宿主身份只读信息（host→nuwax）。
- * nuwax 凭 getProduct() 区分宿主产品：`nuwaclaw`（社区版）/ `nuwawork`（商业版），
+ * nuwax 凭 getProduct() 区分宿主产品：`nuwaclaw`（社区版）/ `nuwax`（商业版，
+ * 2026-09 前为 nuwawork，存量宿主仍可能返回历史值），
  * 用于按宿主开关桌面专属能力或降级。值由构建期 define 注入（同 4-env 注入契约），
  * 不经 IPC、无运行时 process 访问。
  */
 const host = {
-  /** 宿主产品标识：nuwaclaw（社区版）/ nuwawork（商业版）。 */
+  /** 宿主产品标识：nuwaclaw（社区版）/ nuwax（商业版；存量宿主可能返回历史值 nuwawork）。 */
   getProduct(): string {
     return APP_NAME_IDENTIFIER;
   },
