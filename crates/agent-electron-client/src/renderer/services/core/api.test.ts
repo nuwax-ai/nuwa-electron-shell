@@ -160,14 +160,12 @@ describe("apiRequest", () => {
   // ---------- HTTP 错误 ----------
 
   it("HTTP 非 2xx → 应抛出 HTTP 错误", async () => {
-    global.fetch = vi
-      .fn()
-      .mockResolvedValue(
-        new Response("Internal Server Error", {
-          status: 500,
-          statusText: "Internal Server Error",
-        }),
-      );
+    global.fetch = vi.fn().mockResolvedValue(
+      new Response("Internal Server Error", {
+        status: 500,
+        statusText: "Internal Server Error",
+      }),
+    );
 
     const { apiRequest } = await loadApi();
 
@@ -232,5 +230,157 @@ describe("apiRequest", () => {
     const body = JSON.parse(fetchOptions.body);
     expect(body.username).toBe("user1");
     expect(body.password).toBe("pass1");
+  });
+
+  // ---------- baseUrl 前缀拼接（完整地址保障） ----------
+
+  it("apiRequest 传 baseUrl: undefined 时应回落默认域名，不产生 undefined/ 前缀", async () => {
+    global.fetch = vi.fn().mockResolvedValue(makeSuccessResponse({}));
+
+    const { apiRequest } = await loadApi();
+    await apiRequest("/test", { baseUrl: undefined, showError: false });
+
+    const [url] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toBe("https://default.example.com/test");
+  });
+
+  it("apiRequest 传空串 baseUrl 时应回落默认域名，不产生相对路径", async () => {
+    global.fetch = vi.fn().mockResolvedValue(makeSuccessResponse({}));
+
+    const { apiRequest } = await loadApi();
+    await apiRequest("/test", { baseUrl: "", showError: false });
+
+    const [url] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toBe("https://default.example.com/test");
+  });
+
+  // ---------- Bearer 注入（webview 登录态为唯一事实源） ----------
+
+  it("目标域存在 webview token 时应注入 Authorization: Bearer", async () => {
+    global.fetch = vi.fn().mockResolvedValue(makeSuccessResponse({}));
+    const originalWindow = (global as any).window;
+    (global as any).window = {
+      electronAPI: {
+        settings: {
+          get: async (key: string) =>
+            key === "nuwax.accessToken.https://default.example.com"
+              ? "jwt-token-abc"
+              : null,
+        },
+      },
+    };
+
+    try {
+      const { apiRequest } = await loadApi();
+      await apiRequest("/test", { showError: false });
+
+      const [, fetchOptions] = (global.fetch as ReturnType<typeof vi.fn>).mock
+        .calls[0];
+      expect(fetchOptions.headers.Authorization).toBe("Bearer jwt-token-abc");
+    } finally {
+      (global as any).window = originalWindow;
+    }
+  });
+
+  it("目标域无 token 时不应注入 Authorization 头", async () => {
+    global.fetch = vi.fn().mockResolvedValue(makeSuccessResponse({}));
+    const originalWindow = (global as any).window;
+    (global as any).window = {
+      electronAPI: { settings: { get: async () => null } },
+    };
+
+    try {
+      const { apiRequest } = await loadApi();
+      await apiRequest("/test", { showError: false });
+
+      const [, fetchOptions] = (global.fetch as ReturnType<typeof vi.fn>).mock
+        .calls[0];
+      expect(fetchOptions.headers.Authorization).toBeUndefined();
+    } finally {
+      (global as any).window = originalWindow;
+    }
+  });
+
+  it("按请求的目标域取 token（跨域键空间隔离）", async () => {
+    global.fetch = vi.fn().mockResolvedValue(makeSuccessResponse({}));
+    const originalWindow = (global as any).window;
+    (global as any).window = {
+      electronAPI: {
+        settings: {
+          get: async (key: string) =>
+            key === "nuwax.accessToken.https://biz.example.com"
+              ? "biz-jwt"
+              : null,
+        },
+      },
+    };
+
+    try {
+      const { apiRequest } = await loadApi();
+      await apiRequest("/test", {
+        baseUrl: "https://biz.example.com",
+        showError: false,
+      });
+
+      const [, fetchOptions] = (global.fetch as ReturnType<typeof vi.fn>).mock
+        .calls[0];
+      expect(fetchOptions.headers.Authorization).toBe("Bearer biz-jwt");
+    } finally {
+      (global as any).window = originalWindow;
+    }
+  });
+
+  it("registerClient 配置域名为空时应回落默认域名拼出完整地址", async () => {
+    global.fetch = vi.fn().mockResolvedValue(
+      makeSuccessResponse({
+        id: 1,
+        configKey: "ck-abc",
+        configValue: {},
+      }),
+    );
+
+    const { registerClient } = await loadApi();
+    await registerClient(
+      {
+        username: "user1",
+        password: "pass1",
+        sandboxConfigValue: {
+          agentPort: 4000,
+          vncPort: 0,
+          fileServerPort: 60000,
+        },
+      },
+      { baseUrl: "", suppressToast: true },
+    );
+
+    const [url] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toBe("https://default.example.com/api/sandbox/config/reg");
+  });
+
+  it("registerClient 传入配置域名时应拼接为完整地址", async () => {
+    global.fetch = vi.fn().mockResolvedValue(
+      makeSuccessResponse({
+        id: 1,
+        configKey: "ck-abc",
+        configValue: {},
+      }),
+    );
+
+    const { registerClient } = await loadApi();
+    await registerClient(
+      {
+        username: "user1",
+        password: "pass1",
+        sandboxConfigValue: {
+          agentPort: 4000,
+          vncPort: 0,
+          fileServerPort: 60000,
+        },
+      },
+      { baseUrl: "https://biz.example.com", suppressToast: true },
+    );
+
+    const [url] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toBe("https://biz.example.com/api/sandbox/config/reg");
   });
 });

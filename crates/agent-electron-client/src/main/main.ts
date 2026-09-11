@@ -551,20 +551,21 @@ async function cleanupAllProcesses(): Promise<void> {
 // App lifecycle
 
 /**
- * 产品 UA 标识：默认 UA 里的 `@nuwax-ai/nuwaclaw/<ver>`（package name/version）
- * 对外暴露内部包名，替换为产品显示名（商业版 env 注入 Nuwax）。
+ * 产品 UA 标识：默认 UA 里的 `@nuwax-ai/nuwaclaw/<ver>`（内部包名/version）换为
+ * 随产品标识的 `@nuwax-ai/<identifier>/<ver>`（商业版 identifier=nuwax →
+ * @nuwax-ai/nuwax/1.0.0；2026-09-11 用户定，替代此前按显示名替换的 Nuwax/<ver>）。
  * userAgentFallback 是所有 window/webview 默认 UA 的源头，须在 whenReady 前设置。
- * 显示名含空格（社区版默认 "女娲 Nuwax"）不是合法 UA token——此时保持默认不动。
+ * 社区版 identifier=nuwaclaw 时与默认 UA 一致（无操作），保持基座中立。
  */
 {
-  const productName = APP_DISPLAY_NAME.trim();
-  const token = `${productName}/${app.getVersion()}`;
-  if (!/\s/.test(productName) && !app.userAgentFallback.includes(token)) {
+  const token = `@nuwax-ai/${APP_NAME_IDENTIFIER}/${app.getVersion()}`;
+  if (!app.userAgentFallback.includes(token)) {
     app.userAgentFallback = app.userAgentFallback.replace(
       /@\S*nuwaclaw\/[\d.]+/,
       token,
     );
   }
+  log.info(`[UA] product token: ${token}`);
 }
 
 app.whenReady().then(async () => {

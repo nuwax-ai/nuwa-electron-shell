@@ -20,6 +20,7 @@ import React, {
   forwardRef,
 } from "react";
 import { APP_DISPLAY_NAME, DEFAULT_SERVER_HOST } from "@shared/constants";
+import { Spin } from "antd";
 import { normalizeServerHost } from "../../services/core/auth";
 import { buildHomeUrl } from "../../services/utils/sessionUrl";
 import { logger } from "../../services/utils/logService";
@@ -109,6 +110,23 @@ const NuwaxHostWebview = forwardRef<
       window.electronAPI?.off(
         "nuwax:loopback-changed",
         onLoopbackChanged as any,
+      );
+    };
+  }, []);
+
+  // 企业登录切换业务域名（main 桥 auth:configureServerHost）：重解析 webview
+  // URL——生产直连形态即加载新域名的 /Login（gateway 形态网关已随域重指；
+  // direct 场景 loopback-changed 不会触发，需独立监听本事件）。
+  useEffect(() => {
+    const onServerHostChanged = () => setUrl("");
+    window.electronAPI?.on(
+      "nuwax:serverHostChanged",
+      onServerHostChanged as any,
+    );
+    return () => {
+      window.electronAPI?.off(
+        "nuwax:serverHostChanged",
+        onServerHostChanged as any,
       );
     };
   }, []);
@@ -220,6 +238,14 @@ const NuwaxHostWebview = forwardRef<
         overflow: "hidden",
       }}
     >
+      {/* URL 重解析期（启动/企业切换域名瞬间）webview 尚无 src——以应用图标
+          居中兜底，避免空白闪烁。 */}
+      {!url && (
+        <div className="app-loading">
+          <img src="/icon.png" alt="" className="app-loading-icon" />
+          <Spin size="large" />
+        </div>
+      )}
       <webview
         ref={webviewRef as any}
         src={url}

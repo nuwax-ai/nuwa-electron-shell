@@ -22,7 +22,6 @@ import {
 } from "@ant-design/icons";
 import { setupService } from "../../services/core/setup";
 import SetupDependenciesTest from "./SetupDependenciesTest";
-import SetupWizardTest from "./SetupWizardTest";
 
 export default function DevToolsPanel() {
   const [storeData, setStoreData] = useState<Record<string, unknown> | null>(
@@ -30,7 +29,6 @@ export default function DevToolsPanel() {
   );
   const [storeModalVisible, setStoreModalVisible] = useState(false);
   const [setupDepsTestVisible, setSetupDepsTestVisible] = useState(false);
-  const [setupWizardTestVisible, setSetupWizardTestVisible] = useState(false);
 
   // 重置初始化
   const handleResetSetup = async () => {
@@ -278,7 +276,7 @@ export default function DevToolsPanel() {
             overflow: "hidden",
           }}
         >
-          <div style={{ ...rowStyle }}>
+          <div style={{ ...rowStyle, borderBottom: "none" }}>
             <div>
               <div style={{ fontSize: 13, color: "#18181b" }}>
                 {"Setup Dependencies Wizard"}
@@ -291,24 +289,6 @@ export default function DevToolsPanel() {
               size="small"
               icon={<ExperimentOutlined />}
               onClick={() => setSetupDepsTestVisible(true)}
-            >
-              {"Test"}
-            </Button>
-          </div>
-          <div style={{ ...rowStyle, borderBottom: "none" }}>
-            <div>
-              <div style={{ fontSize: 13, color: "#18181b" }}>
-                {"Full Initialization Flow"}
-              </div>
-              <div style={{ fontSize: 11, color: "#a1a1aa", marginTop: 1 }}>
-                {"Test full flow: deps install + config + login"}
-              </div>
-            </div>
-            <Button
-              size="small"
-              type="primary"
-              icon={<ExperimentOutlined />}
-              onClick={() => setSetupWizardTestVisible(true)}
             >
               {"Test"}
             </Button>
@@ -332,24 +312,6 @@ export default function DevToolsPanel() {
         }}
       >
         <SetupDependenciesTest />
-      </Modal>
-
-      {/* SetupWizardTest 测试弹窗 */}
-      <Modal
-        title={"Setup Wizard Full Flow Test"}
-        open={setupWizardTestVisible}
-        onCancel={() => setSetupWizardTestVisible(false)}
-        footer={null}
-        width={800}
-        styles={{
-          body: {
-            maxHeight: "80vh",
-            overflow: "auto",
-            padding: 0,
-          },
-        }}
-      >
-        <SetupWizardTest />
       </Modal>
     </div>
   );
