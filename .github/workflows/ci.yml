@@ -1,5 +1,5 @@
 # 基座测试 CI：全量 vitest（社区默认值基线）
-# 发布编排不在本仓——构建/签名/上传在产品壳（nuwaclaw / nuwa-work）仓库。
+# 发布编排不在本仓——构建/签名/上传在产品壳（nuwaclaw / nuwax-client）仓库。
 name: CI (tests)
 
 on:

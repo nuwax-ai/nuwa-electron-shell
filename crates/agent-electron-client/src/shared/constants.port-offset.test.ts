@@ -1,7 +1,7 @@
 /**
  * 单元测试: constants 端口偏移注入（NUWAX_PORT_OFFSET）
  *
- * 商业版构建（nuwa-work 壳）注入 NUWAX_PORT_OFFSET=1000 → 19099/61002~61009/61173，
+ * 商业版构建（nuwax-client 壳）注入 NUWAX_PORT_OFFSET=1000 → 19099/61002~61009/61173，
  * 与社区版（60xxx/18099）、nuwa-cli（60015/60016/10076）三方错开；
  * 不注入时全部回落社区默认值。构建期 define 的运行时等价物。
  */

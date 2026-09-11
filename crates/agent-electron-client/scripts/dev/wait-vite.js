@@ -2,7 +2,7 @@
 /**
  * dev:electron 前置：等待 vite dev server 就绪。
  * 端口跟随 NUWAX_PORT_OFFSET（与 vite.config server.port 同式）：
- * 社区 dev（offset=0）等 60173；商业 dev（nuwa-work in-base 注入 1000）等 61173。
+ * 社区 dev（offset=0）等 60173；商业 dev（nuwax-client in-base 注入 1000）等 61173。
  */
 const waitOn = require('wait-on');
 

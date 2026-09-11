@@ -32,7 +32,7 @@ import {
 
 // ==================== OSS latest.json ====================
 
-// 更新通道根（nuwa-work 商业版构建时经 NUWAX_UPDATE_FEED_BASE 覆盖，构建期注入；见 constants.ts 品牌注入说明）
+// 更新通道根（nuwax-client 商业版构建时经 NUWAX_UPDATE_FEED_BASE 覆盖，构建期注入；见 constants.ts 品牌注入说明）
 const NUWAX_UPDATE_FEED_BASE_ENV =
   typeof process !== "undefined"
     ? process.env.NUWAX_UPDATE_FEED_BASE
