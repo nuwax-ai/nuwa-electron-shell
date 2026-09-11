@@ -1607,7 +1607,15 @@ function App() {
                 // 服务状态指示器：非绿色（有服务 error→红 / 未全跑→橙）时渲染颜色点，
                 // 点击打开设置弹窗并落到 client tab（服务列表页）；全绿或未知（空）不渲染。
                 services.length > 0 && !services.every((s) => s.running) ? (
-                  <Tooltip title="服务状态异常，点击查看" mouseEnterDelay={0.7}>
+                  <Tooltip
+                    title={
+                      // 登录态拼入本机电脑名作设备标识（username 常拿不到，见上方 computerName 注释）
+                      isAuthLoggedIn && computerName
+                        ? `${computerName} · 服务状态异常，点击查看`
+                        : "服务状态异常，点击查看"
+                    }
+                    mouseEnterDelay={0.7}
+                  >
                     <Button
                       type="text"
                       size="small"
