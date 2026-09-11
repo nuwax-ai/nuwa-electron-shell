@@ -20,6 +20,58 @@ const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const dryRun = process.argv.includes('--dry-run');
 
 /**
+ * Phase 3：resources/ 符号链接清洗——打包前兜底，保证进 electron-builder 产物
+ * 的 resources/ 内不存在「绝对路径」或「悬空」（目标缺失/越出子树）的符号链接。
+ * 背景：各资源目录的 node_modules 由 CI 全新 npm install 生成，不同环境的 npm
+ * 产生的 .bin 链接形态不同（绝对/悬空），macOS codesign --verify --deep --strict
+ * 遇到即报 invalid (destination for) symbolic link in bundle，整个 mac 构建失败
+ * （v1.0.0–v1.0.3 三连挂的根因族）。相对且可解析的链接（如 macOS framework 的
+ * Versions/Current）不受影响。
+ */
+const fs = require('fs');
+
+function sanitizeSymlinks(dir) {
+  let removed = 0;
+  const walk = (current) => {
+    let entries;
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const full = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+      } else if (entry.isSymbolicLink()) {
+        let target;
+        try {
+          target = fs.readlinkSync(full);
+        } catch {
+          continue;
+        }
+        const isAbsolute = path.isAbsolute(target);
+        const resolves = !isAbsolute && fs.existsSync(full);
+        if (isAbsolute || !resolves) {
+          console.warn(
+            `[prepare-all] 移除非法符号链接: ${path.relative(projectRoot, full)} -> ${target}`,
+          );
+          try {
+            fs.unlinkSync(full);
+            removed++;
+          } catch (err) {
+            console.warn(`[prepare-all] 移除失败(忽略): ${err.message}`);
+          }
+        }
+      }
+    }
+  };
+  walk(dir);
+  return removed;
+}
+
+
+/**
  * 执行单个 npm script，返回 Promise<{ name, code }>
  */
 function runScript(name) {
@@ -144,6 +196,13 @@ async function main() {
   if (r2.code !== 0) {
     console.error('[prepare-all] Phase 2 有脚本失败');
     process.exit(1);
+  }
+
+  // Phase 3: 符号链接清洗（打包前兜底，见函数头注释）
+  if (!dryRun) {
+    const resourcesDir = path.join(projectRoot, 'resources');
+    const removed = sanitizeSymlinks(resourcesDir);
+    console.log(`[prepare-all] Phase 3: 符号链接清洗完成，移除 ${removed} 个非法链接`);
   }
 
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
