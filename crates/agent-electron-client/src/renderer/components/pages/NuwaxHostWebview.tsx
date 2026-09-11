@@ -62,11 +62,20 @@ const NuwaxHostWebview = forwardRef<
   const [ua, setUa] = useState<string | undefined>();
   const webviewRef = useRef<HTMLElement | null>(null);
 
-  // 自定义 UA：保留 女娲 Nuwax/<version> 标识，便于 nuwax 侧识别客户端环境
+  // 自定义 UA：保留产品/<version> 标识，便于 nuwax 侧识别客户端环境。
+  // 主进程可能已把默认 UA 的 @nuwax-ai/nuwaclaw/<ver> 替换为产品名——追加前
+  // 查重，避免同一 token 出现两次（社区版含空格名走此追加路径不变）
   useEffect(() => {
     window.electronAPI?.app
       .getVersion()
-      .then((v) => setUa(`${navigator.userAgent} ${APP_DISPLAY_NAME}/${v}`))
+      .then((v) => {
+        const token = `${APP_DISPLAY_NAME}/${v}`;
+        const next = navigator.userAgent.includes(token)
+          ? navigator.userAgent
+          : `${navigator.userAgent} ${token}`;
+        setUa(next);
+        logger.info(`webview UA: ${next}`, "NuwaxHostWebview");
+      })
       .catch(() => {});
   }, []);
 
