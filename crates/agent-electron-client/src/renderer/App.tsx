@@ -397,6 +397,10 @@ function App() {
       .catch(() => {});
   }, []);
 
+  // webview 登录态镜像：restartAllServices 为空依赖 callback（经 ref 供事件
+  // 监听调用），内部判断 reg 失败是否需要提示时读 ref，避免闭包过期。
+  const isAuthLoggedInRef = useRef(false);
+
   /**
    * 重启所有服务（使新安装的依赖/二进制生效）。
    * restartAll 内部已包含停止逻辑，无需额外调用 stopAll。
@@ -408,7 +412,12 @@ function App() {
     try {
       // 先 reg 拿最新 serverHost/serverPort 写入配置，成功后再重启服务。
       // reg 失败（网络不通/token 过期）时中止重启，并弹出通知让用户手动重试。
-      await syncConfigToServer({ suppressToast: true });
+      // 注意 syncConfigToServer 内部已 catch 返回 null 不抛错：webview 已登录
+      // 但注册未完成（如首登注册被后端拦截）时在此明示，避免静默失败。
+      const regResult = await syncConfigToServer({ suppressToast: true });
+      if (!regResult && isAuthLoggedInRef.current) {
+        message.warning(t("Claw.Client.regSyncFailed"));
+      }
     } catch (e) {
       console.error("[App] Reg sync failed, aborting service restart:", e);
       const notifKey = "restartRegFailed";
@@ -504,6 +513,10 @@ function App() {
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   /** 是否已登录（有 config_key）；未登录时不展示平台切换 */
   const [isAuthLoggedIn, setIsAuthLoggedIn] = useState(false);
+  // 保持 isAuthLoggedInRef 与 state 同步（restartAllServices 空依赖闭包读 ref）
+  useEffect(() => {
+    isAuthLoggedInRef.current = isAuthLoggedIn;
+  }, [isAuthLoggedIn]);
   const [username, setUsername] = useState<string>("");
   // 本机电脑名（主机名）。登录统一到 nuwax webview 后，nuwaclaw 侧 username（来自 configKey）
   // 常拿不到，顶栏已登录态用它替代抽象的「已登录」文案，作为这台设备的标识。
