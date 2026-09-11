@@ -23,10 +23,10 @@ import { getAppDataDir } from "./appPaths";
 /** nuwaxcode 下载版本（与 dependencyChecker required 清单 installVersion 对齐）。 */
 const NUWAXCODE_VERSION = "1.17.5";
 
-/** 依赖下载基址：OSS 依赖通道（产物由发版流程上传）。 */
+/** 依赖下载基址：OSS 依赖通道（产物须上传至 nuwax-electron/deps，随商业更新通道改名 2026-09-11）。 */
 const DEPS_DOWNLOAD_BASE =
   process.env.NUWAX_DEPS_DOWNLOAD_BASE?.trim() ||
-  "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/nuwawork-electron/deps";
+  "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/nuwax-electron/deps";
 
 function platformKey(): string {
   const map: Record<string, string> = {
