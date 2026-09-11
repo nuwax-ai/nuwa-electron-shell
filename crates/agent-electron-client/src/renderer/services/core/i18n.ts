@@ -27,7 +27,12 @@ export interface I18nLangDto {
 
 // ========== 常量 ==========
 
-const DEFAULT_I18N_LANG = "en-us";
+/**
+ * 产品默认语言：简体中文。
+ * 语义=无持久化用户选择时的默认值，**优先于系统语言**（不再跟随 navigator.language）；
+ * 用户在设置页显式选择、或 webview 多语言同步（nuwax:lang-changed）后以该值为准。
+ */
+const DEFAULT_I18N_LANG = "zh-cn";
 
 const I18N_STORAGE_KEYS = {
   ACTIVE_LANG: "i18n.active_lang",
@@ -87,7 +92,7 @@ const getLocalBaseMap = (lang: string): SystemLangMap => {
 // ========== 状态 ==========
 
 let currentLang = DEFAULT_I18N_LANG;
-let langMap: SystemLangMap = { ...(enUS as SystemLangMap) };
+let langMap: SystemLangMap = { ...(zhCN as SystemLangMap) };
 let isCurrentLangSupported_ = true;
 let zhBaseMap: SystemLangMap = { ...(zhCN as SystemLangMap) };
 let zhValueToKeyMap: Record<string, string> = {};
@@ -167,12 +172,11 @@ const formatText = (template: string, values: I18nValues): string => {
 
 // ========== Electron Settings 存储 ==========
 
-const getBrowserLang = (): string => {
-  if (typeof navigator === "undefined") {
-    return DEFAULT_I18N_LANG;
-  }
-  return normalizeLang(navigator.language);
-};
+/**
+ * 解析「无持久化用户选择」时的默认语言：一律产品默认（简体中文），
+ * 不跟随 navigator.language（用户要求：默认优先简体中文）。
+ */
+const getDefaultLang = (): string => DEFAULT_I18N_LANG;
 
 const readFromSettings = async (key: string): Promise<string | null> => {
   try {
@@ -321,7 +325,7 @@ export const getCurrentLangMap = (): SystemLangMap => ({ ...langMap });
 export const isCurrentLangSupported = (): boolean => isCurrentLangSupported_;
 
 export const setCurrentLang = async (lang?: string | null): Promise<void> => {
-  const resolvedLang = normalizeLang(lang || getBrowserLang());
+  const resolvedLang = normalizeLang(lang || getDefaultLang());
   currentLang = resolvedLang;
   isCurrentLangSupported_ = isLocaleSupported(resolvedLang);
 
@@ -337,7 +341,8 @@ export const initI18n = (): Promise<void> => {
 
 const _doInitI18n = async (): Promise<void> => {
   const cachedLang = await readLangFromCache();
-  const resolvedLang = normalizeLang(cachedLang || getBrowserLang());
+  // 无持久化选择 → 产品默认（简体中文），不跟随系统语言
+  const resolvedLang = normalizeLang(cachedLang || getDefaultLang());
   const forceRefreshLang = await readForceRefreshLangOnInit();
   const shouldForceRefresh = forceRefreshLang === resolvedLang;
   if (forceRefreshLang) {
