@@ -552,7 +552,7 @@ async function cleanupAllProcesses(): Promise<void> {
 
 /**
  * 产品 UA 标识：默认 UA 里的 `@nuwax-ai/nuwaclaw/<ver>`（package name/version）
- * 对外暴露内部包名，替换为产品显示名（商业版 env 注入 NuwaWork）。
+ * 对外暴露内部包名，替换为产品显示名（商业版 env 注入 Nuwax）。
  * userAgentFallback 是所有 window/webview 默认 UA 的源头，须在 whenReady 前设置。
  * 显示名含空格（社区版默认 "女娲 Nuwax"）不是合法 UA token——此时保持默认不动。
  */
@@ -628,7 +628,7 @@ app.whenReady().then(async () => {
         callback({ requestHeaders: details.requestHeaders });
         return;
       }
-      // 客户端标识头值跟随构建期注入的产品标识（nuwaclaw=社区版 / nuwawork=商业版），
+      // 客户端标识头值跟随构建期注入的产品标识（nuwaclaw=社区版 / nuwax=商业版，2026-09 前为 nuwawork），
       // nuwax 后端凭该头区分宿主产品并在登录响应返回 token。
       details.requestHeaders["x-client-type"] = APP_NAME_IDENTIFIER;
       callback({ requestHeaders: details.requestHeaders });

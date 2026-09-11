@@ -27,7 +27,7 @@ export interface NuwaClawBridgeNative {
 }
 
 export interface NuwaClawBridgeHost {
-  /** 宿主产品标识：nuwaclaw（社区版）/ nuwawork（商业版）。构建期注入，非 IPC。 */
+  /** 宿主产品标识：nuwaclaw（社区版）/ nuwax（商业版；存量宿主可能返回历史值 nuwawork）。构建期注入，非 IPC。 */
   getProduct(): string;
 }
 

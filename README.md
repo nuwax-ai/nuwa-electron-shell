@@ -11,10 +11,10 @@ Windows 沙箱 helper、根 Makefile sidecar 准备全家桶、约 1585 个测�
 |---|---|---|
 | nuwa-cli | [nuwax-ai/nuwa-cli] | 经 npm 依赖 `@nuwax-ai/agent-kit`（不引用 Electron 客户端） |
 | 社区版 NuwaClaw | [nuwax-ai/nuwaclaw](https://github.com/nuwax-ai/nuwaclaw) | 不注入（默认值即社区版；已冻结停更） |
-| 商业版 女娲 Nuwax | [nuwax-ai/nuwa-work](https://github.com/nuwax-ai/nuwa-work) | 4 个 env 注入（见下）+ `overlay/` 商业自有代码 + 自持 nuwax 前端 pin |
+| 商业版 Nuwax（营销名 女娲Nuwax） | [nuwax-ai/nuwa-work](https://github.com/nuwax-ai/nuwa-work) | 4 个 env 注入（见下）+ `overlay/` 商业自有代码 + 自持 nuwax 前端 pin |
 
 商业专属实现（nuwax 前端本地化承载 loopbackGateway、桥 auth 登录态同步、
-设置商业区块等）自 2026-09-09 起移出本仓，由 NuwaWork 壳经 overlay 文件覆写注入
+设置商业区块等）自 2026-09-09 起移出本仓，由 Nuwax 壳经 overlay 文件覆写注入
 （插槽契约见 `MODULES.md` D 节与 `services/loopbackGateway/index.ts` 头注）。
 
 ## 注入契约（产品差异的全部边界）
@@ -23,21 +23,22 @@ Windows 沙箱 helper、根 Makefile sidecar 准备全家桶、约 1585 个测�
 机制单点在 `crates/agent-electron-client/src/shared/constants.ts` 与
 `src/main/services/autoUpdater.ts`；**不注入 = 社区版行为**）：
 
-| env | 默认（社区版） | 商业版（NuwaWork）取值 |
+| env | 默认（社区版） | 商业版（Nuwax 壳）取值 |
 |---|---|---|
-| `NUWAX_APP_IDENTIFIER` | `nuwaclaw`（数据目录 ~/.nuwaclaw） | `nuwawork`（~/.nuwawork，首启自动迁移） |
-| `NUWAX_APP_DISPLAY_NAME` | `女娲 Nuwax` | `女娲 Nuwax` |
+| `NUWAX_APP_IDENTIFIER` | `nuwaclaw`（数据目录 ~/.nuwaclaw） | `nuwax`（~/.nuwax；Nuwax 壳经 overlay 覆写 migrate.ts 阻断历史目录迁移，全新开始） |
+| `NUWAX_APP_DISPLAY_NAME` | `女娲 Nuwax` | `Nuwax`（ASCII——UA token=Nuwax/\<ver\>、关于页等；营销名女娲Nuwax 不进客户端） |
 | `NUWAX_PORT_OFFSET` | `0`（18099/60002~60009/60173） | `1000`（整体 +1000，同机双开错开） |
-| `NUWAX_UPDATE_FEED_BASE` | `...aliyuncs.com/nuwaclaw-electron` | `...aliyuncs.com/nuwawork-electron` |
+| `NUWAX_UPDATE_FEED_BASE` | `...aliyuncs.com/nuwaclaw-electron` | `...aliyuncs.com/nuwax-electron` |
 
 行为锁定测试：`crates/agent-electron-client/src/main/bootstrap/migrate.commercial.test.ts`、
 `src/shared/constants.port-offset.test.ts`。产品专属逻辑只允许读注入后的常量，
 禁止新增硬编码身份分支。
 
 env 之外还有一层 **CI 产物身份**（产品壳 workflow 运行时 `npm pkg set` 覆写，非 env）：
-NuwaWork 壳为 `productName=NuwaWork`、`appId=com.nuwax-ai.nuwawork`；产物文件名
-一律 ASCII（`NuwaWork-Setup-*.exe` 等），"女娲 Nuwax"仅出现在
-CFBundleDisplayName / CFBundleName 与运行时展示。
+Nuwax 壳为 `productName=Nuwax`（build 与顶层——顶层供 Electron `app.getName()`/
+userData 目录名）、`appId=com.nuwax-ai.nuwax`；产物文件名与客户端展示名一律
+ASCII（`Nuwax-Setup-*.exe` 等、UA token=Nuwax/\<ver\>）；营销名「女娲Nuwax」
+只出现在产品壳 README 与发布文案。
 
 ## 目录速览
 
@@ -47,7 +48,7 @@ CFBundleDisplayName / CFBundleName 与运行时展示。
 | `crates/agent-kit` | `@nuwax-ai/agent-kit` npm 包（nuwa-cli/客户端共享 ACP 原语，独立发布） |
 | `crates/agent-gui-server` | GUI Agent MCP server（截屏+键鼠自动化） |
 | `crates/windows-sandbox-helper` | Windows Restricted Token 沙箱 helper（Rust） |
-| `nuwax/` | （已移除）前端 pin 归产品壳——如 NuwaWork 壳根 `nuwax/` 子模块；基座 dev 经 `NUWAX_FRONTEND_DIST` env 接 dist |
+| `nuwax/` | （已移除）前端 pin 归产品壳——如 Nuwax 壳根 `nuwax/` 子模块；基座 dev 经 `NUWAX_FRONTEND_DIST` env 接 dist |
 | `scripts/`、`Makefile` | sidecar 下载/准备（uv、node、git、ripgrep、nuwaxcode 等） |
 
 ## 本地开发
@@ -67,7 +68,7 @@ npm run test:electron                          # 全量 vitest（社区默认值
   https://github.com/nuwax-ai/nuwa-electron-shell.git`（本地惯例放
   `~/workspace/nuwa-electron-shell`，与 nuwax/nuwa-work/nuwaclaw 同级）即可
   install/test/dev（基座 webview 按配置域名直连线上；如需本地 dist 形态联调，
-  设 `NUWAX_FRONTEND_DIST=<dist 目录>` 并同步 NuwaWork 壳 overlay 后运行）。
+  设 `NUWAX_FRONTEND_DIST=<dist 目录>` 并同步 Nuwax 壳 overlay 后运行）。
   产品壳内的 submodule 副本仅用于 pin 与构建，日常改动在本仓直接提交推送，
   壳按需 bump pin。
 - 功能模块的粒度、边界与接入方式见 **[MODULES.md](./MODULES.md)**（独立包 /

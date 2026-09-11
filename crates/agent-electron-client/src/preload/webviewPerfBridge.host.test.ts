@@ -3,9 +3,9 @@
  *
  * 锁定契约：
  * 1. 桥上暴露 host.getProduct()，返回值 = APP_NAME_IDENTIFIER（构建期 define 注入），
- *    nuwax 前端凭此区分宿主是 nuwaclaw（社区版）还是 nuwawork（商业版）。
+ *    nuwax 前端凭此区分宿主是 nuwaclaw（社区版）还是 nuwax（商业版）。
  * 2. 测试进程不注入 NUWAX_APP_IDENTIFIER → 社区版缺省 "nuwaclaw"；
- *    商业版构建（nuwawork）时 define 联动，同一断言自动跟随。
+ *    商业版构建（nuwax）时 define 联动，同一断言自动跟随。
  */
 
 import { describe, it, expect, vi } from "vitest";

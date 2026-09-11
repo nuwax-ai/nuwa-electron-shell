@@ -11,7 +11,6 @@ import * as fs from "fs";
 import { execSync } from "child_process";
 import log from "electron-log";
 import type { HandlerContext } from "@shared/types/ipc";
-import { APP_NAME_IDENTIFIER } from "@shared/constants";
 import { LATEST_LOG_BASENAME } from "../bootstrap/logConfig";
 import {
   checkForUpdates,
@@ -257,11 +256,8 @@ export function registerAppHandlers(ctx: HandlerContext): void {
         isPackaged: app.isPackaged,
         appVersion: app.getVersion(),
         // dev 下 app.getName() 读 crate package.json name（@nuwax-ai/nuwaclaw）；
-        // 商业构建按注入身份显示 @nuwax-ai/nuwa-work
-        appName:
-          APP_NAME_IDENTIFIER === "nuwawork"
-            ? "@nuwax-ai/nuwa-work"
-            : app.getName(),
+        // 商业构建由产品壳 CI 覆写顶层 productName（如 Nuwax 壳），app.getName() 优先读它
+        appName: app.getName(),
         appPath: app.getAppPath(),
         exePath: app.getPath("exe"),
         installerType,
