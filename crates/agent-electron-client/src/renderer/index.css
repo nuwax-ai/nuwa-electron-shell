@@ -11,32 +11,32 @@
   --color-primary-hover: #27272a;
   --color-primary-active: #3f3f46;
   --color-success: #16a34a;
-  --color-error: #EF4444;
-  --color-warning: #F59E0B;
-  --color-info: #3B82F6;
+  --color-error: #ef4444;
+  --color-warning: #f59e0b;
+  --color-info: #3b82f6;
   --color-success-bg: #f0fdf4;
   --color-error-bg: #fef2f2;
   --color-warning-bg: #fffbeb;
 
-  --color-bg-layout: #F8F9FA;
+  --color-bg-layout: #f8f9fa;
   --color-bg-container: #ffffff;
   --color-bg-elevated: #ffffff;
   --color-bg-header: #ffffff;
   --color-bg-sider: #ffffff;
   --color-bg-section: #ffffff;
-  --color-bg-section-header: #F9FAFB;
+  --color-bg-section-header: #f9fafb;
 
-  --color-border: #E5E7EB;
-  --color-border-secondary: #F3F4F6;
+  --color-border: #e5e7eb;
+  --color-border-secondary: #f3f4f6;
 
   --color-text: #18181b;
-  --color-text-secondary: #6B7280;
-  --color-text-tertiary: #9CA3AF;
-  --color-text-quaternary: #D1D5DB;
+  --color-text-secondary: #6b7280;
+  --color-text-tertiary: #9ca3af;
+  --color-text-quaternary: #d1d5db;
 
-  --color-icon: #6B7280;
-  --color-divider: #F3F4F6;
-  --color-bg-hover: #F3F4F6;
+  --color-icon: #6b7280;
+  --color-divider: #f3f4f6;
+  --color-bg-hover: #f3f4f6;
 
   --border-radius: 8px;
   --border-radius-lg: 10px;
@@ -49,9 +49,9 @@
   --color-primary-hover: #e4e4e7;
   --color-primary-active: #d4d4d8;
   --color-success: #22c55e;
-  --color-error: #EF4444;
-  --color-warning: #F59E0B;
-  --color-info: #3B82F6;
+  --color-error: #ef4444;
+  --color-warning: #f59e0b;
+  --color-info: #3b82f6;
   --color-success-bg: #052e16;
   --color-error-bg: #450a0a;
   --color-warning-bg: #422006;
@@ -106,7 +106,9 @@ body {
   font-size: 13px;
   line-height: 1.5;
   background: var(--color-bg-layout);
-  transition: background-color 0.2s ease, color 0.2s ease;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
 }
 
 /* ========== 布局 ========== */
@@ -164,7 +166,9 @@ body {
   border-radius: 10px;
   line-height: 18px;
   white-space: nowrap;
-  transition: opacity 0.2s, transform 0.15s;
+  transition:
+    opacity 0.2s,
+    transform 0.15s;
 }
 
 .app-header-update-tag[role="button"] {
@@ -219,7 +223,7 @@ body {
 }
 
 .app-sider .ant-menu {
-  border-inline-end:none !important;
+  border-inline-end: none !important;
 }
 
 .app-content {
@@ -254,7 +258,9 @@ body {
   background: transparent;
   /* 文字色走变量：暗色主题/女娲米白下均随壳主题 */
   color: var(--color-text-secondary, #555);
-  transition: background-color 0.15s ease, color 0.15s ease;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
 }
 
 /* 关闭键默认与其他两键同色（不标红），仅 hover 时换 Windows 惯例红底白字 */
@@ -265,14 +271,14 @@ body {
   background: rgba(0, 0, 0, 0.09);
 }
 
-[data-theme='dark'] .toolbar-ctrl-btn:hover {
+[data-theme="dark"] .toolbar-ctrl-btn:hover {
   background: rgba(255, 255, 255, 0.12);
 }
 
 /* 关闭键 hover 沿用 Windows 惯例红底白字（亮/暗主题一致；
    暗色选择器一并列出以盖过上方 [data-theme='dark'] 叠层规则） */
 .toolbar-ctrl-btn--danger:hover,
-[data-theme='dark'] .toolbar-ctrl-btn--danger:hover {
+[data-theme="dark"] .toolbar-ctrl-btn--danger:hover {
   background: #e81123;
   color: #fff;
 }
@@ -297,11 +303,11 @@ body {
   background: rgba(0, 0, 0, 0.06);
 }
 
-[data-theme='dark'] .topbar-menu-btn {
+[data-theme="dark"] .topbar-menu-btn {
   color: var(--color-text, rgba(255, 255, 255, 0.85));
 }
 
-[data-theme='dark'] .topbar-menu-btn:hover {
+[data-theme="dark"] .topbar-menu-btn:hover {
   background: rgba(255, 255, 255, 0.1);
 }
 
@@ -384,14 +390,14 @@ body {
 
 /* ========== 卡片 ========== */
 .ant-card {
-  border: 1px solid #E5E7EB;
+  border: 1px solid #e5e7eb;
   border-radius: 10px;
 }
 
 .ant-card-head {
   min-height: auto;
   padding: 10px 16px;
-  border-bottom: 1px solid #F3F4F6;
+  border-bottom: 1px solid #f3f4f6;
   font-size: 13px;
 }
 
@@ -433,46 +439,46 @@ body {
 
 .ant-tag-error,
 .ant-tag-red {
-  background: #FEF2F2;
-  color: #EF4444;
-  border-color: #FEE2E2;
+  background: #fef2f2;
+  color: #ef4444;
+  border-color: #fee2e2;
 }
 
 .ant-tag-warning,
 .ant-tag-orange {
-  background: #FFFBEB;
-  color: #D97706;
-  border-color: #FEF3C7;
+  background: #fffbeb;
+  color: #d97706;
+  border-color: #fef3c7;
 }
 
 .ant-tag-processing {
-  background: #F3F4F6;
-  color: #6B7280;
-  border-color: #E5E7EB;
+  background: #f3f4f6;
+  color: #6b7280;
+  border-color: #e5e7eb;
 }
 
 .ant-tag-default {
-  background: #F3F4F6;
-  color: #6B7280;
-  border-color: #E5E7EB;
+  background: #f3f4f6;
+  color: #6b7280;
+  border-color: #e5e7eb;
 }
 
 .ant-tag-blue {
-  background: #EFF6FF;
-  color: #2563EB;
-  border-color: #DBEAFE;
+  background: #eff6ff;
+  color: #2563eb;
+  border-color: #dbeafe;
 }
 
 .ant-tag-purple {
-  background: #F5F3FF;
-  color: #7C3AED;
-  border-color: #EDE9FE;
+  background: #f5f3ff;
+  color: #7c3aed;
+  border-color: #ede9fe;
 }
 
 .ant-tag-cyan {
-  background: #ECFEFF;
-  color: #0891B2;
-  border-color: #CFFAFE;
+  background: #ecfeff;
+  color: #0891b2;
+  border-color: #cffafe;
 }
 
 /* ========== 输入框 ========== */
@@ -480,7 +486,7 @@ body {
 .ant-input-affix-wrapper,
 .ant-input-number {
   border-radius: 8px;
-  border-color: #E5E7EB;
+  border-color: #e5e7eb;
 }
 
 .ant-input:focus,
@@ -495,18 +501,18 @@ body {
 .ant-input:hover,
 .ant-input-affix-wrapper:hover,
 .ant-input-number:hover {
-  border-color: #D1D5DB;
+  border-color: #d1d5db;
 }
 
 .ant-input::placeholder {
-  color: #9CA3AF;
+  color: #9ca3af;
 }
 
 /* ========== 表单 ========== */
 .ant-form-item-label > label {
   font-weight: 500;
   font-size: 12px;
-  color: #6B7280;
+  color: #6b7280;
 }
 
 .ant-form-item {
@@ -528,7 +534,7 @@ body {
 
 .ant-list-item-meta-description {
   font-size: 12px;
-  color: #6B7280;
+  color: #6b7280;
 }
 
 /* ========== 警告框 - 更柔和 ========== */
@@ -545,18 +551,18 @@ body {
 }
 
 .ant-alert-warning {
-  background: #FFFBEB;
-  border-color: #FEF3C7;
+  background: #fffbeb;
+  border-color: #fef3c7;
 }
 
 .ant-alert-error {
-  background: #FEF2F2;
-  border-color: #FEE2E2;
+  background: #fef2f2;
+  border-color: #fee2e2;
 }
 
 .ant-alert-info {
-  background: #F9FAFB;
-  border-color: #E5E7EB;
+  background: #f9fafb;
+  border-color: #e5e7eb;
 }
 
 .ant-alert-message {
@@ -596,7 +602,7 @@ body {
 /* ========== 进度条 ========== */
 .ant-progress-text {
   font-size: 11px;
-  color: #6B7280;
+  color: #6b7280;
 }
 
 /* ========== Tabs ========== */
@@ -630,18 +636,18 @@ body {
 
 .ant-modal-footer {
   padding: 12px 20px 16px;
-  border-top: 1px solid #F3F4F6;
+  border-top: 1px solid #f3f4f6;
 }
 
 /* ========== 徽章 ========== */
 .ant-badge-status-text {
   font-size: 12px;
-  color: #6B7280;
+  color: #6b7280;
 }
 
 /* ========== Divider ========== */
 .ant-divider {
-  border-color: #F3F4F6;
+  border-color: #f3f4f6;
   margin: 12px 0;
 }
 
@@ -673,7 +679,7 @@ body {
   justify-content: center;
   height: 100vh;
   width: 100vw;
-  background: #F8F9FA;
+  background: #f8f9fa;
 }
 
 .app-loading-icon {
@@ -690,6 +696,22 @@ body {
   -webkit-user-drag: none;
 }
 
+/* 启动等待态：图标自身呼吸缩放表达加载（替代 icon 下方转圈 Spin）。
+ * 关键帧须携带定位 transform（translate(-50%,-50%)），否则动画会覆盖居中。 */
+@keyframes app-loading-breathe {
+  0%,
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.08);
+  }
+}
+
+.app-loading-icon--pulse {
+  animation: app-loading-breathe 1.6s ease-in-out infinite;
+}
+
 /* 图标下方辅助层：top = 中心 + 图标半高(44) + 间距(24) */
 .app-loading-body {
   position: absolute;
@@ -703,7 +725,7 @@ body {
 
 .app-loading-text {
   margin-top: 16px;
-  color: #6B7280;
+  color: #6b7280;
   font-size: 13px;
 }
 
@@ -728,7 +750,7 @@ body {
 
 .page-subtitle {
   font-size: 12px;
-  color: #6B7280;
+  color: #6b7280;
   margin-top: 2px;
 }
 
@@ -738,7 +760,7 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: 8px 0;
-  border-bottom: 1px solid #F3F4F6;
+  border-bottom: 1px solid #f3f4f6;
 }
 
 .status-row:last-child {
@@ -774,7 +796,7 @@ body {
 
 .info-label {
   font-size: 12px;
-  color: #6B7280;
+  color: #6b7280;
 }
 
 .info-value {
@@ -794,7 +816,7 @@ body {
 .section-title {
   font-size: 12px;
   font-weight: 500;
-  color: #6B7280;
+  color: #6b7280;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   margin-bottom: 8px;
@@ -811,7 +833,7 @@ body {
 }
 
 .message-assistant {
-  background: #F3F4F6;
+  background: #f3f4f6;
   color: #18181b;
   padding: 12px 16px;
   border-radius: 12px;
