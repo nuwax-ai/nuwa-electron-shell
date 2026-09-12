@@ -44,9 +44,13 @@ import { syncConfigToServer, normalizeServerHost } from "./services/core/auth";
 import {
   APP_DISPLAY_NAME,
   AUTH_KEYS,
+  BOOT_PROBE_TIMEOUT,
+  DEFAULT_FILE_SERVER_PORT,
   DEFAULT_SERVER_HOST,
+  MIN_SPLASH_MS,
   normalizeAgentEngine,
 } from "@shared/constants";
+import { BOOT_AT } from "./bootTiming";
 import type { QuickInitConfig } from "@shared/types/quickInit";
 import type { UpdateState } from "@shared/types/updateTypes";
 import {
@@ -192,11 +196,67 @@ async function applyQuickInitToDb(config: QuickInitConfig): Promise<void> {
   }
 }
 
+/**
+ * 启动 loading 最少展示时长。
+ *
+ * 各加载分支都由事件（setup/deps/服务门禁）驱动，事件足够快时动画会一闪而过。
+ * 以 BOOT_AT 为统一起点按「剩余时间」计时，多个分支合计展示 >= MIN_SPLASH_MS，
+ * 而不是每个分支各自重等一遍。
+ */
+function useSplashFloor(): boolean {
+  const [met, setMet] = useState(() => Date.now() - BOOT_AT >= MIN_SPLASH_MS);
+  useEffect(() => {
+    if (met) return;
+    const remaining = Math.max(0, MIN_SPLASH_MS - (Date.now() - BOOT_AT));
+    const timer = setTimeout(() => setMet(true), remaining);
+    return () => clearTimeout(timer);
+  }, [met]);
+  return met;
+}
+
+/**
+ * 启动期探询超时兜底。
+ *
+ * setup/deps 检查走 IPC：主进程 handler 若卡住，Promise 永不 settle，
+ * 首屏会永久停在 loading 且没有重试入口。超时后返回 fallback，
+ * 降级语义与各调用点既有的 catch 分支保持一致（探询不到就不阻塞进入主界面）。
+ */
+function withTimeout<T>(
+  promise: Promise<T> | undefined,
+  fallback: T,
+  label: string,
+): Promise<T> {
+  const log = createLogger("BootProbe");
+  return new Promise<T>((resolve) => {
+    const timer = setTimeout(() => {
+      log.warn(
+        `${label} timed out after ${BOOT_PROBE_TIMEOUT}ms; using fallback`,
+      );
+      resolve(fallback);
+    }, BOOT_PROBE_TIMEOUT);
+    // promise 缺失（electronAPI 未注入）直接取 fallback，与超时同一降级路径
+    if (!promise) {
+      clearTimeout(timer);
+      resolve(fallback);
+      return;
+    }
+    promise
+      .then((value) => resolve(value))
+      .catch((error) => {
+        log.warn(`${label} failed; using fallback`, error);
+        resolve(fallback);
+      })
+      .finally(() => clearTimeout(timer));
+  });
+}
+
 function App() {
   // ============================================
   // 初始化向导状态
   // ============================================
   const [isSetupComplete, setIsSetupComplete] = useState<boolean | null>(null);
+  // 启动 loading 最少展示时长（跨分支累计，见 useSplashFloor）
+  const splashFloorMet = useSplashFloor();
   // 启动服务门禁：null=等待中（大 loading）；ok:false=失败屏（可重试）；ok:true 才挂 webview
   const [servicesGate, setServicesGate] = useState<{
     ok: boolean;
@@ -575,14 +635,24 @@ function App() {
     const log = createLogger("SetupCheck");
     const checkSetup = async () => {
       try {
-        const completed = await setupService.isSetupCompleted();
+        // 探询超时兜底：setup 门控已旁路（首屏一律进 webview），
+        // 因此探不到时按「已完成」继续，避免首屏永久停在 loading。
+        const completed = await withTimeout(
+          setupService.isSetupCompleted(),
+          true,
+          "setupService.isSetupCompleted",
+        );
 
         // 每次启动优先读取 quick init 配置
         // 注意：quickInit 仍含 step1 serverHost/端口写入（NuwaxHostWebview 路由依赖）
         // 与旧 savedKey/reg 链路；后者随 Phase 3 登录统一到 nuwax webview 一并移除。
         if (completed) {
           try {
-            const qiConfig = await window.electronAPI?.quickInit.getConfig();
+            const qiConfig = await withTimeout(
+              window.electronAPI?.quickInit.getConfig(),
+              null,
+              "quickInit.getConfig",
+            );
             if (qiConfig) {
               log.info("Applying quick init config");
               await applyQuickInitToDb(qiConfig);
@@ -819,7 +889,13 @@ function App() {
 
     const checkRequiredDeps = async () => {
       try {
-        const result = await window.electronAPI?.dependencies.checkAll();
+        // 探询超时兜底：超时返回 null，走与下方 catch 相同的降级
+        // （needsRequiredDepsReinstall=false，不阻塞进入主界面）。
+        const result = await withTimeout(
+          window.electronAPI?.dependencies.checkAll(),
+          null,
+          "dependencies.checkAll",
+        );
         if (cancelled) return;
 
         const deps = result?.results ?? [];
@@ -847,7 +923,11 @@ function App() {
           setDepsSyncInProgress(true);
           // 防竞态：checkAll 返回 syncInProgress=true 但事件可能已经在 checkAll IPC 期间触发过了，
           // 再次确认主进程当前真实状态，避免 depsSyncInProgress 永远卡在 true
-          const recheck = await window.electronAPI?.dependencies.checkAll();
+          const recheck = await withTimeout(
+            window.electronAPI?.dependencies.checkAll(),
+            null,
+            "dependencies.checkAll (recheck)",
+          );
           if (cancelled) return;
           if (!recheck?.syncInProgress) {
             setDepsSyncInProgress(false);
@@ -1022,7 +1102,10 @@ function App() {
             const step1 = (await window.electronAPI?.settings.get(
               "step1_config",
             )) as { fileServerPort?: number } | null;
-            const port = step1?.fileServerPort ?? 60000;
+            // 回退值必须用聚合配置默认端口（60005+NUWAX_PORT_OFFSET），与 serviceManager /
+            // ClientPage 保持一致；此前写死 60000（社区版默认）会让商业版起在错误端口，
+            // 前端按 61005 找 file-server 时上传失败。
+            const port = step1?.fileServerPort ?? DEFAULT_FILE_SERVER_PORT;
             result = await window.electronAPI?.fileServer.start(port);
             log.info(
               `fileServer: ${result?.success ? "ok" : "failed"}`,
@@ -1483,8 +1566,10 @@ function App() {
 
   // ============================================
   // 渲染：加载中（含等待依赖检查完成）
+  // 事件就绪但未达最少展示时长时继续显示 loading，避免启动动画一闪而过。
   // ============================================
   if (
+    !splashFloorMet ||
     isSetupComplete === null ||
     (isSetupComplete && needsRequiredDepsReinstall === null)
   ) {
@@ -1492,7 +1577,7 @@ function App() {
       <I18nContext.Provider value={i18nContextValue}>
         <ConfigProvider theme={currentTheme}>
           <div className="app-loading">
-            <img src="/icon.png" alt="" className="app-loading-icon" />
+            <img src="./icon.png" alt="" className="app-loading-icon" />
             <Spin size="large" />
             <div className="app-loading-text">{t("Claw.App.Loading")}</div>
           </div>
@@ -1528,13 +1613,16 @@ function App() {
 
   // ============================================
   // 渲染：启动服务门禁——核心服务 ready 前不挂 nuwax webview
+  // 失败态优先短路（错误提示立即出现，不受最少展示时长影响）；
+  // 等待态同样并入最少展示时长。
   // ============================================
-  if (!servicesGate || !servicesGate.ok) {
+  const servicesGateFailed = !!servicesGate && !servicesGate.ok;
+  if (servicesGateFailed || !servicesGate || !splashFloorMet) {
     return (
       <I18nContext.Provider value={i18nContextValue}>
         <ConfigProvider theme={currentTheme}>
           <div className="app-loading">
-            <img src="/icon.png" alt="" className="app-loading-icon" />
+            <img src="./icon.png" alt="" className="app-loading-icon" />
             {servicesGate && !servicesGate.ok ? (
               <>
                 <div

@@ -3,6 +3,7 @@ import * as fs from "fs";
 import log from "electron-log";
 import { z } from "zod";
 import type { HandlerContext } from "@shared/types/ipc";
+import { DEFAULT_FILE_SERVER_PORT } from "@shared/constants";
 import { createServiceManager } from "../window/serviceManager";
 import { getTrayManager } from "../window/trayManager";
 import { getConfiguredPorts } from "../services/startupPorts";
@@ -358,13 +359,18 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
   });
 
   // File Server handlers
-  ipcMain.handle("fileServer:start", async (_, port: number = 60000) => {
-    const parsed = portSchema.safeParse(port);
-    if (!parsed.success) {
-      return invalidArgs("fileServer:start", parsed.error.issues);
-    }
-    return startFileServerProcess(parsed.data);
-  });
+  // 缺参回退用聚合配置默认端口（60005+NUWAX_PORT_OFFSET），与 serviceManager /
+  // ClientPage 一致；写死社区版默认 60000 会让商业版起在错误端口。
+  ipcMain.handle(
+    "fileServer:start",
+    async (_, port: number = DEFAULT_FILE_SERVER_PORT) => {
+      const parsed = portSchema.safeParse(port);
+      if (!parsed.success) {
+        return invalidArgs("fileServer:start", parsed.error.issues);
+      }
+      return startFileServerProcess(parsed.data);
+    },
+  );
 
   ipcMain.handle("fileServer:stop", async () => {
     const result = await ctx.fileServer.stopAsync(3000);

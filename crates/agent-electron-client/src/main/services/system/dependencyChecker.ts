@@ -98,9 +98,10 @@ export function getSetupRequiredDependencies(): LocalDependencyConfig[] {
       description: t(I18N_KEYS.Pages.Dependencies.DESC_FILE_SERVER),
       required: true,
       binName: "nuwax-file-server",
-      // npm 兜底通道版本须与构建期 bundled 产物（prepare:nuwax-file-server）一致
-      installVersion: "1.4.3",
-      npmFallback: { packageName: "nuwax-file-server", version: "1.4.3" },
+      // npm 兜底通道版本须与构建期 bundled 产物（prepare:nuwax-file-server）一致；
+      // bundled 取自 sources/nuwax-file-server 的 package.json（当前 1.4.4，含 fs/roots）
+      installVersion: "1.4.4",
+      npmFallback: { packageName: "nuwax-file-server", version: "1.4.4" },
     },
     {
       name: "nuwaxcode",

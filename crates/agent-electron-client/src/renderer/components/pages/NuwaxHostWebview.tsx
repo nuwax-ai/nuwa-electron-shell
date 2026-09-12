@@ -242,7 +242,7 @@ const NuwaxHostWebview = forwardRef<
           居中兜底，避免空白闪烁。 */}
       {!url && (
         <div className="app-loading">
-          <img src="/icon.png" alt="" className="app-loading-icon" />
+          <img src="./icon.png" alt="" className="app-loading-icon" />
           <Spin size="large" />
         </div>
       )}
