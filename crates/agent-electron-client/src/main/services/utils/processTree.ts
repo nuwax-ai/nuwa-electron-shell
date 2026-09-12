@@ -1,3 +1,4 @@
+import { APP_NAME_IDENTIFIER } from "@shared/constants";
 /**
  * Process tree kill utility.
  *
@@ -70,6 +71,8 @@ export async function killProcessTreeGraceful(
     } catch (e) {
       log.warn(`[processTree] SIGKILL failed for pid ${pid}:`, e);
     }
+    if (await waitForExit(pid, 1000))
+      throw new Error(`Process ${pid} remains alive after termination`);
   }
 }
 
@@ -126,6 +129,10 @@ export async function killProcessTreesListeningOnTcpPortWindows(
   port: number,
   timeoutMsPerTree = 3000,
 ): Promise<void> {
+  // 商业版只终止自己持有的进程树，不能按端口误杀同机 NuwaClaw/CLI。
+  // 端口冲突应让启动失败并呈现错误，由用户修改配置。
+  if (APP_NAME_IDENTIFIER === "nuwax") return;
+
   if (!isWindows()) {
     return;
   }
@@ -175,6 +182,10 @@ export async function killProcessTreesListeningOnTcpPortUnix(
   port: number,
   timeoutMsPerTree = 3000,
 ): Promise<void> {
+  // 商业版只终止自己持有的进程树，不能按端口误杀同机 NuwaClaw/CLI。
+  // 端口冲突应让启动失败并呈现错误，由用户修改配置。
+  if (APP_NAME_IDENTIFIER === "nuwax") return;
+
   const platformAdapter = createPlatformAdapter();
   if (platformAdapter.isWindows) {
     return;
@@ -329,6 +340,10 @@ export async function killProcessTreesListeningOnTcpPort(
   port: number,
   timeoutMsPerTree = 3000,
 ): Promise<void> {
+  // 商业版只终止自己持有的进程树，不能按端口误杀同机 NuwaClaw/CLI。
+  // 端口冲突应让启动失败并呈现错误，由用户修改配置。
+  if (APP_NAME_IDENTIFIER === "nuwax") return;
+
   if (isWindows()) {
     return killProcessTreesListeningOnTcpPortWindows(port, timeoutMsPerTree);
   }

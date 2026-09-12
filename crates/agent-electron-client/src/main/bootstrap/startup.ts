@@ -1,3 +1,4 @@
+import { APP_NAME_IDENTIFIER } from "@shared/constants";
 import log from "electron-log";
 import { app, BrowserWindow } from "electron";
 import { getDb, readSetting } from "../db";
@@ -20,6 +21,14 @@ export function isDepsSyncInProgress(): boolean {
 }
 
 export async function runStartupTasks(): Promise<void> {
+  // 网关是未登录也必需的页面宿主，不再依赖 ComputerServer 的业务启动链。
+  try {
+    const { refreshLoopbackGateway } =
+      await import("../services/loopbackGateway");
+    await refreshLoopbackGateway();
+  } catch (error) {
+    log.error("[Init] Loopback gateway initialization failed:", error);
+  }
   // 从 SQLite 恢复镜像配置
   const {
     setMirrorConfig,
@@ -36,34 +45,38 @@ export async function runStartupTasks(): Promise<void> {
     }
   }
 
-  // 尽早启动 Computer HTTP Server（对齐 rcoder /computer/* API），端口来自聚合配置
-  {
-    const { agent: agentPort } = getConfiguredPorts();
-    startComputerServer(agentPort).then((r) => {
-      if (r.success)
-        log.info(`[Init] Computer HTTP server listening on port ${agentPort}`);
-      else log.warn(`[Init] Computer HTTP server failed: ${r.error}`);
+  if (APP_NAME_IDENTIFIER !== "nuwax") {
+    // 尽早启动 Computer HTTP Server（对齐 rcoder /computer/* API），端口来自聚合配置
+    {
+      const { agent: agentPort } = getConfiguredPorts();
+      startComputerServer(agentPort).then((r) => {
+        if (r.success)
+          log.info(
+            `[Init] Computer HTTP server listening on port ${agentPort}`,
+          );
+        else log.warn(`[Init] Computer HTTP server failed: ${r.error}`);
+      });
+    }
+
+    // 启动 ttyd Web 终端服务（仅回环监听）。
+    // serviceManager 已在 registerAllHandlers → registerProcessHandlers 中创建，
+    // 通过 getServiceManager() 复用其 startTtyd（含端口清理与 binary 缺失降级）。
+    setImmediate(async () => {
+      try {
+        const { getServiceManager } = await import("../ipc/processHandlers");
+        const sm = getServiceManager();
+        if (!sm) {
+          log.warn("[Init] ttyd start skipped: serviceManager not ready");
+          return;
+        }
+        const r = await sm.startTtyd();
+        if (r.success) log.info("[Init] ttyd terminal service started");
+        else log.warn(`[Init] ttyd terminal service not started: ${r.error}`);
+      } catch (e) {
+        log.warn("[Init] ttyd start failed (non-fatal):", e);
+      }
     });
   }
-
-  // 启动 ttyd Web 终端服务（仅回环监听）。
-  // serviceManager 已在 registerAllHandlers → registerProcessHandlers 中创建，
-  // 通过 getServiceManager() 复用其 startTtyd（含端口清理与 binary 缺失降级）。
-  setImmediate(async () => {
-    try {
-      const { getServiceManager } = await import("../ipc/processHandlers");
-      const sm = getServiceManager();
-      if (!sm) {
-        log.warn("[Init] ttyd start skipped: serviceManager not ready");
-        return;
-      }
-      const r = await sm.startTtyd();
-      if (r.success) log.info("[Init] ttyd terminal service started");
-      else log.warn(`[Init] ttyd terminal service not started: ${r.error}`);
-    } catch (e) {
-      log.warn("[Init] ttyd start failed (non-fatal):", e);
-    }
-  });
 
   // 初始化 MCP Proxy 配置（从数据库加载）
   try {
@@ -92,16 +105,18 @@ export async function runStartupTasks(): Promise<void> {
     log.warn("[McpProxy] Init config failed:", e);
   }
 
-  // 初始化沙箱服务（后台启动，不阻塞主流程）
-  setImmediate(async () => {
-    try {
-      await startSandboxService();
-      log.info("[Sandbox] Sandbox service started");
-    } catch (e) {
-      log.warn("[Sandbox] Sandbox service start failed (non-fatal):", e);
-      // 沙箱服务失败不阻塞应用，只是功能降级
-    }
-  });
+  if (APP_NAME_IDENTIFIER !== "nuwax") {
+    // 初始化沙箱服务（后台启动，不阻塞主流程）
+    setImmediate(async () => {
+      try {
+        await startSandboxService();
+        log.info("[Sandbox] Sandbox service started");
+      } catch (e) {
+        log.warn("[Sandbox] Sandbox service start failed (non-fatal):", e);
+        // 沙箱服务失败不阻塞应用，只是功能降级
+      }
+    });
+  }
 
   // 客户端升级后：若 appVersion 或 installVersion 变化，后台同步初始化依赖到写死版本
   // 同步检查是否需要 dep sync，提前设置标志，避免 renderer 在 setImmediate 之前

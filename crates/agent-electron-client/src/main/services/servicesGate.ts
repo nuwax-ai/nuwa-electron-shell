@@ -1,3 +1,4 @@
+import { APP_NAME_IDENTIFIER } from "@shared/constants";
 /**
  * 启动服务门禁（services gate）：核心本地服务就绪前壳层停在启动 loading，
  * 不挂 nuwax webview——避免页面首屏 API 抢跑产生「服务连接失败」类弹窗。
@@ -56,12 +57,16 @@ async function urlResponds(url: string, timeoutMs = 1500): Promise<boolean> {
 async function checkOnce(): Promise<string[] | null> {
   const { agent } = getConfiguredPorts();
   const notReady: string[] = [];
-  const computerOk = await urlResponds(`http://127.0.0.1:${agent}/health`);
+  const computerOk =
+    APP_NAME_IDENTIFIER === "nuwax" ||
+    (await urlResponds(`http://127.0.0.1:${agent}/health`));
   if (!computerOk) notReady.push(`Computer Server（端口 ${agent}）`);
   const loopback = readSetting("nuwax.loopback") as {
     enabled?: boolean;
     origin?: string | null;
+    error?: string;
   } | null;
+  if (loopback?.error) notReady.push(loopback.error);
   if (loopback?.enabled && loopback.origin) {
     const gwOk = await urlResponds(loopback.origin);
     if (!gwOk) notReady.push(`Loopback Gateway（${loopback.origin}）`);

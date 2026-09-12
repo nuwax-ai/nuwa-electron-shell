@@ -76,6 +76,7 @@ export interface ServiceManagerContext {
 }
 
 export interface ServiceResult {
+  [key: string]: unknown;
   success: boolean;
   error?: string;
   message?: string;
@@ -656,19 +657,23 @@ export function createServiceManager(ctx: ServiceManagerContext) {
   /**
    * 重启所有服务
    */
-  const restartAllServices = async (): Promise<{
+  const restartAllServices = async (
+    signal?: AbortSignal,
+  ): Promise<{
     success: boolean;
     results: Record<string, ServiceResult>;
   }> => {
     log.info("[ServiceManager] Restarting all services...");
     const results: Record<string, ServiceResult> = {};
 
+    signal?.throwIfAborted();
     // 读取配置
     const agentConfig =
       (readSetting("agent_config") as Record<string, unknown>) || {};
     const step1Config =
       (readSetting("step1_config") as Record<string, unknown>) || {};
 
+    signal?.throwIfAborted();
     // 1. 停止现有服务（先清 SSE 缓冲，再 destroy Agent，避免重启后回放旧事件）
     clearAllSseEventBuffers();
     try {
@@ -681,21 +686,24 @@ export function createServiceManager(ctx: ServiceManagerContext) {
     await ctx.lanproxy.stopAsync();
     await mcpProxyManager.stop();
 
+    signal?.throwIfAborted();
     // 2. 启动 MCP Proxy（必须先于 Agent：Agent 初始化时会连 MCP Proxy 注入 mcpServers）
     try {
       await mcpProxyManager.start();
       results.mcpProxy = { success: true };
       log.info("[ServiceManager] MCP Proxy started");
 
+      signal?.throwIfAborted();
       // 非阻塞预热：提前启动 PersistentMcpBridge，避免首次会话启动延迟
-      mcpProxyManager
-        .ensureBridgeStarted()
-        .catch((e) =>
-          log.warn(
-            "[ServiceManager] PersistentMcpBridge prewarm failed (will retry on first session):",
-            e,
-          ),
-        );
+      if (!signal)
+        mcpProxyManager
+          .ensureBridgeStarted()
+          .catch((e) =>
+            log.warn(
+              "[ServiceManager] PersistentMcpBridge prewarm failed (will retry on first session):",
+              e,
+            ),
+          );
     } catch (e) {
       results.mcpProxy = { success: false, error: String(e) };
       log.error("[ServiceManager] MCP Proxy start failed:", e);
@@ -703,6 +711,7 @@ export function createServiceManager(ctx: ServiceManagerContext) {
 
     await startGuiMcpServicesOnRestart(results);
 
+    signal?.throwIfAborted();
     // 3. 启动 Agent（依赖 MCP Proxy 已就绪以便 getAgentMcpConfig 对应进程可连）
     try {
       const finalConfig: AgentConfig = {
@@ -727,6 +736,7 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       log.error("[ServiceManager] Agent start failed:", e);
     }
 
+    signal?.throwIfAborted();
     // 4. 启动文件服务器（端口来自聚合配置）
     try {
       const { fileServer: fileServerPort } = getConfiguredPorts();
@@ -737,10 +747,15 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       log.error("[ServiceManager] FileServer start failed:", e);
     }
 
+    signal?.throwIfAborted();
     // 4.5 启动 ComputerServer（必须先于 Lanproxy：隧道健康检查是云端经隧道转发到
+    signal?.throwIfAborted();
     //     本地 agent 端口（如 60006）；若 ComputerServer 尚未监听，探测必然 refused →
+    signal?.throwIfAborted();
     //     lanproxy 假失败并触发 3 次完整重试（最坏 30s+），启动既慢又报"代理服务未启动"。
+    signal?.throwIfAborted();
     //     幂等：已在运行直接 success。原编排位于 processHandlers 包装层最后一步，故
+    signal?.throwIfAborted();
     //     托盘"重启服务"等直接调本函数的路径此前完全缺失 ComputerServer 编排。）
     try {
       const { startComputerServer } =
@@ -756,6 +771,7 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       log.error("[ServiceManager] ComputerServer start failed:", e);
     }
 
+    signal?.throwIfAborted();
     // 5. 启动 Lanproxy
     try {
       const clientKey = readSetting("auth.saved_key") as string | null;
@@ -771,6 +787,7 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       const serverPort = (lpConfig.serverPort as number) || serverPortStored;
 
       if (serverIp && clientKey && serverPort) {
+        signal?.throwIfAborted();
         // startLanproxy 已含三层健康检查与失败重试，勿再二次 probe
         results.lanproxy = await startLanproxy({
           serverIp,
@@ -805,11 +822,13 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       });
     }
 
+    signal?.throwIfAborted();
     // 6. 启动 ttyd Web 终端（仅回环；幂等，不打断已有终端会话）
     await startAndRecordTtyd(results);
 
+    signal?.throwIfAborted();
     log.info("[ServiceManager] All services restart complete");
-    return { success: true, results };
+    return { success: Object.values(results).every((r) => r.success), results };
   };
 
   /**
@@ -911,7 +930,7 @@ export function createServiceManager(ctx: ServiceManagerContext) {
     log.info(
       "[ServiceManager] All services (except lanproxy) restart complete",
     );
-    return { success: true, results };
+    return { success: Object.values(results).every((r) => r.success), results };
   };
 
   /**
@@ -939,7 +958,9 @@ export function createServiceManager(ctx: ServiceManagerContext) {
 
     // 停止文件服务器
     try {
-      await ctx.fileServer.stopAsync();
+      const stopped = await ctx.fileServer.stopAsync();
+      if (stopped && !stopped.success)
+        throw new Error(stopped.message || "Service stop failed");
       await killProcessTreesListeningOnTcpPort(getConfiguredPorts().fileServer);
       results.fileServer = { success: true };
       log.info("[ServiceManager] FileServer stopped");
@@ -949,7 +970,9 @@ export function createServiceManager(ctx: ServiceManagerContext) {
 
     // 停止 Lanproxy
     try {
-      await ctx.lanproxy.stopAsync();
+      const stopped = await ctx.lanproxy.stopAsync();
+      if (stopped && !stopped.success)
+        throw new Error(stopped.message || "Service stop failed");
       results.lanproxy = { success: true };
       log.info("[Lanproxy] Stopped");
     } catch (e) {
@@ -964,7 +987,9 @@ export function createServiceManager(ctx: ServiceManagerContext) {
     try {
       const gatewayStatus = getTtydGatewayStatus();
       await stopTtydGateway();
-      await ctx.ttyd.stopAsync();
+      const stopped = await ctx.ttyd.stopAsync();
+      if (stopped && !stopped.success)
+        throw new Error(stopped.message || "Service stop failed");
       await killProcessTreesListeningOnTcpPort(getConfiguredPorts().ttyd);
       if (gatewayStatus.targetPort) {
         await killProcessTreesListeningOnTcpPort(gatewayStatus.targetPort);
@@ -1013,7 +1038,7 @@ export function createServiceManager(ctx: ServiceManagerContext) {
     }
 
     log.info("[ServiceManager] All services stopped");
-    return { success: true, results };
+    return { success: Object.values(results).every((r) => r.success), results };
   };
 
   return {

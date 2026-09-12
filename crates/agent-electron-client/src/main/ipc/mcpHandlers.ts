@@ -1,3 +1,4 @@
+import { registerServiceHandler } from "./serviceHandler";
 import { ipcMain, dialog } from "electron";
 import { getDb } from "../db";
 import {
@@ -18,27 +19,27 @@ import { filterEnabledMcpServers } from "../services/utils/mcpServerMerge";
 
 export function registerMcpHandlers(): void {
   // 启动 MCP Proxy（仅验证 binary 可用性）
-  ipcMain.handle("mcp:start", async () => {
+  registerServiceHandler("mcp:start", async () => {
     return mcpProxyManager.start();
   });
 
   // 停止 MCP Proxy（no-op）
-  ipcMain.handle("mcp:stop", async () => {
+  registerServiceHandler("mcp:stop", async () => {
     return mcpProxyManager.stop();
   });
 
   // 重启 MCP Proxy（仅验证 binary 可用性）
-  ipcMain.handle("mcp:restart", async () => {
+  registerServiceHandler("mcp:restart", async () => {
     return mcpProxyManager.restart();
   });
 
   // 获取运行状态
-  ipcMain.handle("mcp:status", async () => {
+  registerServiceHandler("mcp:status", async () => {
     return mcpProxyManager.getStatus();
   });
 
   // 获取本地配置（仅用户配置的 MCP，不包括 ACP 动态下发的）
-  ipcMain.handle("mcp:getConfig", async () => {
+  registerServiceHandler("mcp:getConfig", async () => {
     const db = getDb();
     const saved = db
       ?.prepare("SELECT value FROM settings WHERE key = ?")
@@ -55,32 +56,35 @@ export function registerMcpHandlers(): void {
   });
 
   // 保存本地配置
-  ipcMain.handle("mcp:setConfig", async (_, config: McpServersConfig) => {
-    try {
-      const db = getDb();
-      const normalized = applyGuiMcpLocalConfigPolicy(
-        config,
-        getGuiMcpEnabled(),
-      );
-      const configJson = JSON.stringify(normalized);
-      db?.prepare(
-        "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-      ).run("mcp_local_config", configJson);
+  registerServiceHandler(
+    "mcp:setConfig",
+    async (_, config: McpServersConfig) => {
+      try {
+        const db = getDb();
+        const normalized = applyGuiMcpLocalConfigPolicy(
+          config,
+          getGuiMcpEnabled(),
+        );
+        const configJson = JSON.stringify(normalized);
+        db?.prepare(
+          "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+        ).run("mcp_local_config", configJson);
 
-      // 主界面统一保存后同步到 MCP Proxy 内存，使改名/启用状态立即对 Agent 生效
-      await syncMcpConfigToProxyAndReload(
-        filterEnabledMcpServers(normalized.mcpServers ?? {}),
-      );
+        // 主界面统一保存后同步到 MCP Proxy 内存，使改名/启用状态立即对 Agent 生效
+        await syncMcpConfigToProxyAndReload(
+          filterEnabledMcpServers(normalized.mcpServers ?? {}),
+        );
 
-      log.info("[McpProxy] Local config saved and synced to proxy");
-      return { success: true };
-    } catch (error) {
-      return { success: false, error: String(error) };
-    }
-  });
+        log.info("[McpProxy] Local config saved and synced to proxy");
+        return { success: true };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    },
+  );
 
   // 发现 MCP 工具（可选传入草稿配置，避免测试前写入 DB）
-  ipcMain.handle(
+  registerServiceHandler(
     "mcp:discoverTools",
     async (_, serverId: string, draftConfig?: McpServersConfig) => {
       try {
@@ -97,7 +101,7 @@ export function registerMcpHandlers(): void {
   );
 
   // 导出配置到文件
-  ipcMain.handle("mcp:exportConfig", async () => {
+  registerServiceHandler("mcp:exportConfig", async () => {
     try {
       const db = getDb();
       const saved = db
@@ -141,12 +145,12 @@ export function registerMcpHandlers(): void {
   });
 
   // 获取端口（deprecated no-op）
-  ipcMain.handle("mcp:getPort", async () => {
+  registerServiceHandler("mcp:getPort", async () => {
     return 0;
   });
 
   // 保存端口（deprecated no-op）
-  ipcMain.handle("mcp:setPort", async () => {
+  registerServiceHandler("mcp:setPort", async () => {
     return { success: true };
   });
 }

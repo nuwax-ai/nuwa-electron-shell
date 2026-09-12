@@ -1,3 +1,4 @@
+import { useSplashFloor } from "./bootTiming";
 import React, { useState, useEffect } from "react";
 import ReactDOM from "react-dom/client";
 import { ConfigProvider, Spin } from "antd";
@@ -86,6 +87,7 @@ function resolveBootLoadingText(): string {
 }
 
 function Main() {
+  const splashFloorMet = useSplashFloor();
   const [antdLocale, setAntdLocale] = useState(zhCN);
   const [ready, setReady] = useState(i18nReady);
 
@@ -118,7 +120,7 @@ function Main() {
   // i18n 未就绪时显示加载状态（所有 hooks 已经在上面执行完毕）。
   // 与 App 内加载分支保持同一视觉（图标 + Spin + 文案），避免启动早期出现
   // 「先无图标、后带图标」的跳变。
-  if (!ready) {
+  if (!ready || !splashFloorMet) {
     return (
       <ConfigProvider locale={zhCN}>
         <div className="app-loading">

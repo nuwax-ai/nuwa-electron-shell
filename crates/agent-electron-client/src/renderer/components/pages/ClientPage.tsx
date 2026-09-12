@@ -1,3 +1,4 @@
+import { APP_NAME_IDENTIFIER } from "@shared/constants";
 /**
  * ClientPage - Dashboard page (Electron version)
  *
@@ -374,6 +375,15 @@ function ClientPage({
   };
 
   const handleStartAll = async () => {
+    if (APP_NAME_IDENTIFIER === "nuwax") {
+      try {
+        const result = await window.electronAPI!.services.restartAll();
+        if (!result.success) message.error(t("Claw.App.RestartFailed"));
+      } finally {
+        await onRefreshServices();
+      }
+      return;
+    }
     // 未登录（webview 登录态与壳侧注册态均无凭据）时禁止启动全部服务，避免
     // lanproxy 无 clientKey 的半启动状态。webview 已登录但 reg 未完成
     // （auth.config_key 缺失，如首登注册被后端拦截）时放行：先 reg，失败则

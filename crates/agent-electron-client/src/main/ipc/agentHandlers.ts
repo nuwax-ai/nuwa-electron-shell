@@ -1,3 +1,4 @@
+import { registerServiceHandler } from "./serviceHandler";
 import { ipcMain } from "electron";
 import log from "electron-log";
 import { z } from "zod";
@@ -53,7 +54,7 @@ function invalidArgs(channel: string, issues: unknown) {
 
 export function registerAgentHandlers(): void {
   // Initialize unified agent service
-  ipcMain.handle("agent:init", async (_, config: AgentConfig) => {
+  registerServiceHandler("agent:init", async (_, config: AgentConfig) => {
     const parsedConfig = agentConfigSchema.safeParse(config);
     if (!parsedConfig.success) {
       return invalidArgs("agent:init", parsedConfig.error.issues);
@@ -101,7 +102,7 @@ export function registerAgentHandlers(): void {
   });
 
   // Get agent service status
-  ipcMain.handle("agent:serviceStatus", () => {
+  registerServiceHandler("agent:serviceStatus", () => {
     return {
       running: agentService.isReady,
       engineType: agentService.getEngineType(),
@@ -109,7 +110,7 @@ export function registerAgentHandlers(): void {
   });
 
   // Destroy unified agent service
-  ipcMain.handle("agent:destroy", async () => {
+  registerServiceHandler("agent:destroy", async () => {
     try {
       await agentService.destroy();
       return { success: true };
@@ -119,17 +120,17 @@ export function registerAgentHandlers(): void {
   });
 
   // Get engine type
-  ipcMain.handle("agent:getEngineType", () => {
+  registerServiceHandler("agent:getEngineType", () => {
     return agentService.getEngineType();
   });
 
   // Check if ready
-  ipcMain.handle("agent:isReady", () => {
+  registerServiceHandler("agent:isReady", () => {
     return agentService.isReady;
   });
 
   // List sessions
-  ipcMain.handle("agent:listSessions", async () => {
+  registerServiceHandler("agent:listSessions", async () => {
     try {
       const sessions = await agentService.listSessions();
       return { success: true, data: sessions };
@@ -139,7 +140,7 @@ export function registerAgentHandlers(): void {
   });
 
   // Create session
-  ipcMain.handle(
+  registerServiceHandler(
     "agent:createSession",
     async (_, opts?: { parentID?: string; title?: string }) => {
       try {
@@ -152,7 +153,7 @@ export function registerAgentHandlers(): void {
   );
 
   // Get session
-  ipcMain.handle("agent:getSession", async (_, id: string) => {
+  registerServiceHandler("agent:getSession", async (_, id: string) => {
     try {
       const session = await agentService.getSession(id);
       return { success: true, data: session };
@@ -162,7 +163,7 @@ export function registerAgentHandlers(): void {
   });
 
   // Delete session
-  ipcMain.handle("agent:deleteSession", async (_, id: string) => {
+  registerServiceHandler("agent:deleteSession", async (_, id: string) => {
     try {
       await agentService.deleteSession(id);
       return { success: true };
@@ -172,7 +173,7 @@ export function registerAgentHandlers(): void {
   });
 
   // Update session title (ACP doesn't support this, but keep for compatibility)
-  ipcMain.handle(
+  registerServiceHandler(
     "agent:updateSession",
     async (_, id: string, title?: string) => {
       try {
@@ -186,7 +187,7 @@ export function registerAgentHandlers(): void {
   );
 
   // Get session status (ACP doesn't have this, return empty for compatibility)
-  ipcMain.handle("agent:getSessionStatus", async () => {
+  registerServiceHandler("agent:getSessionStatus", async () => {
     try {
       return { success: true, data: {} };
     } catch (error) {
@@ -195,7 +196,7 @@ export function registerAgentHandlers(): void {
   });
 
   // Get messages (ACP doesn't store messages, return empty for compatibility)
-  ipcMain.handle("agent:getMessages", async () => {
+  registerServiceHandler("agent:getMessages", async () => {
     try {
       return { success: true, data: [] };
     } catch (error) {
@@ -204,7 +205,7 @@ export function registerAgentHandlers(): void {
   });
 
   // Get single message (ACP doesn't store messages, return error for compatibility)
-  ipcMain.handle(
+  registerServiceHandler(
     "agent:getMessage",
     async (_, sessionId: string, messageId: string) => {
       try {
@@ -216,7 +217,7 @@ export function registerAgentHandlers(): void {
   );
 
   // Prompt (blocking)
-  ipcMain.handle(
+  registerServiceHandler(
     "agent:prompt",
     async (_, sessionId: string, parts: any[], opts?: any) => {
       const sid = sessionIdSchema.safeParse(sessionId);
@@ -239,7 +240,7 @@ export function registerAgentHandlers(): void {
   );
 
   // Prompt (async, non-blocking - results via SSE events)
-  ipcMain.handle(
+  registerServiceHandler(
     "agent:promptAsync",
     async (_, sessionId: string, parts: any[], opts?: any) => {
       const sid = sessionIdSchema.safeParse(sessionId);
@@ -262,7 +263,7 @@ export function registerAgentHandlers(): void {
   );
 
   // Abort session
-  ipcMain.handle("agent:abort", async (_, sessionId?: string) => {
+  registerServiceHandler("agent:abort", async (_, sessionId?: string) => {
     if (sessionId !== undefined) {
       const sid = sessionIdSchema.safeParse(sessionId);
       if (!sid.success) {
@@ -278,7 +279,7 @@ export function registerAgentHandlers(): void {
   });
 
   // Respond to permission request
-  ipcMain.handle(
+  registerServiceHandler(
     "agent:respondPermission",
     async (
       _,
@@ -304,7 +305,7 @@ export function registerAgentHandlers(): void {
   );
 
   // List tools (ACP doesn't support this, return empty for compatibility)
-  ipcMain.handle("agent:listTools", async () => {
+  registerServiceHandler("agent:listTools", async () => {
     try {
       return { success: true, data: [] };
     } catch (error) {
@@ -313,7 +314,7 @@ export function registerAgentHandlers(): void {
   });
 
   // List providers (ACP doesn't support this, return empty for compatibility)
-  ipcMain.handle("agent:listProviders", async () => {
+  registerServiceHandler("agent:listProviders", async () => {
     try {
       return { success: true, data: [] };
     } catch (error) {
@@ -322,7 +323,7 @@ export function registerAgentHandlers(): void {
   });
 
   // Get session diff (ACP doesn't support this, return empty for compatibility)
-  ipcMain.handle("agent:getSessionDiff", async () => {
+  registerServiceHandler("agent:getSessionDiff", async () => {
     try {
       return { success: true, data: [] };
     } catch (error) {
@@ -331,7 +332,7 @@ export function registerAgentHandlers(): void {
   });
 
   // Revert session (ACP doesn't support this, return error for compatibility)
-  ipcMain.handle("agent:revert", async () => {
+  registerServiceHandler("agent:revert", async () => {
     try {
       return { success: false, error: "ACP engine does not support revert" };
     } catch (error) {
@@ -340,7 +341,7 @@ export function registerAgentHandlers(): void {
   });
 
   // Unrevert session (ACP doesn't support this, return error for compatibility)
-  ipcMain.handle("agent:unrevert", async () => {
+  registerServiceHandler("agent:unrevert", async () => {
     try {
       return { success: false, error: "ACP engine does not support unrevert" };
     } catch (error) {
@@ -349,7 +350,7 @@ export function registerAgentHandlers(): void {
   });
 
   // Share session (ACP doesn't support this, return error for compatibility)
-  ipcMain.handle("agent:shareSession", async () => {
+  registerServiceHandler("agent:shareSession", async () => {
     try {
       return { success: false, error: "ACP engine does not support share" };
     } catch (error) {
@@ -358,7 +359,7 @@ export function registerAgentHandlers(): void {
   });
 
   // Fork session (ACP doesn't support this, return error for compatibility)
-  ipcMain.handle("agent:forkSession", async () => {
+  registerServiceHandler("agent:forkSession", async () => {
     try {
       return { success: false, error: "ACP engine does not support fork" };
     } catch (error) {
@@ -367,7 +368,7 @@ export function registerAgentHandlers(): void {
   });
 
   // Get config (ACP doesn't support this, return empty for compatibility)
-  ipcMain.handle("agent:getConfig", async () => {
+  registerServiceHandler("agent:getConfig", async () => {
     try {
       return { success: true, data: {} };
     } catch (error) {
@@ -376,7 +377,7 @@ export function registerAgentHandlers(): void {
   });
 
   // Find text (ACP doesn't support this, return empty for compatibility)
-  ipcMain.handle("agent:findText", async () => {
+  registerServiceHandler("agent:findText", async () => {
     try {
       return { success: true, data: [] };
     } catch (error) {
@@ -385,7 +386,7 @@ export function registerAgentHandlers(): void {
   });
 
   // Find files (ACP doesn't support this, return empty for compatibility)
-  ipcMain.handle("agent:findFiles", async () => {
+  registerServiceHandler("agent:findFiles", async () => {
     try {
       return { success: true, data: [] };
     } catch (error) {
@@ -394,7 +395,7 @@ export function registerAgentHandlers(): void {
   });
 
   // List files (ACP doesn't support this, return empty for compatibility)
-  ipcMain.handle("agent:listFiles", async () => {
+  registerServiceHandler("agent:listFiles", async () => {
     try {
       return { success: true, data: [] };
     } catch (error) {
@@ -403,7 +404,7 @@ export function registerAgentHandlers(): void {
   });
 
   // Read file (ACP doesn't support this, return error for compatibility)
-  ipcMain.handle("agent:readFile", async () => {
+  registerServiceHandler("agent:readFile", async () => {
     try {
       return { success: false, error: "ACP engine does not support readFile" };
     } catch (error) {
@@ -412,7 +413,7 @@ export function registerAgentHandlers(): void {
   });
 
   // Claude Code prompt (ACP engine)
-  ipcMain.handle("agent:claudePrompt", async (_, message: string) => {
+  registerServiceHandler("agent:claudePrompt", async (_, message: string) => {
     try {
       const result = await agentService.claudePrompt(message);
       return { success: true, data: result };
@@ -422,7 +423,7 @@ export function registerAgentHandlers(): void {
   });
 
   // MCP status (ACP doesn't support this, return empty for compatibility)
-  ipcMain.handle("agent:mcpStatus", async () => {
+  registerServiceHandler("agent:mcpStatus", async () => {
     try {
       return { success: true, data: {} };
     } catch (error) {
@@ -431,7 +432,7 @@ export function registerAgentHandlers(): void {
   });
 
   // List agents (ACP doesn't support this, return empty for compatibility)
-  ipcMain.handle("agent:listAgents", async () => {
+  registerServiceHandler("agent:listAgents", async () => {
     try {
       return { success: true, data: [] };
     } catch (error) {
@@ -440,7 +441,7 @@ export function registerAgentHandlers(): void {
   });
 
   // List commands (ACP doesn't support this, return empty for compatibility)
-  ipcMain.handle("agent:listCommands", async () => {
+  registerServiceHandler("agent:listCommands", async () => {
     try {
       return { success: true, data: [] };
     } catch (error) {
@@ -449,7 +450,7 @@ export function registerAgentHandlers(): void {
   });
 
   // List all sessions with detailed status (for Sessions tab)
-  ipcMain.handle("agent:listSessionsDetailed", async () => {
+  registerServiceHandler("agent:listSessionsDetailed", async () => {
     try {
       const sessions = agentService.listAllSessionsDetailed();
       return { success: true, data: sessions };
@@ -461,7 +462,7 @@ export function registerAgentHandlers(): void {
 
   // === Intervention IPC handlers ===
 
-  ipcMain.handle(
+  registerServiceHandler(
     "intervention:respond",
     async (
       _,
@@ -490,7 +491,7 @@ export function registerAgentHandlers(): void {
   );
 
   // Stop a specific session (abort + delete from engine)
-  ipcMain.handle("agent:stopSession", async (_, sessionId: string) => {
+  registerServiceHandler("agent:stopSession", async (_, sessionId: string) => {
     try {
       const stopped = await agentService.stopSession(sessionId);
       return { success: stopped };

@@ -1,3 +1,4 @@
+import { registerServiceHandler } from "./serviceHandler";
 /**
  * 沙箱 IPC 通道
  *
@@ -181,7 +182,7 @@ export function registerSandboxHandlers(): void {
    * @param sessionId 会话 ID
    * @param options 创建选项
    */
-  ipcMain.handle(
+  registerServiceHandler(
     "sandbox:create",
     async (_, sessionId: string, options?: CreateWorkspaceOptions) => {
       log.info("[IPC] sandbox:create:", { sessionId, options });
@@ -200,7 +201,7 @@ export function registerSandboxHandlers(): void {
    * @channel sandbox:destroy
    * @param sessionId 会话 ID
    */
-  ipcMain.handle("sandbox:destroy", async (_, sessionId: string) => {
+  registerServiceHandler("sandbox:destroy", async (_, sessionId: string) => {
     log.info("[IPC] sandbox:destroy:", { sessionId });
     try {
       const service = getSandboxService();
@@ -215,7 +216,7 @@ export function registerSandboxHandlers(): void {
    * 列出所有工作区
    * @channel sandbox:list
    */
-  ipcMain.handle("sandbox:list", async () => {
+  registerServiceHandler("sandbox:list", async () => {
     log.info("[IPC] sandbox:list");
     try {
       const service = getSandboxService();
@@ -231,7 +232,7 @@ export function registerSandboxHandlers(): void {
    * @channel sandbox:info
    * @param sessionId 会话 ID
    */
-  ipcMain.handle("sandbox:info", async (_, sessionId: string) => {
+  registerServiceHandler("sandbox:info", async (_, sessionId: string) => {
     log.info("[IPC] sandbox:info:", { sessionId });
     try {
       const service = getSandboxService();
@@ -263,7 +264,7 @@ export function registerSandboxHandlers(): void {
    * @param args 参数
    * @param options 执行选项
    */
-  ipcMain.handle(
+  registerServiceHandler(
     "sandbox:execute",
     async (
       _,
@@ -293,7 +294,7 @@ export function registerSandboxHandlers(): void {
    * @param sessionId 会话 ID
    * @param path 文件路径
    */
-  ipcMain.handle(
+  registerServiceHandler(
     "sandbox:readFile",
     async (_, sessionId: string, path: string) => {
       log.info("[IPC] sandbox:readFile:", { sessionId, path });
@@ -314,7 +315,7 @@ export function registerSandboxHandlers(): void {
    * @param path 文件路径
    * @param content 文件内容
    */
-  ipcMain.handle(
+  registerServiceHandler(
     "sandbox:writeFile",
     async (_, sessionId: string, path: string, content: string) => {
       log.info("[IPC] sandbox:writeFile:", { sessionId, path });
@@ -339,7 +340,7 @@ export function registerSandboxHandlers(): void {
    * @param type 权限类型
    * @param target 目标资源
    */
-  ipcMain.handle(
+  registerServiceHandler(
     "sandbox:checkPermission",
     async (_, sessionId: string, type: PermissionType, target: string) => {
       log.info("[IPC] sandbox:checkPermission:", { sessionId, type, target });
@@ -361,7 +362,7 @@ export function registerSandboxHandlers(): void {
    * @param target 目标资源
    * @param reason 请求原因
    */
-  ipcMain.handle(
+  registerServiceHandler(
     "sandbox:requestPermission",
     async (
       _,
@@ -396,7 +397,7 @@ export function registerSandboxHandlers(): void {
    * @channel sandbox:getPendingPermissions
    * @param sessionId 可选的会话 ID 过滤
    */
-  ipcMain.handle(
+  registerServiceHandler(
     "sandbox:getPendingPermissions",
     async (_, sessionId?: string) => {
       log.info("[IPC] sandbox:getPendingPermissions:", { sessionId });
@@ -416,7 +417,7 @@ export function registerSandboxHandlers(): void {
    * @param requestId 请求 ID
    * @param reason 原因
    */
-  ipcMain.handle(
+  registerServiceHandler(
     "sandbox:approvePermission",
     async (_, requestId: string, reason?: string) => {
       log.info("[IPC] sandbox:approvePermission:", { requestId, reason });
@@ -436,7 +437,7 @@ export function registerSandboxHandlers(): void {
    * @param requestId 请求 ID
    * @param reason 原因
    */
-  ipcMain.handle(
+  registerServiceHandler(
     "sandbox:denyPermission",
     async (_, requestId: string, reason?: string) => {
       log.info("[IPC] sandbox:denyPermission:", { requestId, reason });
@@ -458,7 +459,7 @@ export function registerSandboxHandlers(): void {
    * 清理资源
    * @channel sandbox:cleanup
    */
-  ipcMain.handle("sandbox:cleanup", async () => {
+  registerServiceHandler("sandbox:cleanup", async () => {
     log.info("[IPC] sandbox:cleanup");
     try {
       const service = getSandboxService();
@@ -473,7 +474,7 @@ export function registerSandboxHandlers(): void {
    * 获取沙箱状态
    * @channel sandbox:status
    */
-  ipcMain.handle("sandbox:status", async () => {
+  registerServiceHandler("sandbox:status", async () => {
     log.info("[IPC] sandbox:status");
     try {
       const service = getSandboxService();
@@ -488,7 +489,7 @@ export function registerSandboxHandlers(): void {
    * 获取沙箱策略
    * @channel sandbox:policy:get
    */
-  ipcMain.handle("sandbox:policy:get", async () => {
+  registerServiceHandler("sandbox:policy:get", async () => {
     log.info("[IPC] sandbox:policy:get");
     try {
       const control = getSandboxControlService();
@@ -503,7 +504,7 @@ export function registerSandboxHandlers(): void {
    * 更新沙箱策略
    * @channel sandbox:policy:set
    */
-  ipcMain.handle(
+  registerServiceHandler(
     "sandbox:policy:set",
     async (_, patch: Partial<SandboxPolicy>) => {
       log.info("[IPC] sandbox:policy:set:", { patch });
@@ -521,7 +522,7 @@ export function registerSandboxHandlers(): void {
    * 获取后端能力
    * @channel sandbox:capabilities
    */
-  ipcMain.handle("sandbox:capabilities", async () => {
+  registerServiceHandler("sandbox:capabilities", async () => {
     log.info("[IPC] sandbox:capabilities");
     try {
       const control = getSandboxControlService();
@@ -536,7 +537,7 @@ export function registerSandboxHandlers(): void {
    * 执行后端 setup（当前主要用于 Windows Sandbox）
    * @channel sandbox:setup
    */
-  ipcMain.handle(
+  registerServiceHandler(
     "sandbox:setup",
     async (
       _,

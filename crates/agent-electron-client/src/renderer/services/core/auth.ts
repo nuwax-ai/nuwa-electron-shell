@@ -12,6 +12,7 @@ import {
   SandboxValue,
 } from "./api";
 import {
+  APP_NAME_IDENTIFIER,
   AUTH_KEYS,
   LOCAL_HOST_URL,
   DEFAULT_AGENT_RUNNER_PORT,
@@ -289,6 +290,13 @@ export async function logout(): Promise<void> {
 export async function syncConfigToServer(options?: {
   suppressToast?: boolean;
 }): Promise<ClientRegisterResponse | null> {
+  if (APP_NAME_IDENTIFIER === "nuwax") {
+    try {
+      return await window.electronAPI!.services.syncConfig();
+    } catch {
+      return null;
+    }
+  }
   const suppressToast = options?.suppressToast === true;
 
   // 读取 domain，优先级：step1_config.serverHost > lanproxy.server_host。

@@ -1,3 +1,5 @@
+import { registerServiceHandler } from "./serviceHandler";
+import { commercialLifecycle } from "../services/auth/lifecycle";
 import { ipcMain } from "electron";
 import * as fs from "fs";
 import log from "electron-log";
@@ -109,9 +111,20 @@ export async function stopAllServicesNow(): Promise<{
     log.error("[Services] ComputerServer stop failed:", e);
   }
 
+  try {
+    const { stopSandboxService } =
+      await import("../services/sandbox/serviceBootstrap");
+    await stopSandboxService();
+    const runner = await ctx.agentRunner.stopAsync();
+    if (runner && !runner.success)
+      throw new Error(runner.message || "Agent runner stop failed");
+    results.sandbox = { success: true };
+  } catch (e) {
+    results.sandbox = { success: false, error: String(e) };
+  }
   syncTrayStatusFromContext(ctx);
   log.info("[Services] All services stopped:", results);
-  return { success: true, results };
+  return { success: Object.values(results).every((r) => r.success), results };
 }
 
 /**
@@ -122,7 +135,7 @@ export async function stopAllServicesNow(): Promise<{
  * 注意：lanproxy 强依赖 reg 的 configKey/serverHost/serverPort；若 settings 缺失，
  * serviceManager 内部会跳过 lanproxy 并 warn，其余服务照常启动。
  */
-export async function restartAllServicesNow(): Promise<{
+export async function restartAllServicesNow(signal?: AbortSignal): Promise<{
   success: boolean;
   results: Record<string, { success: boolean; error?: string }>;
 }> {
@@ -146,16 +159,21 @@ export async function restartAllServicesNow(): Promise<{
       getConfiguredPorts().agent,
     );
   } catch (e) {
-    log.warn("[Services] ComputerServer stop error (ignored):", e);
+    log.warn("[Services] Restart preparation failed:", e);
+    return {
+      success: false,
+      results: { preparation: { success: false, error: String(e) } },
+    };
   }
-  const base = await sm.restartAllServices();
+  signal?.throwIfAborted();
+  const base = await sm.restartAllServices(signal);
   const results: Record<string, { success: boolean; error?: string }> = {
     ...base.results,
   };
 
   syncTrayStatusFromContext(ctx);
   log.info("[Services] All services restart complete:", results);
-  return { success: true, results };
+  return { success: Object.values(results).every((r) => r.success), results };
 }
 
 export function registerProcessHandlers(ctx: HandlerContext): void {
@@ -229,7 +247,7 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
   };
 
   // Lanproxy handlers
-  ipcMain.handle(
+  registerServiceHandler(
     "lanproxy:start",
     async (
       _,
@@ -248,16 +266,16 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
     },
   );
 
-  ipcMain.handle("lanproxy:stop", async () => {
+  registerServiceHandler("lanproxy:stop", async () => {
     return ctx.lanproxy.stopAsync(3000);
   });
 
-  ipcMain.handle("lanproxy:status", () => {
+  registerServiceHandler("lanproxy:status", () => {
     return ctx.lanproxy.status();
   });
 
   /** 供设置页判断是否可显示「启动」并提示不可用原因 */
-  ipcMain.handle("lanproxy:isAvailable", async () => {
+  registerServiceHandler("lanproxy:isAvailable", async () => {
     const { getLanproxyBinPath } =
       await import("../services/system/dependencies");
     const binPath = getLanproxyBinPath();
@@ -265,7 +283,7 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
   });
 
   // Agent Runner handlers
-  ipcMain.handle(
+  registerServiceHandler(
     "agentRunner:start",
     async (
       _,
@@ -334,7 +352,7 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
     },
   );
 
-  ipcMain.handle("agentRunner:stop", async () => {
+  registerServiceHandler("agentRunner:stop", async () => {
     const ports = ctx.agentRunnerPorts;
     const result = await ctx.agentRunner.stopAsync(3000);
     if (ports) {
@@ -345,7 +363,7 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
     return result;
   });
 
-  ipcMain.handle("agentRunner:status", () => {
+  registerServiceHandler("agentRunner:status", () => {
     const st = ctx.agentRunner.status();
     return {
       ...st,
@@ -361,7 +379,7 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
   // File Server handlers
   // 缺参回退用聚合配置默认端口（60005+NUWAX_PORT_OFFSET），与 serviceManager /
   // ClientPage 一致；写死社区版默认 60000 会让商业版起在错误端口。
-  ipcMain.handle(
+  registerServiceHandler(
     "fileServer:start",
     async (_, port: number = DEFAULT_FILE_SERVER_PORT) => {
       const parsed = portSchema.safeParse(port);
@@ -372,24 +390,24 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
     },
   );
 
-  ipcMain.handle("fileServer:stop", async () => {
+  registerServiceHandler("fileServer:stop", async () => {
     const result = await ctx.fileServer.stopAsync(3000);
     await clearServicePort("fileServer:stop", getConfiguredPorts().fileServer);
     return result;
   });
 
-  ipcMain.handle("fileServer:status", () => {
+  registerServiceHandler("fileServer:status", () => {
     return ctx.fileServer.status();
   });
 
   // Computer Server handlers (Agent HTTP 接口服务，对齐 rcoder /computer/* API)
-  ipcMain.handle("computerServer:status", async () => {
+  registerServiceHandler("computerServer:status", async () => {
     const { getComputerServerStatus } =
       await import("../services/computerServer");
     return getComputerServerStatus();
   });
 
-  ipcMain.handle("computerServer:start", async (_, port?: number) => {
+  registerServiceHandler("computerServer:start", async (_, port?: number) => {
     const { startComputerServer } = await import("../services/computerServer");
     const resolvedPortRaw = port ?? getConfiguredPorts().agent;
     const parsed = portSchema.safeParse(resolvedPortRaw);
@@ -403,7 +421,7 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
     return startComputerServer(resolvedPort);
   });
 
-  ipcMain.handle("computerServer:stop", async () => {
+  registerServiceHandler("computerServer:stop", async () => {
     const { stopComputerServer } = await import("../services/computerServer");
     await stopComputerServer();
     await clearServicePort("computerServer:stop", getConfiguredPorts().agent);
@@ -413,16 +431,16 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
   // Admin Server handlers (管理接口服务)
   // Admin Server 已合并到 Computer Server (60006)，不再有独立的 60007 端口
   // start/stop 为空操作（Computer Server 通过 services:restartAll 管理）
-  ipcMain.handle("adminServer:start", async () => {
+  registerServiceHandler("adminServer:start", async () => {
     return { success: true };
   });
 
-  ipcMain.handle("adminServer:stop", async () => {
+  registerServiceHandler("adminServer:stop", async () => {
     return { success: true };
   });
 
   // adminServer:status 现在返回 Computer Server 状态
-  ipcMain.handle("adminServer:status", async () => {
+  registerServiceHandler("adminServer:status", async () => {
     const { getComputerServerStatus } =
       await import("../services/computerServer");
     return getComputerServerStatus();
@@ -430,19 +448,23 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
 
   // ==================== services:restartAll ====================
 
-  ipcMain.handle("services:restartAll", async () => {
-    return restartAllServicesNow();
+  registerServiceHandler("services:restartAll", async () => {
+    return commercialLifecycle
+      ? commercialLifecycle.start(true)
+      : restartAllServicesNow();
   });
 
   // ==================== services:stopAll ====================
 
-  ipcMain.handle("services:stopAll", async () => {
-    return stopAllServicesNow();
+  registerServiceHandler("services:stopAll", async () => {
+    return commercialLifecycle
+      ? commercialLifecycle.stop()
+      : stopAllServicesNow();
   });
 
   // ==================== services:restartAllExceptLanproxy ====================
 
-  ipcMain.handle("services:restartAllExceptLanproxy", async () => {
+  registerServiceHandler("services:restartAllExceptLanproxy", async () => {
     log.info("[Services] Restarting all services except lanproxy...");
     const base = await sm.restartAllServicesExceptLanproxy();
     const results: Record<string, { success: boolean; error?: string }> = {
@@ -472,7 +494,7 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
       "[Services] All services (except lanproxy) restart complete:",
       results,
     );
-    return { success: true, results };
+    return { success: Object.values(results).every((r) => r.success), results };
   });
 }
 

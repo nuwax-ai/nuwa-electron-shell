@@ -47,10 +47,11 @@ import {
   BOOT_PROBE_TIMEOUT,
   DEFAULT_FILE_SERVER_PORT,
   DEFAULT_SERVER_HOST,
+  APP_NAME_IDENTIFIER,
   MIN_SPLASH_MS,
   normalizeAgentEngine,
 } from "@shared/constants";
-import { BOOT_AT } from "./bootTiming";
+import { useSplashFloor } from "./bootTiming";
 import type { QuickInitConfig } from "@shared/types/quickInit";
 import type { UpdateState } from "@shared/types/updateTypes";
 import {
@@ -172,6 +173,8 @@ export interface ServiceItem {
  * 用于 setup 已完成时，每次启动优先使用配置文件/环境变量中的值
  */
 async function applyQuickInitToDb(config: QuickInitConfig): Promise<void> {
+  // 商业版域名由企业登录配置，不能被旧 quickInit 凭据在每次启动时覆盖。
+  if (APP_NAME_IDENTIFIER === "nuwax") return;
   // 1. 更新 step1 配置
   const step1: Step1Config = {
     ...DEFAULT_STEP1_CONFIG,
@@ -196,57 +199,22 @@ async function applyQuickInitToDb(config: QuickInitConfig): Promise<void> {
   }
 }
 
-/**
- * 启动 loading 最少展示时长。
- *
- * 各加载分支都由事件（setup/deps/服务门禁）驱动，事件足够快时动画会一闪而过。
- * 以 BOOT_AT 为统一起点按「剩余时间」计时，多个分支合计展示 >= MIN_SPLASH_MS，
- * 而不是每个分支各自重等一遍。
- */
-function useSplashFloor(): boolean {
-  const [met, setMet] = useState(() => Date.now() - BOOT_AT >= MIN_SPLASH_MS);
-  useEffect(() => {
-    if (met) return;
-    const remaining = Math.max(0, MIN_SPLASH_MS - (Date.now() - BOOT_AT));
-    const timer = setTimeout(() => setMet(true), remaining);
-    return () => clearTimeout(timer);
-  }, [met]);
-  return met;
-}
-
-/**
- * 启动期探询超时兜底。
- *
- * setup/deps 检查走 IPC：主进程 handler 若卡住，Promise 永不 settle，
- * 首屏会永久停在 loading 且没有重试入口。超时后返回 fallback，
- * 降级语义与各调用点既有的 catch 分支保持一致（探询不到就不阻塞进入主界面）。
- */
+/** 启动探询超时必须进入可重试错误态，不能伪装成初始化成功。 */
 function withTimeout<T>(
   promise: Promise<T> | undefined,
-  fallback: T,
+  _fallback: T,
   label: string,
 ): Promise<T> {
-  const log = createLogger("BootProbe");
-  return new Promise<T>((resolve) => {
-    const timer = setTimeout(() => {
-      log.warn(
-        `${label} timed out after ${BOOT_PROBE_TIMEOUT}ms; using fallback`,
-      );
-      resolve(fallback);
-    }, BOOT_PROBE_TIMEOUT);
-    // promise 缺失（electronAPI 未注入）直接取 fallback，与超时同一降级路径
+  return new Promise((resolve, reject) => {
     if (!promise) {
-      clearTimeout(timer);
-      resolve(fallback);
+      reject(new Error(`${label} unavailable`));
       return;
     }
-    promise
-      .then((value) => resolve(value))
-      .catch((error) => {
-        log.warn(`${label} failed; using fallback`, error);
-        resolve(fallback);
-      })
-      .finally(() => clearTimeout(timer));
+    const timer = setTimeout(
+      () => reject(new Error(`${label} timed out`)),
+      BOOT_PROBE_TIMEOUT,
+    );
+    promise.then(resolve, reject).finally(() => clearTimeout(timer));
   });
 }
 
@@ -257,6 +225,7 @@ function App() {
   const [isSetupComplete, setIsSetupComplete] = useState<boolean | null>(null);
   // 启动 loading 最少展示时长（跨分支累计，见 useSplashFloor）
   const splashFloorMet = useSplashFloor();
+  const [bootError, setBootError] = useState<string | null>(null);
   // 启动服务门禁：null=等待中（大 loading）；ok:false=失败屏（可重试）；ok:true 才挂 webview
   const [servicesGate, setServicesGate] = useState<{
     ok: boolean;
@@ -469,6 +438,12 @@ function App() {
    * 确保 lanproxy 使用最新服务端地址，而不是 SQLite 里的旧缓存值。
    */
   const restartAllServices = useCallback(async () => {
+    if (APP_NAME_IDENTIFIER === "nuwax") {
+      const result = await window.electronAPI!.services.restartAll();
+      if (!result.success) message.error(t("Claw.App.RestartFailed"));
+      else message.success(t("Claw.App.RestartSuccess"));
+      return;
+    }
     try {
       // 先 reg 拿最新 serverHost/serverPort 写入配置，成功后再重启服务。
       // reg 失败（网络不通/token 过期）时中止重启，并弹出通知让用户手动重试。
@@ -646,7 +621,7 @@ function App() {
         // 每次启动优先读取 quick init 配置
         // 注意：quickInit 仍含 step1 serverHost/端口写入（NuwaxHostWebview 路由依赖）
         // 与旧 savedKey/reg 链路；后者随 Phase 3 登录统一到 nuwax webview 一并移除。
-        if (completed) {
+        if (completed && APP_NAME_IDENTIFIER !== "nuwax") {
           try {
             const qiConfig = await withTimeout(
               window.electronAPI?.quickInit.getConfig(),
@@ -668,7 +643,7 @@ function App() {
         setIsSetupComplete(true);
       } catch (error) {
         log.error("Failed to check setup status:", error);
-        setIsSetupComplete(true);
+        setBootError(String(error));
       }
     };
     checkSetup();
@@ -757,6 +732,7 @@ function App() {
   // 重启同一条 restartAllServices 路径）。webview 登录态为唯一事实源——首登/
   // 重登后由这里完成壳侧注册刷新（Bearer 注入 + savedKey 兼容）与服务拉起。
   useEffect(() => {
+    if (APP_NAME_IDENTIFIER === "nuwax") return;
     const log = createLogger("LoginConfirmed");
     const onLoginConfirmed = () => {
       log.info("login-confirmed → reg sync + restart services");
@@ -771,6 +747,45 @@ function App() {
     return () => {
       window.electronAPI?.off("nuwax:login-confirmed", onLoginConfirmed as any);
     };
+  }, []);
+
+  useEffect(() => {
+    if (APP_NAME_IDENTIFIER !== "nuwax") return;
+    const onState = (state: { phase: string; error?: string }) => {
+      const key = "commercial-service-state";
+      if (
+        ["registration-failed", "service-failed", "stop-failed"].includes(
+          state.phase,
+        )
+      ) {
+        notification.error({
+          key,
+          message: t(
+            state.phase === "registration-failed"
+              ? "Claw.App.ConfigSyncFailed"
+              : "Claw.App.RestartFailed",
+          ),
+          description: state.error,
+          duration: 0,
+          btn: (
+            <Button
+              onClick={() => {
+                notification.destroy(key);
+                void (state.phase === "stop-failed"
+                  ? window.electronAPI!.services.stopAll()
+                  : window.electronAPI!.services.restartAll());
+              }}
+            >
+              {t("Claw.App.Retry")}
+            </Button>
+          ),
+        });
+      } else if (["ready", "stopped"].includes(state.phase))
+        notification.destroy(key);
+    };
+    window.electronAPI?.on("nuwax:serviceState", onState as any);
+    void window.electronAPI?.services.authState().then(onState);
+    return () => window.electronAPI?.off("nuwax:serviceState", onState as any);
   }, []);
 
   // webview 多语言同步（main 转发 nuwax:lang-changed，来源 nuwax 语言开关/设置/
@@ -898,7 +913,9 @@ function App() {
         );
         if (cancelled) return;
 
-        const deps = result?.results ?? [];
+        if (!result?.success || !result.results)
+          throw new Error("Dependency probe failed");
+        const deps = result.results;
         const hasMissingOrError = deps.some(
           (d: { status: string }) =>
             d.status === "missing" || d.status === "error",
@@ -936,7 +953,7 @@ function App() {
       } catch (error) {
         log.error("failed:", error);
         if (!cancelled) {
-          setNeedsRequiredDepsReinstall(false);
+          setBootError(String(error));
         }
       }
     };
@@ -1182,6 +1199,7 @@ function App() {
     if (needsRequiredDepsReinstall !== false) return;
     if (depsSyncInProgress) return;
 
+    if (APP_NAME_IDENTIFIER === "nuwax") return;
     const log = createLogger("AutoReconnect");
     const autoReconnect = async () => {
       try {
@@ -1568,6 +1586,17 @@ function App() {
   // 渲染：加载中（含等待依赖检查完成）
   // 事件就绪但未达最少展示时长时继续显示 loading，避免启动动画一闪而过。
   // ============================================
+  if (bootError) {
+    return (
+      <div className="app-loading" role="alert">
+        <div className="app-loading-text">{t("Claw.App.RestartFailed")}</div>
+        <div>{bootError}</div>
+        <Button onClick={() => window.location.reload()}>
+          {t("Claw.App.Retry")}
+        </Button>
+      </div>
+    );
+  }
   if (
     !splashFloorMet ||
     isSetupComplete === null ||
