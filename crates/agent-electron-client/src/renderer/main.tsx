@@ -115,11 +115,14 @@ function Main() {
     onI18nReady(setReady);
   }, []);
 
-  // i18n 未就绪时显示加载状态（所有 hooks 已经在上面执行完毕）
+  // i18n 未就绪时显示加载状态（所有 hooks 已经在上面执行完毕）。
+  // 与 App 内加载分支保持同一视觉（图标 + Spin + 文案），避免启动早期出现
+  // 「先无图标、后带图标」的跳变。
   if (!ready) {
     return (
       <ConfigProvider locale={zhCN}>
         <div className="app-loading">
+          <img src="./icon.png" alt="" className="app-loading-icon" />
           <Spin size="large" />
           <div className="app-loading-text">{resolveBootLoadingText()}</div>
         </div>

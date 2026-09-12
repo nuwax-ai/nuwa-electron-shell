@@ -319,7 +319,7 @@ async function runCommand(
   });
 }
 
-/** ~/.nuwaclaw/uv/python（与 getAppEnv 的 UV_PYTHON_INSTALL_DIR 一致） */
+/** 应用数据目录下的 uv/python（与 getAppEnv 的 UV_PYTHON_INSTALL_DIR 一致） */
 function getUvPythonInstallRoot(): string {
   return path.join(app.getPath("home"), APP_DATA_DIR_NAME, "uv", "python");
 }
@@ -472,7 +472,7 @@ async function ensureUvManagedPythonForWindowsMcp(): Promise<void> {
   if (result.code !== 0) {
     throw new Error(
       buildInstallError(
-        "uv python install failed (windows-mcp needs managed Python under ~/.nuwaclaw/uv/python)",
+        `uv python install failed (windows-mcp needs managed Python under ${getUvPythonInstallRoot()})`,
         uvBinPath,
         ["python", "install", WINDOWS_MCP_UV_PYTHON],
         result,
@@ -491,7 +491,7 @@ async function ensureUvManagedPythonForWindowsMcp(): Promise<void> {
   }
 
   throw new Error(
-    `uv python install finished but tool shim path still missing: ${getToolShimPythonExePath(WINDOWS_MCP_UV_PYTHON)} (see ~/.nuwaclaw/uv/python)`,
+    `uv python install finished but tool shim path still missing: ${getToolShimPythonExePath(WINDOWS_MCP_UV_PYTHON)} (see ${getUvPythonInstallRoot()})`,
   );
 }
 

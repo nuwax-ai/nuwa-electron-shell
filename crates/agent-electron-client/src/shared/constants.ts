@@ -219,6 +219,19 @@ export const ENGINE_DESTROY_TIMEOUT = 20_000;
 /** 依赖同步超时 (ms) */
 export const DEPS_SYNC_TIMEOUT = 120_000;
 
+/**
+ * 启动 loading 最少展示时长 (ms)。
+ * 各加载分支全部由事件驱动，快速机器上会一闪而过；以此为下限保证启动动画可见。
+ */
+export const MIN_SPLASH_MS = 800;
+
+/**
+ * 启动早期 IPC 探询超时 (ms)。
+ * 用于 setup/deps 检查这类无内建超时的调用：超时后落到可重试的失败态，
+ * 而不是把首屏永久停在 loading（详见 BOOT_PROBE_TIMEOUT 使用处）。
+ */
+export const BOOT_PROBE_TIMEOUT = 20_000;
+
 // ==================== 存储键名 ====================
 
 /** Setup & Auth 相关存储键 */

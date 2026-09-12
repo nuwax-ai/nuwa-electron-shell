@@ -9,8 +9,8 @@
 
 import log from "electron-log";
 import * as path from "path";
-import { app } from "electron";
 import { t } from "../i18n";
+import { getAppDataDir } from "../system/appPaths";
 import { getCurrentPlatform } from "../system/platformAdapter";
 import { DockerSandbox } from "./DockerSandbox";
 import { CommandSandbox } from "./CommandSandbox";
@@ -51,10 +51,12 @@ function getPlatform(): Platform {
 
 /**
  * 获取沙箱工作区根目录
+ *
+ * 必须随产品标识派生（~/.nuwax/sandboxes for 商业版、~/.nuwaclaw/sandboxes for 社区版），
+ * 否则商业版会把工作区写进社区版的数据目录，破坏两者的数据隔离。
  */
 function getWorkspaceRoot(): string {
-  const homeDir = app.getPath("home");
-  return path.join(homeDir, ".nuwaclaw", "sandboxes");
+  return path.join(getAppDataDir(), "sandboxes");
 }
 
 /**

@@ -635,6 +635,14 @@ export interface ServicesAPI {
     success: boolean;
     results?: Record<string, { success: boolean; error?: string }>;
   }>;
+  /** 启动服务门禁：已就绪结果缓存（null=仍在等待）。 */
+  readyState: () => Promise<{
+    ok: boolean;
+    detail?: string[];
+    elapsedMs?: number;
+  } | null>;
+  /** 手动重跑门禁（错误屏的重试按钮）；结果经 services:ready 事件回传。 */
+  waitForReady: () => Promise<null>;
 }
 
 export type TrayStatus = "running" | "stopped" | "error" | "starting";
