@@ -1,7 +1,7 @@
 import { useSplashFloor } from "./bootTiming";
 import React, { useState, useEffect } from "react";
 import ReactDOM from "react-dom/client";
-import { ConfigProvider, Spin } from "antd";
+import { ConfigProvider } from "antd";
 import enUS from "antd/locale/en_US";
 import zhCN from "antd/locale/zh_CN";
 import zhTW from "antd/locale/zh_TW";
@@ -124,9 +124,12 @@ function Main() {
     return (
       <ConfigProvider locale={zhCN}>
         <div className="app-loading">
-          <img src="./icon.png" alt="" className="app-loading-icon" />
+          <img
+            src="./icon.png"
+            alt=""
+            className="app-loading-icon app-loading-icon--pulse"
+          />
           <div className="app-loading-body">
-            <Spin size="large" />
             <div className="app-loading-text">{resolveBootLoadingText()}</div>
           </div>
         </div>

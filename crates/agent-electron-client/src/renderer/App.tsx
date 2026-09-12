@@ -11,7 +11,6 @@ import {
   ConfigProvider,
   Menu,
   Badge,
-  Spin,
   Button,
   Modal,
   Tooltip,
@@ -1606,9 +1605,12 @@ function App() {
       <I18nContext.Provider value={i18nContextValue}>
         <ConfigProvider theme={currentTheme}>
           <div className="app-loading">
-            <img src="./icon.png" alt="" className="app-loading-icon" />
+            <img
+              src="./icon.png"
+              alt=""
+              className="app-loading-icon app-loading-icon--pulse"
+            />
             <div className="app-loading-body">
-              <Spin size="large" />
               <div className="app-loading-text">{t("Claw.App.Loading")}</div>
             </div>
           </div>
@@ -1653,7 +1655,15 @@ function App() {
       <I18nContext.Provider value={i18nContextValue}>
         <ConfigProvider theme={currentTheme}>
           <div className="app-loading">
-            <img src="./icon.png" alt="" className="app-loading-icon" />
+            <img
+              src="./icon.png"
+              alt=""
+              className={
+                servicesGate && !servicesGate.ok
+                  ? "app-loading-icon"
+                  : "app-loading-icon app-loading-icon--pulse"
+              }
+            />
             <div className="app-loading-body">
               {servicesGate && !servicesGate.ok ? (
                 <>
@@ -1681,12 +1691,7 @@ function App() {
                   </Button>
                 </>
               ) : (
-                <>
-                  <Spin size="large" />
-                  <div className="app-loading-text" style={{ marginTop: 4 }}>
-                    正在启动本地服务…
-                  </div>
-                </>
+                <div className="app-loading-text">正在启动本地服务…</div>
               )}
             </div>
           </div>
