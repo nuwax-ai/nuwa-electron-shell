@@ -15,6 +15,7 @@ import { ManagedProcess } from "./processManager";
 import { registerAllHandlers } from "./ipc/index";
 import { unregisterEventForwarders } from "./ipc/eventForwarders";
 import { runStartupTasks } from "./bootstrap/startup";
+import { stopManagedProcesses } from "./bootstrap/stopManagedProcesses";
 import { agentService } from "./services/engines/unifiedAgent";
 import { stopComputerServer } from "./services/computerServer";
 import { mcpProxyManager } from "./services/packages/mcp";
@@ -450,13 +451,15 @@ async function cleanupAllProcesses(): Promise<void> {
     log.info("[Cleanup] Process registry cleared");
   });
 
-  // Last-resort force kill for legacy managed processes.
+  // Await owned process trees before app.exit; fire-and-forget kill loses escalation.
   // NOTE: guiServer is a legacy placeholder and typically not started directly.
-  agentRunner.kill();
-  lanproxy.kill();
-  fileServer.kill();
-  guiServer.kill();
-  ttyd.kill();
+  await stopManagedProcesses([
+    agentRunner,
+    lanproxy,
+    fileServer,
+    guiServer,
+    ttyd,
+  ]);
 
   log.info("[Cleanup] All processes stopped");
 }
@@ -641,6 +644,8 @@ app.on("before-quit", (e) => {
     const start = Date.now();
     try {
       await cleanupAllProcesses();
+    } catch (error) {
+      log.error("[App] Process cleanup failed", error);
     } finally {
       const elapsed = Date.now() - start;
       if (elapsed > CLEANUP_TIMEOUT) {
