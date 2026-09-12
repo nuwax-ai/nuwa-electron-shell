@@ -7,9 +7,18 @@ export async function saveResponse(
   response: Response,
   target: string,
   signal?: AbortSignal,
+  expectedContent?: "binary",
 ): Promise<void> {
   if (!response.ok || !response.body)
     throw new Error(`Download failed: HTTP ${response.status}`);
+  const contentType = response.headers.get("content-type")?.toLowerCase() || "";
+  if (
+    expectedContent === "binary" &&
+    /application\/(?:[^;]+\+)?json|text\/(?:json|html)/.test(contentType)
+  ) {
+    await response.body.cancel();
+    throw new Error("Download returned an error page instead of a file");
+  }
   const temporary = `${target}.${randomUUID()}.part`;
   try {
     await pipeline(
