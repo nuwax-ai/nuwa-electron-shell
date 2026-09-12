@@ -14,13 +14,15 @@ import type { AgentEngineType } from "@shared/types/electron";
  * 默认值 = 社区版。商业版构建时通过环境变量覆盖，由 build-main-esbuild.js / vite.config.ts
  * 在构建期把 process.env.<KEY> 静态替换为字面量（renderer 无 process，靠 vite define 注入）。
  * vitest 与本地 dev 不设 env，回落默认值，行为不变。
+ *
+ * ⚠️ 不得用 `typeof process !== "undefined"` 守卫这些读取：define 只替换
+ * `process.env.<KEY>` 表达式本身，守卫的三元条件在 renderer 运行时求值
+ * （process 不存在 → 取 undefined 分支），会把已注入的字面量丢弃——商业版
+ * 渲染层身份因此在 v1.0.0–v1.0.3 一直是社区缺省。renderer 构建恒经 vite
+ * define 全量替换（无裸 process 残留）；main/vitest 在 Node 运行时直读 env。
  */
-const NUWAX_APP_IDENTIFIER_ENV =
-  typeof process !== "undefined" ? process.env.NUWAX_APP_IDENTIFIER : undefined;
-const NUWAX_APP_DISPLAY_NAME_ENV =
-  typeof process !== "undefined"
-    ? process.env.NUWAX_APP_DISPLAY_NAME
-    : undefined;
+const NUWAX_APP_IDENTIFIER_ENV = process.env.NUWAX_APP_IDENTIFIER;
+const NUWAX_APP_DISPLAY_NAME_ENV = process.env.NUWAX_APP_DISPLAY_NAME;
 
 /** 应用对外显示名称（窗口标题、关于、安装包名称等），与 package.json build.productName 保持一致 */
 export const APP_DISPLAY_NAME =
@@ -67,8 +69,7 @@ export const WEBVIEW_POPUP_MIN_HEIGHT = DEFAULT_WINDOW_MIN_HEIGHT;
 // nuwaclaw（60xxx 序列）及 nuwa-cli（gateway 60016 / file-server 60015 /
 // lanproxy 10076）三方同机错开、双开不冲突。默认 0 = 社区版原端口不变。
 
-const NUWAX_PORT_OFFSET_ENV =
-  typeof process !== "undefined" ? process.env.NUWAX_PORT_OFFSET : undefined;
+const NUWAX_PORT_OFFSET_ENV = process.env.NUWAX_PORT_OFFSET;
 /** 端口偏移量（0 = 社区版默认序列；负值与非数字按 0 处理） */
 export const NUWAX_PORT_OFFSET = Math.max(
   0,
