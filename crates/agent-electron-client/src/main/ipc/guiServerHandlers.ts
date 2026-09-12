@@ -1,3 +1,4 @@
+import { registerServiceHandler } from "./serviceHandler";
 /**
  * GUI Server IPC Handlers
  *
@@ -27,7 +28,7 @@ import {
 
 export function registerGuiServerHandlers(): void {
   // ===== guiServer:isEnabled =====
-  ipcMain.handle("guiServer:isEnabled", async () => {
+  registerServiceHandler("guiServer:isEnabled", async () => {
     if (!FEATURES.ENABLE_GUI_AGENT_SERVER) {
       return { enabled: false, reason: "not_available" };
     }
@@ -35,43 +36,46 @@ export function registerGuiServerHandlers(): void {
   });
 
   // ===== guiServer:setEnabled =====
-  ipcMain.handle("guiServer:setEnabled", async (_, enabled: boolean) => {
-    if (!FEATURES.ENABLE_GUI_AGENT_SERVER) {
-      return { success: false, error: "GUI Agent Server is not available" };
-    }
-    const previousEnabled = getGuiMcpEnabled();
-    try {
-      // 先停服务
-      if (isWindows()) {
-        await stopWindowsMcp();
-      } else {
-        await stopGuiAgentServer();
+  registerServiceHandler(
+    "guiServer:setEnabled",
+    async (_, enabled: boolean) => {
+      if (!FEATURES.ENABLE_GUI_AGENT_SERVER) {
+        return { success: false, error: "GUI Agent Server is not available" };
       }
-      // 保存开关状态，并同步本地 MCP 管理中的 gui-agent 条目
-      setGuiMcpEnabledFlag(enabled);
-      syncGuiAgentLocalMcpConfig(enabled);
-      if (!enabled) {
-        return { success: true };
-      }
+      const previousEnabled = getGuiMcpEnabled();
+      try {
+        // 先停服务
+        if (isWindows()) {
+          await stopWindowsMcp();
+        } else {
+          await stopGuiAgentServer();
+        }
+        // 保存开关状态，并同步本地 MCP 管理中的 gui-agent 条目
+        setGuiMcpEnabledFlag(enabled);
+        syncGuiAgentLocalMcpConfig(enabled);
+        if (!enabled) {
+          return { success: true };
+        }
 
-      const startResult = isWindows()
-        ? await startWindowsMcp()
-        : await startGuiAgentServer();
-      if (!startResult.success) {
-        // 启动失败时回滚开关与本地 MCP 条目，避免配置与运行态不一致
-        setGuiMcpEnabledFlag(previousEnabled);
-        syncGuiAgentLocalMcpConfig(previousEnabled);
+        const startResult = isWindows()
+          ? await startWindowsMcp()
+          : await startGuiAgentServer();
+        if (!startResult.success) {
+          // 启动失败时回滚开关与本地 MCP 条目，避免配置与运行态不一致
+          setGuiMcpEnabledFlag(previousEnabled);
+          syncGuiAgentLocalMcpConfig(previousEnabled);
+        }
+        return startResult;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        log.error("[IPC] guiServer:setEnabled error:", msg);
+        return { success: false, error: msg };
       }
-      return startResult;
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      log.error("[IPC] guiServer:setEnabled error:", msg);
-      return { success: false, error: msg };
-    }
-  });
+    },
+  );
 
   // ===== guiServer:start =====
-  ipcMain.handle("guiServer:start", async () => {
+  registerServiceHandler("guiServer:start", async () => {
     if (!FEATURES.ENABLE_GUI_AGENT_SERVER) {
       return { success: false, error: "GUI Agent Server is not available" };
     }
@@ -102,7 +106,7 @@ export function registerGuiServerHandlers(): void {
   });
 
   // ===== guiServer:stop =====
-  ipcMain.handle("guiServer:stop", async () => {
+  registerServiceHandler("guiServer:stop", async () => {
     if (!FEATURES.ENABLE_GUI_AGENT_SERVER) {
       return { success: false, error: "GUI Agent Server is not available" };
     }
@@ -120,7 +124,7 @@ export function registerGuiServerHandlers(): void {
   });
 
   // ===== guiServer:status =====
-  ipcMain.handle("guiServer:status", async () => {
+  registerServiceHandler("guiServer:status", async () => {
     if (!FEATURES.ENABLE_GUI_AGENT_SERVER) {
       return { running: false, error: "GUI Agent Server is not available" };
     }

@@ -3,7 +3,9 @@ import { createHash } from "crypto";
 import * as os from "os";
 import log from "electron-log";
 
-const APP_SALT = "nuwax-agent";
+import { APP_NAME_IDENTIFIER } from "@shared/constants";
+const APP_SALT =
+  APP_NAME_IDENTIFIER === "nuwax" ? "nuwax:device:v1" : "nuwax-agent";
 let cachedDeviceId: string | null = null;
 
 export function getDeviceId(): string {

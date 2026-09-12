@@ -142,3 +142,14 @@ describe("ManagedProcess", () => {
     });
   });
 });
+
+it("stopAsync reports failed tree cleanup and preserves process for retry", async () => {
+  const proc = createFakeProc();
+  const mp = new ManagedProcess("test");
+  injectProcess(mp, proc);
+  processTreeMocks.killProcessTreeGraceful.mockRejectedValueOnce(
+    new Error("denied"),
+  );
+  expect((await mp.stopAsync()).success).toBe(false);
+  expect(mp.running).toBe(true);
+});

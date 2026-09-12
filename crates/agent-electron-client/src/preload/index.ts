@@ -281,6 +281,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   // Services (对齐 Tauri services_restart_all)
   services: {
+    configureServerHost: (host: string) =>
+      ipcRenderer.invoke("services:configureServerHost", host),
+    authState: () => ipcRenderer.invoke("services:authState"),
+    syncConfig: () => ipcRenderer.invoke("services:syncConfig"),
     restartAll: () => ipcRenderer.invoke("services:restartAll"),
     stopAll: () => ipcRenderer.invoke("services:stopAll"),
     /** 启动服务门禁：已就绪结果缓存（null=仍在等待）。 */
@@ -593,6 +597,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       "intervention:request",
       "intervention:updated",
       "nuwax:authChanged",
+      "nuwax:serviceState",
       "nuwax:theme-changed",
       "nuwax:layout-changed",
       "nuwax:open-same-window",

@@ -1,3 +1,4 @@
+import { registerServiceHandler } from "./serviceHandler";
 /**
  * ttyd IPC Handlers
  *
@@ -31,7 +32,7 @@ import { getServiceManager } from "./processHandlers";
 export function registerTtydHandlers(ctx: HandlerContext): void {
   // 幂等：已运行直接复用 startTtyd() 的 short-circuit 行为，避免打断已有终端会话。
   // startTtyd 内部已做端口清理与二进制缺失降级，这里不再 stop+portSweep 重启。
-  ipcMain.handle("ttyd:start", async () => {
+  registerServiceHandler("ttyd:start", async () => {
     return getServiceManager()?.startTtyd();
   });
 
@@ -39,7 +40,7 @@ export function registerTtydHandlers(ctx: HandlerContext): void {
   // 这里用配置的端口而非 status().port（status() 不返回 port 字段）；
   // 即使用户在 UI 改了端口，clearServicePort 扫新端口找不到也无所谓——
   // 旧进程已被 kill，旧端口的孤儿监听会在 OS 层面自然释放。
-  ipcMain.handle("ttyd:stop", async () => {
+  registerServiceHandler("ttyd:stop", async () => {
     const gatewayStatus = getTtydGatewayStatus();
     await stopTtydGateway();
     const result = await ctx.ttyd.stopAsync(3000);
@@ -54,7 +55,7 @@ export function registerTtydHandlers(ctx: HandlerContext): void {
     return result;
   });
 
-  ipcMain.handle("ttyd:status", () => {
+  registerServiceHandler("ttyd:status", () => {
     const status = ctx.ttyd.status();
     const gateway = getTtydGatewayStatus();
     const gatewayError =
@@ -75,7 +76,7 @@ export function registerTtydHandlers(ctx: HandlerContext): void {
    * 格式：ws://127.0.0.1:<port>/computer/ttyd/<user_id>/<project_id>/ws
    * gateway 会把该路径转发到内部 ttyd /ws，并按 path 中的项目参数注入 cwd。
    */
-  ipcMain.handle(
+  registerServiceHandler(
     "ttyd:getWsUrl",
     (
       _event,
@@ -93,14 +94,14 @@ export function registerTtydHandlers(ctx: HandlerContext): void {
    * 刷新 ttyd-cwd 文件（工作区切换后调用）。
    * wrapper 脚本在新终端连接建立时读取此文件，无需重启 ttyd 进程。
    */
-  ipcMain.handle("ttyd:updateCwd", () => {
+  registerServiceHandler("ttyd:updateCwd", () => {
     const cwd = getTtydInitialCwd();
     writeTtydCwdFile(cwd);
     return { success: true, cwd };
   });
 
   /** 检测当前平台是否内置 ttyd 二进制，同时返回版本号 */
-  ipcMain.handle("ttyd:isAvailable", () => {
+  registerServiceHandler("ttyd:isAvailable", () => {
     const binPath = getTtydBinPath();
     if (!fs.existsSync(binPath)) return { available: false };
     const r = spawnSync(binPath, ["--version"], { timeout: 3000 });

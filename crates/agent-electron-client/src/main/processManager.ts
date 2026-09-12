@@ -224,11 +224,14 @@ export class ManagedProcess {
         log.warn(
           `[${this.name}] stopAsync: process did not exit within ${timeoutMs}ms, force killed`,
         );
-        resolve({ success: true, message: "Force killed after timeout" });
-      }, timeoutMs);
+        if (!this.process) this.process = proc;
+        this.lastError = "Process exit not confirmed";
+        resolve({ success: false, message: this.lastError });
+      }, timeoutMs + 1500);
 
       proc.once("exit", () => {
         clearTimeout(timer);
+        if (this.process === proc) this.process = null;
         resolve({ success: true });
       });
 
@@ -244,7 +247,9 @@ export class ManagedProcess {
               `[${this.name}] stopAsync: process tree cleanup failed`,
               error,
             );
-            resolve({ success: true, message: String(error) });
+            if (!this.process) this.process = proc;
+            this.lastError = String(error);
+            resolve({ success: false, message: String(error) });
           });
       } else {
         proc.kill();

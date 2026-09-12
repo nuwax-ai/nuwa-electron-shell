@@ -1,3 +1,4 @@
+import { commercialLifecycle } from "./services/auth/lifecycle";
 import {
   app,
   BrowserWindow,
@@ -45,6 +46,12 @@ import { initWebviewPolicy } from "./services/system/webviewPolicy";
 import { stopAllEngines } from "./services/engines/engineManager";
 import { processRegistry } from "./services/system/processRegistry";
 import { APP_DATA_DIR_NAME } from "@shared/constants";
+
+// 商业开发态与安装态均使用独立浏览器存储；不能沿用基座 package name 的 userData。
+if (APP_NAME_IDENTIFIER === "nuwax") {
+  app.setName("Nuwax");
+  app.setPath("userData", path.join(app.getPath("appData"), "Nuwax"));
+}
 
 // 处理 EPIPE 错误（社区最佳实践）
 // 当 stdout/stderr 的接收端关闭时，写入操作会触发 EPIPE 错误
@@ -430,7 +437,8 @@ async function initTrayManager() {
     },
     onRestartServices: async () => {
       log.info("[Tray] Restarting all services...");
-      await serviceManager.restartAllServices();
+      if (commercialLifecycle) await commercialLifecycle.start(true);
+      else await serviceManager.restartAllServices();
       trayManager?.updateServicesStatus(true);
     },
     onStopServices: async () => {

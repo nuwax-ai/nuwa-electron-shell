@@ -627,6 +627,11 @@ export interface ComputerAPI {
 }
 
 export interface ServicesAPI {
+  configureServerHost(
+    host: string,
+  ): Promise<{ success: boolean; serverHost?: string; error?: string }>;
+  authState(): Promise<{ phase: string; error?: string; loggedIn: boolean }>;
+  syncConfig(): Promise<import("./registration").ClientRegisterResponse>;
   restartAll: () => Promise<{
     success: boolean;
     results?: Record<string, { success: boolean; error?: string }>;
