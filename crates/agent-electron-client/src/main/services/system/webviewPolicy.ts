@@ -159,7 +159,21 @@ function setupWindowOpen(): void {
 
       // Webview captures keyboard events — they don't bubble to the host page.
       // Intercept Ctrl/Cmd+Shift+I here to open webview DevTools.
+      // Ctrl/Cmd+N: "new task" — reserved by real browsers (new window) so the
+      // guest page never receives it there; the shell takes over and forwards
+      // it as a host command (HostCommand "new-task", see nuwax nuwaClawHostEvents).
       webContents.on("before-input-event", (event, input) => {
+        if (
+          input.type === "keyDown" &&
+          !input.shift &&
+          !input.alt &&
+          (input.control || input.meta) &&
+          input.key.toLowerCase() === "n"
+        ) {
+          event.preventDefault();
+          webContents.send("nuwax:host-command", { type: "new-task" });
+          return;
+        }
         if (
           input.type === "keyDown" &&
           input.shift &&
