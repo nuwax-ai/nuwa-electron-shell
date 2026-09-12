@@ -35,3 +35,19 @@ it("stream failure preserves destination and removes partial data", async () => 
     await fs.rm(dir, { recursive: true });
   }
 });
+
+it("rejects a HTTP 200 API error before overwriting a binary destination", async () => {
+  const dir = await fs.mkdtemp(join(tmpdir(), "nuwax-save-"));
+  const target = join(dir, "project.zip");
+  try {
+    await fs.writeFile(target, "original archive");
+    const response = Response.json({ code: "4010", message: "expired" });
+    await expect(
+      saveResponse(response, target, undefined, "binary"),
+    ).rejects.toThrow("error page");
+    expect(await fs.readFile(target, "utf8")).toBe("original archive");
+    expect(await fs.readdir(dir)).toEqual(["project.zip"]);
+  } finally {
+    await fs.rm(dir, { recursive: true });
+  }
+});

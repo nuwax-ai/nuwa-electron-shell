@@ -1,3 +1,4 @@
+import { stopManagedProcesses } from "./bootstrap/stopManagedProcesses";
 import { commercialLifecycle } from "./services/auth/lifecycle";
 import {
   app,
@@ -468,6 +469,8 @@ ipcMain.handle("tray:updateServicesStatus", (_, running: boolean) => {
 
 async function cleanupAllProcesses(): Promise<void> {
   log.info("[Cleanup] Stopping all processes...");
+  // Cancel registration/start before shutting down any dependent service.
+  commercialLifecycle?.invalidate();
 
   const stepTimeoutMs = Math.max(1500, Math.floor(CLEANUP_TIMEOUT / 6));
   const runCleanupStep = async (
@@ -545,13 +548,15 @@ async function cleanupAllProcesses(): Promise<void> {
     log.info("[Cleanup] Process registry cleared");
   });
 
-  // Last-resort force kill for legacy managed processes.
+  // Await owned process trees before app.exit; fire-and-forget kill loses escalation.
   // NOTE: guiServer is a legacy placeholder and typically not started directly.
-  agentRunner.kill();
-  lanproxy.kill();
-  fileServer.kill();
-  guiServer.kill();
-  ttyd.kill();
+  await stopManagedProcesses([
+    agentRunner,
+    lanproxy,
+    fileServer,
+    guiServer,
+    ttyd,
+  ]);
 
   log.info("[Cleanup] All processes stopped");
 }
@@ -853,6 +858,8 @@ app.on("before-quit", (e) => {
     const start = Date.now();
     try {
       await cleanupAllProcesses();
+    } catch (error) {
+      log.error("[App] Process cleanup failed", error);
     } finally {
       // Loopback Gateway 收尾（幂等；未启用时为 no-op）
       try {
