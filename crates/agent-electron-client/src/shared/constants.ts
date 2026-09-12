@@ -222,8 +222,9 @@ export const DEPS_SYNC_TIMEOUT = 120_000;
 /**
  * 启动 loading 最少展示时长 (ms)。
  * 各加载分支全部由事件驱动，快速机器上会一闪而过；以此为下限保证启动动画可见。
+ * 2026-09-12 用户拍板 3s（暂定值，仅改此常量即可调整）。
  */
-export const MIN_SPLASH_MS = 800;
+export const MIN_SPLASH_MS = 3000;
 
 /**
  * 启动早期 IPC 探询超时 (ms)。

@@ -125,8 +125,10 @@ function Main() {
       <ConfigProvider locale={zhCN}>
         <div className="app-loading">
           <img src="./icon.png" alt="" className="app-loading-icon" />
-          <Spin size="large" />
-          <div className="app-loading-text">{resolveBootLoadingText()}</div>
+          <div className="app-loading-body">
+            <Spin size="large" />
+            <div className="app-loading-text">{resolveBootLoadingText()}</div>
+          </div>
         </div>
       </ConfigProvider>
     );

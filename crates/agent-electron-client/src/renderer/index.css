@@ -662,8 +662,11 @@ body {
   color: #71717a;
 }
 
-/* ========== 加载页面（初始化/启动全屏大 loading：应用图标水平垂直居中） ========== */
+/* ========== 加载页面（初始化/启动全屏大 loading）==========
+ * 图标绝对定位钉在全窗口正中（flex 整组居中会把图标顶到中心上方），
+ * spinner/文案/错误重试作为独立层放在图标正下方。 */
 .app-loading {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -674,14 +677,28 @@ body {
 }
 
 .app-loading-icon {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
   width: 88px;
   height: 88px;
-  margin-bottom: 24px;
   border-radius: 20px;
   /* macOS 风格柔和投影，衬托图标悬浮感 */
   filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.12));
   user-select: none;
   -webkit-user-drag: none;
+}
+
+/* 图标下方辅助层：top = 中心 + 图标半高(44) + 间距(24) */
+.app-loading-body {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(50% + 68px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
 .app-loading-text {

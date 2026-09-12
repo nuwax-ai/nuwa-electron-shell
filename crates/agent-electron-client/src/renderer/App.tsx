@@ -1607,8 +1607,10 @@ function App() {
         <ConfigProvider theme={currentTheme}>
           <div className="app-loading">
             <img src="./icon.png" alt="" className="app-loading-icon" />
-            <Spin size="large" />
-            <div className="app-loading-text">{t("Claw.App.Loading")}</div>
+            <div className="app-loading-body">
+              <Spin size="large" />
+              <div className="app-loading-text">{t("Claw.App.Loading")}</div>
+            </div>
           </div>
         </ConfigProvider>
       </I18nContext.Provider>
@@ -1652,39 +1654,41 @@ function App() {
         <ConfigProvider theme={currentTheme}>
           <div className="app-loading">
             <img src="./icon.png" alt="" className="app-loading-icon" />
-            {servicesGate && !servicesGate.ok ? (
-              <>
-                <div
-                  className="app-loading-text"
-                  style={{ fontSize: 16, fontWeight: 600 }}
-                >
-                  本地服务启动失败
-                </div>
-                <div
-                  className="app-loading-text"
-                  style={{ maxWidth: 420, textAlign: "center", marginTop: 8 }}
-                >
-                  未就绪：{(servicesGate.detail ?? []).join("、")}
-                </div>
-                <Button
-                  type="primary"
-                  style={{ marginTop: 16 }}
-                  onClick={() => {
-                    setServicesGate(null);
-                    void window.electronAPI?.services?.waitForReady();
-                  }}
-                >
-                  重试
-                </Button>
-              </>
-            ) : (
-              <>
-                <Spin size="large" />
-                <div className="app-loading-text" style={{ marginTop: 4 }}>
-                  正在启动本地服务…
-                </div>
-              </>
-            )}
+            <div className="app-loading-body">
+              {servicesGate && !servicesGate.ok ? (
+                <>
+                  <div
+                    className="app-loading-text"
+                    style={{ fontSize: 16, fontWeight: 600 }}
+                  >
+                    本地服务启动失败
+                  </div>
+                  <div
+                    className="app-loading-text"
+                    style={{ maxWidth: 420, textAlign: "center", marginTop: 8 }}
+                  >
+                    未就绪：{(servicesGate.detail ?? []).join("、")}
+                  </div>
+                  <Button
+                    type="primary"
+                    style={{ marginTop: 16 }}
+                    onClick={() => {
+                      setServicesGate(null);
+                      void window.electronAPI?.services?.waitForReady();
+                    }}
+                  >
+                    重试
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Spin size="large" />
+                  <div className="app-loading-text" style={{ marginTop: 4 }}>
+                    正在启动本地服务…
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </ConfigProvider>
       </I18nContext.Provider>
