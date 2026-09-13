@@ -1,5 +1,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 
+import { APP_NAME_IDENTIFIER } from "@shared/constants";
+
 type PerfPayload = Record<string, unknown>;
 
 const CHAT_ROUTE_RE = /^\/home\/chat\/\d+\/\d+$/;
@@ -89,6 +91,21 @@ const perf = {
   },
 };
 
+/**
+ * host 命名空间：宿主身份只读信息（host→nuwax web）。
+ * nuwax 凭 getProduct() 区分宿主产品：`nuwaclaw`（社区版 NuwaClaw 客户端，
+ * nuwax-ai/nuwaclaw）/ `nuwax`（商业版 Nuwax 客户端，nuwax-ai/nuwax-client；
+ * 存量宿主可能返回历史值 nuwawork），用于按宿主开关桌面专属能力或降级。
+ * 值由构建期 define 注入（同 4-env 注入契约），不经 IPC、无运行时 process 访问。
+ */
+const host = {
+  /** 宿主产品标识：见命名空间注释；社区版不注入时恒为 "nuwaclaw"。 */
+  getProduct(): string {
+    return APP_NAME_IDENTIFIER;
+  },
+};
+
 contextBridge.exposeInMainWorld("NuwaClawBridge", {
   perf,
+  host,
 });

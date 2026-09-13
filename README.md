@@ -11,7 +11,7 @@ Windows 沙箱 helper、`nuwax/` 前端子模块、根 Makefile sidecar 准备�
 | 产品 | 产品壳仓库 | 身份 |
 |---|---|---|
 | 社区版 NuwaClaw | [nuwax-ai/nuwaclaw](https://github.com/nuwax-ai/nuwaclaw) | 不注入（默认值即社区版） |
-| 商业版 女娲 Nuwax | [nuwax-ai/nuwa-work](https://github.com/nuwax-ai/nuwa-work) | 4 个 env 注入（见下） |
+| 商业版 女娲 Nuwax | [nuwax-ai/nuwax-client](https://github.com/nuwax-ai/nuwax-client) | 4 个 env 注入（见下） |
 
 ## 注入契约（产品差异的全部边界）
 
@@ -19,7 +19,7 @@ Windows 沙箱 helper、`nuwax/` 前端子模块、根 Makefile sidecar 准备�
 机制单点在 `crates/agent-electron-client/src/shared/constants.ts` 与
 `src/main/services/autoUpdater.ts`；**不注入 = 社区版行为**）：
 
-| env | 默认（社区版） | 商业版（nuwa-work）取值 |
+| env | 默认（社区版 NuwaClaw） | 商业版（Nuwax 客户端）取值 |
 |---|---|---|
 | `NUWAX_APP_IDENTIFIER` | `nuwaclaw`（数据目录 ~/.nuwaclaw） | `nuwawork`（~/.nuwawork，首启自动迁移） |
 | `NUWAX_APP_DISPLAY_NAME` | `女娲 Nuwax` | `女娲 Nuwax` |
