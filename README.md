@@ -30,6 +30,14 @@ Windows 沙箱 helper、`nuwax/` 前端子模块、根 Makefile sidecar 准备�
 `src/shared/constants.port-offset.test.ts`。产品专属逻辑只允许读注入后的常量，
 禁止新增硬编码身份分支。
 
+### community/main 线摘取边界（2026-09-13 定）
+
+商业版在 main 上推进的**单栏风格样式适配**（顶栏/侧栏/三键/启动屏等 style 系提交）
+属商业产品专属面，**永久不在社区对接范围**——社区线（`community/main`）不摘取、
+不跟随。社区 UI 面只维护 0.13 历史做的兼容。社区线从 main 摘取的对象仅限中性的
+基础设施与行为修复（构建/CI/引擎修复等），摘取时 `git cherry-pick -x` 留源 sha，
+可审计可回溯。
+
 ## 目录速览
 
 | 路径 | 职责 |
