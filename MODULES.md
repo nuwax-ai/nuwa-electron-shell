@@ -28,7 +28,6 @@ peerDependency；MCP bridge 由宿主注入。
 | `computer/` | admin server、chat dispatch、SSE 流 |
 | `intervention/` | 干预/审批协议 |
 | `memory/` | 会话记忆 |
-| `loopbackGateway/` | nuwax 前端 webview 承载与鉴权桥 |
 | `autoUpdater` | 更新通道（feed base 可注入） |
 
 渲染层 `renderer/`、共享层 `shared/`（注入契约单点 `constants.ts`）。
@@ -42,7 +41,6 @@ peerDependency；MCP bridge 由宿主注入。
 ## D. 产品差异化接入点（开关，不是分叉）
 
 - **4 个 NUWAX_* 构建期 env**（见 README「注入契约」）：identifier / 显示名 / 端口偏移 / 更新通道。不注入=社区版。
-- **nuwax 子模块 pin**：产品可嵌不同前端版本。
 - **壳层 `overlay/`**：产品自有代码落位（启动参数、专属 preload/webview 注入等）。
 
 ## 扩展落位指引

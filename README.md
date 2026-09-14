@@ -3,7 +3,7 @@
 nuwax 平台桌面客户端的**功能模块基座**：全部业务与构建系统都在本仓
 （`crates/agent-electron-client` Electron 客户端主体、`crates/agent-kit` 共享
 ACP 原语包、`crates/agent-gui-server` GUI Agent MCP、`crates/windows-sandbox-helper`
-Windows 沙箱 helper、`nuwax/` 前端子模块、根 Makefile sidecar 准备全家桶、
+Windows 沙箱 helper、根 Makefile sidecar 准备全家桶、
 约 1585 个测试用例）。
 
 本仓**不定义产品身份**——两个产品壳经 submodule 引用本仓做构建发布：
@@ -46,7 +46,6 @@ Windows 沙箱 helper、`nuwax/` 前端子模块、根 Makefile sidecar 准备�
 | `crates/agent-kit` | `@nuwax-ai/agent-kit` npm 包（nuwa-cli/客户端共享 ACP 原语，独立发布） |
 | `crates/agent-gui-server` | GUI Agent MCP server（截屏+键鼠自动化） |
 | `crates/windows-sandbox-helper` | Windows Restricted Token 沙箱 helper（Rust） |
-| `nuwax/` | nuwax 前端子模块（dist 随仓提交，webview 承载产品 UI） |
 | `scripts/`、`Makefile` | sidecar 下载/准备（uv、node、git、ripgrep、nuwaxcode 等） |
 
 ## 本地开发
@@ -64,9 +63,10 @@ npm run test:electron                          # 全量 vitest（社区默认值
 
 - **推荐独立工作副本开发**（非经产品壳的 submodule）：`git clone
   https://github.com/nuwax-ai/nuwa-electron-shell.git`（本地惯例放
-  `~/workspace/nuwa-electron-shell`，与 nuwax/nuwa-work/nuwaclaw 同级），初始化
-  `nuwax` 子模块后即可 install/test/dev。产品壳内的 submodule 副本仅用于 pin 与
-  构建，日常改动在本仓直接提交推送，壳按需 bump pin。
+  `~/workspace/nuwa-electron-shell`，与 nuwax/nuwa-work/nuwaclaw 同级），clone 后
+  即可 install/test/dev（webview 前端由产品侧加载线上部署的 nuwax，本仓不内嵌）。
+  产品壳内的 submodule 副本仅用于 pin 与构建，日常改动在本仓直接提交推送，壳按需
+  bump pin。
 - 功能模块的粒度、边界与接入方式见 **[MODULES.md](./MODULES.md)**（独立包 /
   客户端功能域 / 平台 helper / 产品注入开关 + 扩展落位指引）。
 
