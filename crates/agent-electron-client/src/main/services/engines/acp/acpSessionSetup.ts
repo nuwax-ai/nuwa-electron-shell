@@ -4,6 +4,7 @@
  * is suppressed in acpEngine.loadAcpSession during load.
  */
 
+import * as path from "path";
 import log from "electron-log";
 import type { ComputerChatRequest } from "@shared/types/computerTypes";
 import { resolveComputerProjectWorkspaceDir } from "../../workspacePaths";
@@ -126,12 +127,24 @@ export interface SessionSetupResult {
   setupPath: string;
 }
 
-function buildWorkDirAndProjectDir(
+/**
+ * workDirId/projectDir 推导（双轨）：
+ * - 标识符轨道：projectDir = {workspace}/computer-project-workspace/{userId}/{id}，
+ *   workDirId 兼作会话 title。
+ * - 绝对路径轨道（web 端工作空间选择）：projectDir = 入口归一化后的路径原值
+ *   （不拼接 workspace）；title 用 basename（全路径作 title 过长）。
+ * 会话归属 projectId 的回写不在本函数（resolveSessionForChat 用
+ * request.agent_work_dir 原值作引擎索引 key，保持全路径）。
+ */
+export function buildWorkDirAndProjectDir(
   deps: SessionSetupDeps,
   request: ComputerChatRequest,
 ): { workDirId: string; projectDir: string } {
   const workDirId =
     request.agent_work_dir || request.project_id || `proj-${Date.now()}`;
+  if (path.isAbsolute(workDirId)) {
+    return { workDirId: path.basename(workDirId), projectDir: workDirId };
+  }
   const projectDir = resolveComputerProjectWorkspaceDir(
     deps.workspaceDir,
     request.user_id,

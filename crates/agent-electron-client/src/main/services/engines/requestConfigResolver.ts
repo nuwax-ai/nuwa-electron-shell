@@ -344,14 +344,20 @@ export function buildEffectiveConfig(args: {
   // 定到 project workspace，确保 codex 工作目录正确
   const workDirId = request.agent_work_dir || request.project_id;
   if (requiredEngine === "codex-cli" && workDirId && request.user_id) {
-    effectiveConfig.workspaceDir = resolveComputerProjectWorkspaceDir(
-      effectiveConfig.workspaceDir,
-      request.user_id,
-      workDirId,
-    );
-    if (!ensuredDirs.has(effectiveConfig.workspaceDir)) {
-      fs.mkdirSync(effectiveConfig.workspaceDir, { recursive: true });
-      ensuredDirs.add(effectiveConfig.workspaceDir);
+    if (path.isAbsolute(workDirId)) {
+      // 绝对路径轨道（web 端工作空间选择）：入口已校验存在/可写并归一化，
+      // 直接作为 codex 工作目录，不走 workspace 拼接、不 mkdir。
+      effectiveConfig.workspaceDir = workDirId;
+    } else {
+      effectiveConfig.workspaceDir = resolveComputerProjectWorkspaceDir(
+        effectiveConfig.workspaceDir,
+        request.user_id,
+        workDirId,
+      );
+      if (!ensuredDirs.has(effectiveConfig.workspaceDir)) {
+        fs.mkdirSync(effectiveConfig.workspaceDir, { recursive: true });
+        ensuredDirs.add(effectiveConfig.workspaceDir);
+      }
     }
     log.info(
       `[UnifiedAgent] 🎯 codex-cli workspaceDir overridden to: ${effectiveConfig.workspaceDir}`,
