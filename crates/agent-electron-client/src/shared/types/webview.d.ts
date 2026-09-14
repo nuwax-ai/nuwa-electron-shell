@@ -24,6 +24,10 @@ export interface NuwaClawBridgeNative {
     url: string,
     filename?: string,
   ): Promise<{ success: boolean; path?: string; error?: string }>;
+  /** 新开独立窗口打开 nuwax 页面（智能体详情/工作流/我的电脑等全屏页）。 */
+  openWindow(path: string): Promise<{ success: boolean; error?: string }>;
+  /** 打开宿主壳「客户端配置」设置弹窗（壳 renderer 承载，经主进程转发）。 */
+  openClientSettings(): Promise<{ success: boolean; error?: string }>;
 }
 
 export interface NuwaClawBridgeHost {

@@ -5,7 +5,8 @@
  * 1) 顶部全宽 10px 窄拖拽带（-webkit-app-region:drag）——保底拖拽区，mac 避开红绿灯；
  * 2) 顶行主体（整行 DRAG，交互子块 NO_DRAG 豁免；双击切换最大化）：
  *    - 左（全平台同构的功能区，最左起）：侧栏开关（常驻；当前页无二级菜单时置灰）
- *      → 设置 → 历史导航（后退/前进）→ statusEntry（服务异常点）；
+ *      → 设置（注入 onOpenSettings 时渲染；nuwax 宿主入口在 web 用户区，不传不渲染）
+ *      → 历史导航（后退/前进）→ statusEntry（服务异常点）；
  *    - 左（仅 Win/Linux，功能区之后）：自绘菜单栏 关于(A)/编辑(E)/窗口(W)/帮助(H)
  *      （antd Dropdown，12px 菜单文字）；编辑动作经 menu:editAction 路由到焦点
  *      webContents（webview guest 优先），页面/窗口动作复用 App 注入的
@@ -61,7 +62,8 @@ export interface TrafficLightToolbarProps {
   onBack: () => void;
   onForward: () => void;
   onReload: () => void;
-  onOpenSettings: () => void;
+  /** 打开设置弹窗；不传则不渲染设置按钮（nuwax 宿主入口迁至 web 用户区）。 */
+  onOpenSettings?: () => void;
   /** 打开「关于与检查更新」（App 侧落到设置弹窗 about tab，含完整更新流程）。 */
   onOpenAbout: () => void;
   /** 服务状态指示器（非绿色时由 App.tsx 注入颜色点，点击打开设置弹窗；全绿不渲染）。 */
@@ -151,12 +153,11 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
     menuCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />,
   );
 
-  const settingsBtn = iconBtn(
-    "设置",
-    false,
-    onOpenSettings,
-    <SettingOutlined />,
-  );
+  // 设置按钮：宿主未注入 onOpenSettings 时不渲染（nuwax 宿主入口已迁至
+  // web 用户区「客户端设置」按钮，经 nuwax:open-client-settings 链路回开本弹窗）
+  const settingsBtn = onOpenSettings
+    ? iconBtn("设置", false, onOpenSettings, <SettingOutlined />)
+    : null;
 
   /** 历史导航：后退/前进（能力由 webview 事件推送，不可用时置灰）。 */
   const historyNav = (
@@ -279,7 +280,7 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
           ...DRAG,
         }}
       >
-        {/* 左侧功能区（全平台同构）：侧栏开关 → 设置 → 历史导航 → 服务状态，
+        {/* 左侧功能区（全平台同构）：侧栏开关 → 设置（可选） → 历史导航 → 服务状态，
             其右紧跟（仅 Win/Linux）自绘菜单栏；右侧只留窗口三键（±更新入口） */}
         <div
           style={{

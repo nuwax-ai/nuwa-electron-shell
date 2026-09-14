@@ -601,6 +601,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       "nuwax:theme-changed",
       "nuwax:layout-changed",
       "nuwax:open-same-window",
+      "nuwax:open-client-settings",
       "nuwax:loopback-changed",
       "nuwax:login-confirmed",
       "nuwax:serverHostChanged",

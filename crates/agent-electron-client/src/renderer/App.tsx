@@ -313,6 +313,26 @@ function App() {
     };
   }, []);
 
+  // nuwax 设置入口（web 用户区「客户端设置」按钮，仅 nuwax 宿主渲染）→ 打开壳
+  // 设置弹窗并落到 settings tab（与 menu:settings 同链路；壳顶行设置按钮在
+  // nuwax 宿主下移除，入口由 web 承担）。
+  useEffect(() => {
+    const onOpenClientSettings = () => {
+      setActiveTab("settings");
+      setSettingsModalOpen(true);
+    };
+    window.electronAPI?.on(
+      "nuwax:open-client-settings",
+      onOpenClientSettings as any,
+    );
+    return () => {
+      window.electronAPI?.off(
+        "nuwax:open-client-settings",
+        onOpenClientSettings as any,
+      );
+    };
+  }, []);
+
   // nuwax 布局状态 → 工具栏收起按钮显隐：当前页无二级菜单时按钮无意义，隐藏。
   // 默认 false（隐藏）——nuwax 布局挂载后推送真实值；/Login 等无布局页不推或推 false。
   const [secondMenuAvailable, setSecondMenuAvailable] = useState(false);
@@ -1723,7 +1743,12 @@ function App() {
               onBack={handleToolbarBack}
               onForward={handleToolbarForward}
               onReload={handleToolbarReload}
-              onOpenSettings={handleOpenSettings}
+              onOpenSettings={
+                // nuwax 宿主：设置入口迁至 web 用户区「客户端设置」按钮
+                //（nuwax:open-client-settings 链路），顶行不再渲染设置按钮；
+                // 社区壳（nuwaclaw）保留顶行入口不变。
+                APP_NAME_IDENTIFIER === "nuwax" ? undefined : handleOpenSettings
+              }
               onOpenAbout={() => {
                 // 关于与检查更新：落到设置弹窗 about tab（版本 + 检查更新/下载/重启安装完整流程）
                 setActiveTab("about");

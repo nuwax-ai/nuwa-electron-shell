@@ -139,6 +139,14 @@ const native = {
   openWindow(path: string): Promise<{ success: boolean; error?: string }> {
     return ipcRenderer.invoke("native:openWindow", { path });
   },
+  /**
+   * 打开宿主壳的「客户端配置」设置弹窗（设置 UI 由壳 renderer 承载，webview
+   * 无法直接操作，经主进程转发 nuwax:open-client-settings 给壳 renderer 打开）。
+   * 旧版宿主无此 handler 时 invoke 会 reject，调用方（nuwax hostBridge）自行降级。
+   */
+  openClientSettings(): Promise<{ success: boolean; error?: string }> {
+    return ipcRenderer.invoke("native:openClientSettings");
+  },
 };
 
 /**
