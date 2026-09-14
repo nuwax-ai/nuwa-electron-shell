@@ -7,6 +7,7 @@
 
 import * as fs from "fs";
 import * as path from "path";
+import { createHash } from "crypto";
 import log from "electron-log";
 import { getAppDataDir } from "../../system/appPaths";
 import type { AgentEngineType } from "../types";
@@ -52,6 +53,19 @@ export function sanitizePathSegment(segment: string): string {
     .replace(/[^\w.\-@+]/g, "_");
 }
 
+/**
+ * workDirId 作为目录段的安全形态：绝对路径轨道（web 端工作空间选择）以
+ * sha256 前 16 位作段名——sanitize 替换分隔符会让超长路径爆目录段上限，且
+ * /a/b 与 /a_b 会 sanitize 成同形（HOME 串目录）；入口已归一化，同一路径
+ * hash 稳定。标识符轨道维持 sanitize。
+ */
+export function scopeWorkDirSegment(workDirId: string): string {
+  if (path.isAbsolute(workDirId)) {
+    return `wd-${createHash("sha256").update(workDirId).digest("hex").slice(0, 16)}`;
+  }
+  return sanitizePathSegment(workDirId);
+}
+
 export function getRunRoot(): string {
   return path.join(getAppDataDir(), RUN_SEGMENT);
 }
@@ -69,7 +83,7 @@ export function resolveProjectIsolatedHomeDir(
     );
   }
   const userId = sanitizePathSegment(scope.userId || "_");
-  const workDirId = sanitizePathSegment(scope.workDirId || "_");
+  const workDirId = scopeWorkDirSegment(scope.workDirId || "_");
   const engine = sanitizePathSegment(scope.engine || "unknown");
   return path.join(
     getProjectIsolatedHomesRoot(),
@@ -92,7 +106,7 @@ export function resolveIsolatedHomePath(scope: IsolatedHomeScope): {
   switch (scope.kind) {
     case "project": {
       const homeDir = resolveProjectIsolatedHomeDir(scope);
-      const workDirId = sanitizePathSegment(scope.workDirId || "unknown");
+      const workDirId = scopeWorkDirSegment(scope.workDirId || "unknown");
       const engine = sanitizePathSegment(scope.engine || "unknown");
       return {
         homeDir,
