@@ -19,18 +19,15 @@ import React, {
   useImperativeHandle,
   forwardRef,
 } from "react";
-import { APP_DISPLAY_NAME, DEFAULT_SERVER_HOST } from "@shared/constants";
+import {
+  APP_DISPLAY_NAME,
+  DEFAULT_SERVER_HOST,
+  NUWAX_DEV_HOST,
+} from "@shared/constants";
 import { Spin } from "antd";
 import { normalizeServerHost } from "../../services/core/auth";
 import { buildHomeUrl } from "../../services/utils/sessionUrl";
 import { logger } from "../../services/utils/logService";
-
-/**
- * 开发联调时加载的本地 nuwax dev server。
- * 仅 vite dev 模式（import.meta.env.DEV）启用：webview 直接加载本地 nuwax，
- * 便于实时调试前端改动；生产仍走 step1_config.serverHost / DEFAULT_SERVER_HOST。
- */
-const NUWAX_DEV_HOST = "http://localhost:3000";
 
 /** 暴露给 App.tsx 的 webview 控制句柄（工具栏 icon 经此调用）。 */
 export interface NuwaxHostWebviewHandle {

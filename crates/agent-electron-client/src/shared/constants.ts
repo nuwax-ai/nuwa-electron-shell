@@ -124,6 +124,15 @@ export const DEFAULT_SERVER_HOST = "https://agent.nuwax.com";
 /** 测试环境预置域（回环形态「测试环境」下拉项对应的后端）。 */
 export const TEST_SERVER_HOST = "https://testagent.xspaceagi.com";
 
+/**
+ * 开发联调时 webview 加载的本地 nuwax dev server（唯一事实源）。
+ * renderer 的 webview URL 解析（NuwaxHostWebview，import.meta.env.DEV 分支）
+ * 与主进程的 token 准入名单（nuwaxBridgeHandlers 的 auth:getToken，app.isPackaged
+ * 守卫）共用——两侧不同源会出现「webview 在 dev origin、token 准入不认」的
+ * 静默断链（getToken 零日志 return null，登录态进不了壳）。
+ */
+export const NUWAX_DEV_HOST = "http://localhost:3000";
+
 // ==================== AI 默认配置 ====================
 
 /** 默认 Agent 引擎类型 */
