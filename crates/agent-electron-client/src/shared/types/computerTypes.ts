@@ -113,7 +113,13 @@ export interface ModelProviderConfig {
 export interface ComputerChatRequest {
   user_id: string;
   project_id?: string;
-  /** 自定义 Agent 工作目录标识符（可选）。有值时替代 project_id 参与工作目录路径拼接；无值时由入口处用 project_id 赋值 */
+  /**
+   * Agent 工作目录（双轨，见 main/services/computer/agentWorkDir.ts）：
+   * - 标识符：[a-zA-Z0-9_-]{1,64}，目录经 {workspace}/computer-project-workspace/{userId}/{id} 拼接
+   * - 本机绝对路径：web 端工作空间选择（nuwax 目录弹窗）回传，须存在/是目录/可写，
+   *   入口校验并 realpathSync 归一化后回写本字段（下游按唯一形态作 key）
+   * 有值时替代 project_id；无值时由入口处用 project_id 赋值（同样过校验）。
+   */
   agent_work_dir?: string;
   prompt: string;
   session_id?: string;

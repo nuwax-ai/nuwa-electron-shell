@@ -14,6 +14,7 @@ vi.mock("../../system/appPaths", () => ({
 
 import {
   sanitizePathSegment,
+  scopeWorkDirSegment,
   resolveProjectIsolatedHomeDir,
   resolveIsolatedHomePath,
   isPersistentIsolatedHome,
@@ -35,6 +36,40 @@ describe("isolatedHomePaths", () => {
     expect(sanitizePathSegment("../evil")).toBe("__evil");
     expect(sanitizePathSegment("a/b")).toBe("a_b");
     expect(sanitizePathSegment("  ")).toBe("_");
+  });
+
+  it("scopeWorkDirSegment hashes absolute paths (防超长段/形态碰撞)，标识符维持 sanitize", () => {
+    const absA = scopeWorkDirSegment("/Users/me/my-project");
+    const absAagain = scopeWorkDirSegment("/Users/me/my-project");
+    const absB = scopeWorkDirSegment("/Users/me/my_project"); // sanitize 后会与上者同形
+    expect(absA).toMatch(/^wd-[0-9a-f]{16}$/);
+    expect(absA).toBe(absAagain); // 同路径稳定（入口归一化后同值）
+    expect(absA).not.toBe(absB); // 分隔符差异不再碰撞
+    expect(scopeWorkDirSegment("1553934")).toBe("1553934"); // 标识符轨道不变
+  });
+
+  it("absolute workDirId resolves to hashed home dir without separators", () => {
+    const { homeDir, runId } = resolveIsolatedHomePath({
+      kind: "project",
+      userId: "u1",
+      workDirId: "/Users/me/my-project",
+      engine: "nuwaxcode",
+    });
+    const segment = scopeWorkDirSegment("/Users/me/my-project");
+    expect(homeDir).toBe(
+      path.join(
+        mockAppData,
+        "run",
+        "projects",
+        "u1",
+        segment,
+        "nuwaxcode",
+        "home",
+      ),
+    );
+    expect(runId).toBe(`project-${segment}-nuwaxcode`);
+    // 作用域段内不得出现路径分隔符（防嵌套越界）
+    expect(segment).not.toMatch(/[/\\]/);
   });
 
   it("resolveProjectIsolatedHomeDir uses user/workDir/engine segments", () => {

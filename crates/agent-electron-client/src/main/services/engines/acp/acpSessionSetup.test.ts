@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import * as path from "path";
 import {
   resolveSessionForChat,
+  buildWorkDirAndProjectDir,
   LOAD_SESSION_TIMEOUT_MS,
   isSessionIdCompatibleWithEngine,
   type AcpSessionLike,
@@ -102,6 +104,42 @@ describe("isSessionIdCompatibleWithEngine", () => {
       ),
     ).toBe(true);
     expect(isSessionIdCompatibleWithEngine("ses_abc", "codex-cli")).toBe(true);
+  });
+});
+
+describe("buildWorkDirAndProjectDir（双轨）", () => {
+  it("标识符轨道：维持 workspace 拼接，workDirId 兼作 title", () => {
+    const { workDirId, projectDir } = buildWorkDirAndProjectDir(makeDeps(), {
+      user_id: "u1",
+      project_id: "p1",
+      agent_work_dir: "my-proj",
+      prompt: "hi",
+    });
+    expect(workDirId).toBe("my-proj");
+    expect(projectDir).toBe(
+      path.join("/workspace", "computer-project-workspace", "u1", "my-proj"),
+    );
+  });
+
+  it("绝对路径轨道：projectDir 直通原值，title 用 basename", () => {
+    const abs = "/Users/me/my-project";
+    const { workDirId, projectDir } = buildWorkDirAndProjectDir(makeDeps(), {
+      user_id: "u1",
+      project_id: "p1",
+      agent_work_dir: abs,
+      prompt: "hi",
+    });
+    expect(workDirId).toBe("my-project");
+    expect(projectDir).toBe(abs);
+  });
+
+  it("project_id 兜底同样按形态分流", () => {
+    const { projectDir } = buildWorkDirAndProjectDir(makeDeps(), {
+      user_id: "u1",
+      project_id: "/Users/me/fallback-dir",
+      prompt: "hi",
+    });
+    expect(projectDir).toBe("/Users/me/fallback-dir");
   });
 });
 

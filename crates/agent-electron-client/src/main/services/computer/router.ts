@@ -18,6 +18,10 @@ import { firstTokenTrace } from "../engines/perf/firstTokenTrace";
 import { checkFileServerHealth } from "../packages/fileServerHealth";
 import { LOCALHOST_HOSTNAME } from "../constants";
 import { getConfiguredPorts } from "../startupPorts";
+import {
+  validateAgentWorkDirInput,
+  isAbsoluteAgentWorkDir,
+} from "./agentWorkDir";
 import type {
   ComputerChatRequest,
   HttpResult,
@@ -82,18 +86,9 @@ import {
 const MAX_BODY_SIZE = 10 * 1024 * 1024;
 
 /**
- * 校验 agent_work_dir 格式：仅允许 [a-zA-Z0-9_-]，长度 1-64。
- * 返回 null 表示合法，返回 string 表示错误信息。
+ * agent_work_dir 双轨校验（标识符 / 本机绝对路径）见 agentWorkDir.ts，
+ * 校验与归一化回写在 handleComputerChat 校验段完成。
  */
-function validateAgentWorkDir(value: string): string | null {
-  if (value.length === 0 || value.length > 64) {
-    return "agent_work_dir must be 1-64 characters";
-  }
-  if (!/^[a-zA-Z0-9_-]+$/.test(value)) {
-    return "agent_work_dir may only contain [a-zA-Z0-9_-]";
-  }
-  return null;
-}
 
 /**
  * 检测项目工作空间目录是否存在，不存在则通过 file-server 创建空目录结构。
@@ -322,18 +317,27 @@ export async function handleComputerChat(
     return;
   }
 
-  // 校验 agent_work_dir 格式（如果提供）
-  if (body.agent_work_dir) {
-    const validationError = validateAgentWorkDir(body.agent_work_dir);
-    if (validationError) {
-      sendJson(res, 400, httpError("VALIDATION_ERROR", validationError));
-      return;
-    }
-  }
-
-  // 兼容处理：未传 agent_work_dir 时，用 project_id 赋值
+  // 兼容处理：未传 agent_work_dir 时，用 project_id 赋值。
+  // 兜底必须在校验之前——project_id 不受调用方格式约束，兜底后统一过双轨校验，
+  // 防其携带路径段绕过校验直入下游 path.join（历史缺口，随双轨制一并收口）。
   if (!body.agent_work_dir && body.project_id) {
     body.agent_work_dir = body.project_id;
+  }
+
+  // 双轨校验：标识符（[a-zA-Z0-9_-]{1,64}）或本机绝对路径（须存在/是目录/可写）。
+  // 绝对路径 realpathSync 归一化后回写——下游把它当 key 的位置（引擎复用/会话
+  // 注册表/派发串行化/SSE 清理）拿到唯一形态字符串。
+  if (body.agent_work_dir) {
+    const resolved = validateAgentWorkDirInput(body.agent_work_dir);
+    if (!resolved.ok) {
+      log.warn("❌ [HTTP] agent_work_dir rejected:", {
+        code: resolved.code,
+        value: body.agent_work_dir,
+      });
+      sendJson(res, 400, httpError(resolved.code, resolved.message));
+      return;
+    }
+    body.agent_work_dir = resolved.value;
   }
 
   const dispatchKey = resolveChatDispatchKey(body);
@@ -358,7 +362,9 @@ export async function handleComputerChat(
   );
   getPerfLogger().info(`[PERF] /chat.validate: ${t2 - t1}ms`);
 
-  if (body.agent_work_dir) {
+  // ensureProjectWorkspace 仅服务标识符轨道（在 workspace 下建目录）；绝对路径
+  // 轨道目录已在双轨校验中确认存在/可写，无需（也不应）经 file-server 建目录。
+  if (body.agent_work_dir && !isAbsoluteAgentWorkDir(body.agent_work_dir)) {
     try {
       const { fileServer: fileServerPort } = getConfiguredPorts();
       await ensureProjectWorkspace(
