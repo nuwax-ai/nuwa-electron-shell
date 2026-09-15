@@ -777,6 +777,26 @@ function App() {
           state.phase,
         )
       ) {
+        // 未登录时的 registration-failed 是正常的登录前门禁态，不是故障：
+        // AuthLifecycle.check() 在未登录时本地抛 "Login required"（reg 请求
+        // 根本没发出），渲染成红色「配置同步失败 + 裸错误串」会让全新安装的
+        // 用户以为出了问题。此处降级为蓝色信息提示并引导登录，登录成功后
+        // phase 转 ready 会自动 destroy 该通知。
+        // 判据用 error 串而非 isAuthLoggedIn state：挂载时 authState() 先于
+        // nuwax:authChanged 到达，此时 state 尚为初始 false，用它会把「已登录
+        // 但注册真失败」误判成未登录。error 串由 lifecycle 直接产出，无时序依赖。
+        const loginRequired =
+          state.phase === "registration-failed" &&
+          /Login required/i.test(state.error ?? "");
+        if (loginRequired) {
+          notification.info({
+            key,
+            message: t("Claw.Toast.Warning.loginFirst"),
+            description: t("Claw.App.browserLoginRequired"),
+            duration: 0,
+          });
+          return;
+        }
         notification.error({
           key,
           message: t(
@@ -1710,9 +1730,10 @@ function App() {
                     重试
                   </Button>
                 </>
-              ) : (
-                <div className="app-loading-text">正在启动本地服务…</div>
-              )}
+              ) : // 等待态不出文案：加载语义由图标自身的呼吸动效
+              //（app-loading-icon--pulse）表达，启动瞬间只见品牌图标。
+              // 失败态仍保留标题/未就绪明细/重试按钮。
+              null}
             </div>
           </div>
         </ConfigProvider>
