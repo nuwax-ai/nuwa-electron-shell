@@ -50,12 +50,17 @@ export interface NuwaxHostWebviewProps {
     canGoBack: boolean;
     canGoForward: boolean;
   }) => void;
+  /** guest 顶层导航开始时清除旧页面上报的拖拽矩形。 */
+  onNavigationStart?: () => void;
 }
 
 const NuwaxHostWebview = forwardRef<
   NuwaxHostWebviewHandle,
   NuwaxHostWebviewProps
->(function NuwaxHostWebview({ reloadKey = 0, onNavStateChange }, ref) {
+>(function NuwaxHostWebview(
+  { reloadKey = 0, onNavStateChange, onNavigationStart },
+  ref,
+) {
   const [url, setUrl] = useState("");
   const [ua, setUa] = useState<string | undefined>();
   const webviewRef = useRef<HTMLElement | null>(null);
@@ -195,15 +200,18 @@ const NuwaxHostWebview = forwardRef<
         canGoBack: !!wv.canGoBack?.(),
         canGoForward: !!wv.canGoForward?.(),
       });
+    const clearTitlebarRegions = () => onNavigationStart?.();
     wv.addEventListener("dom-ready", sync);
+    wv.addEventListener("did-start-navigation", clearTitlebarRegions);
     wv.addEventListener("did-navigate", sync);
     wv.addEventListener("did-navigate-in-page", sync);
     return () => {
       wv.removeEventListener?.("dom-ready", sync);
+      wv.removeEventListener?.("did-start-navigation", clearTitlebarRegions);
       wv.removeEventListener?.("did-navigate", sync);
       wv.removeEventListener?.("did-navigate-in-page", sync);
     };
-  }, [url, onNavStateChange]);
+  }, [url, onNavStateChange, onNavigationStart]);
 
   // 外部 reloadKey 变化时重载 webview（兼容旧刷新入口）
   useEffect(() => {

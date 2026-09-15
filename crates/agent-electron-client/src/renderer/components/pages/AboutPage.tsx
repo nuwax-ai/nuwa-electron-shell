@@ -456,6 +456,13 @@ export default function AboutPage() {
     }
   };
 
+  const showReleaseMetadata =
+    !!updateState.version &&
+    ["available", "downloading", "downloaded", "error"].includes(
+      updateState.status,
+    ) &&
+    (!!updateState.releaseDate || !!updateState.releaseNotes);
+
   return (
     <div
       style={{
@@ -532,6 +539,58 @@ export default function AboutPage() {
           </span>
         </div>
         <div style={{ marginTop: 24 }}>{renderUpdateSection()}</div>
+        {showReleaseMetadata && (
+          <div
+            style={{
+              marginTop: 16,
+              padding: 12,
+              borderRadius: 8,
+              background: "var(--color-bg-layout)",
+              textAlign: "left",
+            }}
+          >
+            {updateState.releaseDate && (
+              <div
+                style={{
+                  marginBottom: updateState.releaseNotes ? 8 : 0,
+                  fontSize: 12,
+                  color: "var(--color-text-tertiary)",
+                }}
+              >
+                {t("Claw.About.releaseDate", {
+                  date: updateState.releaseDate.slice(0, 10),
+                })}
+              </div>
+            )}
+            {updateState.releaseNotes && (
+              <>
+                <div
+                  style={{
+                    marginBottom: 4,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: "var(--color-text-secondary)",
+                  }}
+                >
+                  {t("Claw.About.releaseNotes")}
+                </div>
+                <div
+                  style={{
+                    maxHeight: 120,
+                    overflow: "auto",
+                    whiteSpace: "pre-wrap",
+                    overflowWrap: "anywhere",
+                    fontSize: 12,
+                    lineHeight: 1.6,
+                    color: "var(--color-text-secondary)",
+                  }}
+                >
+                  {updateState.releaseNotes}
+                </div>
+              </>
+            )}
+          </div>
+        )}
         <div
           style={{
             marginTop: 16,

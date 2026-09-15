@@ -204,6 +204,12 @@ const layout = {
   setSecondMenuCollapsed(collapsed: boolean): void {
     ipcRenderer.send("nuwax:layout-sync", { secondMenuCollapsed: !!collapsed });
   },
+  /** 页面只上报明确空白矩形；宿主负责校验并创建真实 drag region。 */
+  setTitlebarDragRegions(
+    regions: Array<{ x: number; y: number; width: number; height: number }>,
+  ): void {
+    ipcRenderer.send("nuwax:layout-sync", { titlebarDragRegions: regions });
+  },
 };
 
 /**

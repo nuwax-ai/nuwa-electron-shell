@@ -1,4 +1,11 @@
-export type UpdateStatus = 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error';
+export type UpdateStatus =
+  | "idle"
+  | "checking"
+  | "available"
+  | "not-available"
+  | "downloading"
+  | "downloaded"
+  | "error";
 
 export interface UpdateProgress {
   percent: number;
@@ -20,6 +27,10 @@ export interface UpdateInfo {
 export interface UpdateState {
   status: UpdateStatus;
   version?: string;
+  /** 更新元数据中的发布日期（ISO 字符串，缺失时不展示）。 */
+  releaseDate?: string;
+  /** 更新元数据中的纯文本发布说明。 */
+  releaseNotes?: string;
   progress?: UpdateProgress;
   error?: string;
   /** false 表示当前安装方式不支持自动更新（如 Windows MSI），需要手动下载 */

@@ -35,10 +35,25 @@ export interface NuwaClawBridgeHost {
   getProduct(): string;
 }
 
+export interface TitlebarDragRegion {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface NuwaClawBridgeLayout {
+  setSecondMenuAvailable?(available: boolean): void;
+  setSecondMenuCollapsed?(collapsed: boolean): void;
+  /** guest 声明顶部空白区；真正的 app-region 由宿主 renderer 渲染。 */
+  setTitlebarDragRegions?(regions: TitlebarDragRegion[]): void;
+}
+
 export interface NuwaClawBridge {
   perf?: NuwaClawBridgePerf;
   auth?: NuwaClawBridgeAuth;
   native?: NuwaClawBridgeNative;
+  layout?: NuwaClawBridgeLayout;
   host?: NuwaClawBridgeHost;
 }
 

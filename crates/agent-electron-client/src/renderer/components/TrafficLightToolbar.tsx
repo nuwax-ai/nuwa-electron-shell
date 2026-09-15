@@ -32,6 +32,7 @@ import {
   RightOutlined,
 } from "@ant-design/icons";
 import { MinGlyph, MaxGlyph, RestoreGlyph, CloseGlyph } from "./captionGlyphs";
+import type { TitlebarDragRegion } from "@shared/types/webview";
 
 /** macOS 用 navigator.platform 判定（渲染器无 process.platform）。 */
 const isMac = /mac/i.test(navigator.platform);
@@ -70,6 +71,8 @@ export interface TrafficLightToolbarProps {
   statusEntry?: React.ReactNode;
   /** 新版本更新入口（仅当检测到新版本时注入：下载 icon / 下载中百分比 / 待安装；其余不渲染）。 */
   updateEntry?: React.ReactNode;
+  /** guest 页面声明的顶部空白矩形；空数组时使用旧前端兼容窄条。 */
+  dragRegions?: TitlebarDragRegion[];
 }
 
 /** 顶行菜单栏单项（Win/Linux 自绘；label 沿用 Windows 助记后缀惯例，真实 Alt 快捷键后续再补）。 */
@@ -97,6 +100,7 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
   onOpenAbout,
   statusEntry,
   updateEntry,
+  dragRegions = [],
 }) => {
   // Win/Linux 最大化状态（自绘按钮图标）；mac 用原生红绿灯不渲染按钮
   const [maximized, setMaximized] = useState(false);
@@ -238,25 +242,35 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
 
   return (
     <>
-      {/* 顶部窄拖拽带（全宽 10px，避开红绿灯）：窗口拖拽手柄由这条承担，
-        工具栏主体不再整层 drag，避免遮挡 webview 顶部元素的点击 */}
+      {/* 真正的 drag region 只能存在于宿主 renderer。优先按 guest 上报的明确
+          空白矩形渲染；旧前端/导航切换尚未上报时退化为 8px 安全窄条。 */}
+      {(dragRegions.length > 0
+        ? dragRegions
+        : [
+            {
+              x: isMac ? 80 : 0,
+              y: 0,
+              width: Math.max(0, window.innerWidth - (isMac ? 80 : 0)),
+              height: 8,
+            },
+          ]
+      ).map((region, index) => (
+        <div
+          key={`${region.x}:${region.y}:${region.width}:${region.height}:${index}`}
+          aria-hidden
+          style={{
+            position: "fixed",
+            left: region.x,
+            top: region.y,
+            width: region.width,
+            height: region.height,
+            zIndex: 1099,
+            userSelect: "none",
+            ...DRAG,
+          }}
+        />
+      ))}
       <div
-        style={{
-          position: "fixed",
-          top: 0,
-          left: isMac ? 80 : 0,
-          right: 0,
-          height: 10,
-          zIndex: 1099,
-          ...DRAG,
-        }}
-      />
-      <div
-        // 双击切换最大化/还原（window:maximize 主进程侧为切换语义）——
-        // 必须是正式 JSX 事件 prop；此前误写进 style 对象被当未知 CSS 属性丢弃
-        onDoubleClick={() => {
-          void window.electronAPI?.window?.maximize?.().catch?.(() => {});
-        }}
         style={{
           position: "fixed",
           top: 0,
@@ -273,11 +287,11 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
           // Win/Linux 右上角被贴角的窗口控制三键（40×28，3 键共 120px）占据，
           // 容器留出对应右内边距，防止更新入口等流内元素被其覆盖
           paddingRight: isMac ? 8 : 128,
+          pointerEvents: "none",
           // 全平台透明浮层：顶行不涂底色，透出 webview 顶部避让带的页面自身
           // 背景（nuwax 顶带即页面 body 底色），与内容天然无缝、随主题自动一致；
           // 实底涂色会在页面底色与容器色有微差时形成可见断层（评审否决项）。
-          // 整条为拖拽区，可交互子块（icon 组/菜单栏/更新入口）以 no-drag 豁免
-          ...DRAG,
+          // 空白拖拽由上方矩形层承担；本容器只让显式子块恢复 pointer events。
         }}
       >
         {/* 左侧功能区（全平台同构）：侧栏开关 → 设置（可选） → 历史导航 → 服务状态，

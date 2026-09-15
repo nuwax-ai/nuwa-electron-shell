@@ -53,6 +53,7 @@ import {
 import { useSplashFloor } from "./bootTiming";
 import type { QuickInitConfig } from "@shared/types/quickInit";
 import type { UpdateState } from "@shared/types/updateTypes";
+import type { TitlebarDragRegion } from "@shared/types/webview";
 import {
   t,
   getCurrentLang,
@@ -84,6 +85,10 @@ import {
   type ShellThemePayload,
 } from "./styles/theme";
 import { FEATURES } from "@shared/featureFlags";
+import {
+  shouldShowServiceAttention,
+  type CommercialServicePhase,
+} from "./services/serviceAttention";
 
 // 主题类型
 export type ThemeMode = "light" | "dark" | "system";
@@ -336,6 +341,9 @@ function App() {
   // nuwax 布局状态 → 工具栏收起按钮显隐：当前页无二级菜单时按钮无意义，隐藏。
   // 默认 false（隐藏）——nuwax 布局挂载后推送真实值；/Login 等无布局页不推或推 false。
   const [secondMenuAvailable, setSecondMenuAvailable] = useState(false);
+  const [titlebarDragRegions, setTitlebarDragRegions] = useState<
+    TitlebarDragRegion[]
+  >([]);
 
   // CSS 变量叠加（inline 优先级高于 index.css 的亮/暗定义，removeProperty 即回落）。
   // 与 antd tokens 同步加暗色守卫：壳深色时不叠加，避免米白变量染坏暗色 UI。
@@ -547,12 +555,16 @@ function App() {
     const onNuwaxLayoutChanged = (payload: {
       secondMenuAvailable?: boolean;
       secondMenuCollapsed?: boolean;
+      titlebarDragRegions?: TitlebarDragRegion[];
     }) => {
       if (payload?.secondMenuAvailable !== undefined) {
         setSecondMenuAvailable(payload.secondMenuAvailable === true);
       }
       if (payload?.secondMenuCollapsed !== undefined) {
         setSecondMenuCollapsed(payload.secondMenuCollapsed === true);
+      }
+      if (Array.isArray(payload?.titlebarDragRegions)) {
+        setTitlebarDragRegions(payload.titlebarDragRegions);
       }
     };
     window.electronAPI?.on("nuwax:layout-changed", onNuwaxLayoutChanged as any);
@@ -581,6 +593,9 @@ function App() {
   const [servicesLoading, setServicesLoading] = useState(true);
   const [guiMcpEnabled, setGuiMcpEnabled] = useState(false);
   const [pollFailCount, setPollFailCount] = useState(0);
+  const [serviceLifecyclePhase, setServiceLifecyclePhase] =
+    useState<CommercialServicePhase>("stopped");
+  const [serviceUnhealthyStreak, setServiceUnhealthyStreak] = useState(0);
   const [startingServices, setStartingServices] = useState<Set<string>>(
     new Set(),
   );
@@ -738,7 +753,10 @@ function App() {
   useEffect(() => {
     const onNuwaxAuthChanged = (payload: { loggedIn: boolean }) => {
       setIsAuthLoggedIn(payload.loggedIn);
-      if (!payload.loggedIn) setUsername("");
+      if (!payload.loggedIn) {
+        setUsername("");
+        setServiceUnhealthyStreak(0);
+      }
     };
     window.electronAPI?.on("nuwax:authChanged", onNuwaxAuthChanged as any);
     return () => {
@@ -770,7 +788,15 @@ function App() {
 
   useEffect(() => {
     if (APP_NAME_IDENTIFIER !== "nuwax") return;
-    const onState = (state: { phase: string; error?: string }) => {
+    const onState = (state: {
+      phase: string;
+      error?: string;
+      loggedIn?: boolean;
+    }) => {
+      setServiceLifecyclePhase(state.phase);
+      if (typeof state.loggedIn === "boolean") {
+        setIsAuthLoggedIn(state.loggedIn);
+      }
       const key = "commercial-service-state";
       if (
         ["registration-failed", "service-failed", "stop-failed"].includes(
@@ -912,7 +938,15 @@ function App() {
     () => webviewRef.current?.reload(),
     [],
   );
+  const handleGuestNavigationStart = useCallback(
+    () => setTitlebarDragRegions([]),
+    [],
+  );
   const handleOpenSettings = useCallback(() => setSettingsModalOpen(true), []);
+  const handleOpenAbout = useCallback(() => {
+    setActiveTab("about");
+    setSettingsModalOpen(true);
+  }, []);
 
   // ============================================
   // 子组件登录/注销后刷新顶部栏用户名与平台 Tab
@@ -1380,6 +1414,42 @@ function App() {
     pollFailCount,
   ]);
 
+  // 全局圆点只消费“ready 后连续健康异常”。生命周期尚未 ready、未登录、
+  // 主动停止或单轮抖动都清零，不再把一般的 stopped/starting 误报成故障。
+  useEffect(() => {
+    if (
+      !isAuthLoggedIn ||
+      serviceLifecyclePhase !== "ready" ||
+      servicesLoading
+    ) {
+      setServiceUnhealthyStreak(0);
+      return;
+    }
+    const serviceMap = new Map(
+      services.map((service) => [service.key, service]),
+    );
+    const unhealthy =
+      pollFailCount >= 2 ||
+      statusExpectedKeys.some((key) => {
+        const service = serviceMap.get(key);
+        return !service || !service.running || !!service.error;
+      });
+    setServiceUnhealthyStreak((previous) => (unhealthy ? previous + 1 : 0));
+  }, [
+    isAuthLoggedIn,
+    serviceLifecyclePhase,
+    servicesLoading,
+    services,
+    pollFailCount,
+    statusExpectedKeys,
+  ]);
+
+  const showServiceAttention = shouldShowServiceAttention({
+    loggedIn: isAuthLoggedIn,
+    phase: serviceLifecyclePhase,
+    unhealthyStreak: serviceUnhealthyStreak,
+  });
+
   // 启动服务状态轮询
   useEffect(() => {
     if (isSetupComplete !== true) return;
@@ -1770,19 +1840,14 @@ function App() {
                 // 社区壳（nuwaclaw）保留顶行入口不变。
                 APP_NAME_IDENTIFIER === "nuwax" ? undefined : handleOpenSettings
               }
-              onOpenAbout={() => {
-                // 关于与检查更新：落到设置弹窗 about tab（版本 + 检查更新/下载/重启安装完整流程）
-                setActiveTab("about");
-                setSettingsModalOpen(true);
-              }}
+              onOpenAbout={handleOpenAbout}
               statusEntry={
-                // 服务状态指示器：非绿色（有服务 error→红 / 未全跑→橙）时渲染颜色点，
-                // 点击打开设置弹窗并落到 client tab（服务列表页）；全绿或未知（空）不渲染。
-                services.length > 0 && !services.every((s) => s.running) ? (
+                // 单一语义：仅已登录后的确定终态故障显示红点。未登录、启动中、
+                // 主动停止、单轮探测抖动与正常运行均不渲染。
+                showServiceAttention ? (
                   <Tooltip
                     title={
-                      // 登录态拼入本机电脑名作设备标识（username 常拿不到，见上方 computerName 注释）
-                      isAuthLoggedIn && computerName
+                      computerName
                         ? `${computerName} · 服务状态异常，点击查看`
                         : "服务状态异常，点击查看"
                     }
@@ -1804,10 +1869,7 @@ function App() {
                           height: 8,
                           borderRadius: "50%",
                           display: "inline-block",
-                          // 有服务报错→红；否则（未全跑）→橙
-                          background: services.some((s) => s.error)
-                            ? "#EF4444"
-                            : "#F59E0B",
+                          background: "#EF4444",
                         }}
                       />
                     </Button>
@@ -1815,8 +1877,7 @@ function App() {
                 ) : undefined
               }
               updateEntry={
-                // 新版本入口（仅有新版本时渲染）：可用→绿底下载 icon（点击下载，
-                // 不支持自动更新时跳 releases 页）；下载中→蓝底进度；已下载→橙底安装 icon。
+                // 顶栏只做提醒与导航，所有下载/安装动作统一在 about 页确认。
                 updateState.status === "available" ? (
                   <Tooltip
                     title={t("Claw.App.UpdateTag.update")}
@@ -1826,38 +1887,9 @@ function App() {
                       type="text"
                       size="small"
                       aria-label={t("Claw.App.UpdateTag.update")}
-                      onClick={async () => {
-                        if (updateState.canAutoUpdate === false) {
-                          await window.electronAPI?.app?.openReleasesPage?.();
-                          return;
-                        }
-                        try {
-                          setUpdateState((prev) => ({
-                            ...prev,
-                            status: "downloading",
-                            progress: undefined,
-                          }));
-                          const res =
-                            await window.electronAPI?.app?.downloadUpdate?.();
-                          if (!res || !res.success) {
-                            message.error(
-                              res?.error || t("Claw.About.downloadFailed"),
-                            );
-                            setUpdateState((prev) => ({
-                              ...prev,
-                              status: "available",
-                            }));
-                          }
-                        } catch {
-                          message.error(t("Claw.About.downloadFailed"));
-                          setUpdateState((prev) => ({
-                            ...prev,
-                            status: "available",
-                          }));
-                        }
-                      }}
+                      onClick={handleOpenAbout}
                       style={{
-                        // 绿底白 icon：一眼可辨的"可下载"动作按钮（用户要求的下载 icon + 背景色）
+                        // 绿底白 icon：表示有新版本；点击进入关于页查看详情。
                         display: "inline-flex",
                         alignItems: "center",
                         justifyContent: "center",
@@ -1874,9 +1906,17 @@ function App() {
                     </Button>
                   </Tooltip>
                 ) : updateState.status === "downloading" ? (
-                  <div
+                  <Button
+                    type="text"
+                    size="small"
+                    aria-label={t("Claw.App.UpdateTag.downloading", {
+                      percent: Math.round(
+                        updateState.progress?.percent ?? headerSimulatedPercent,
+                      ),
+                    })}
+                    onClick={handleOpenAbout}
                     style={{
-                      // 蓝底进度胶囊：下载中不可点，展示百分比（真实进度缺失时用模拟进度）
+                      // 蓝底进度胶囊：点击回关于页查看完整进度。
                       display: "inline-flex",
                       alignItems: "center",
                       gap: 6,
@@ -1888,6 +1928,7 @@ function App() {
                       fontSize: 12,
                       lineHeight: 1,
                       whiteSpace: "nowrap",
+                      border: 0,
                     }}
                   >
                     <LoadingOutlined spin />
@@ -1896,7 +1937,7 @@ function App() {
                         updateState.progress?.percent ?? headerSimulatedPercent,
                       ),
                     })}
-                  </div>
+                  </Button>
                 ) : updateState.status === "downloaded" ? (
                   <Tooltip
                     title={t("Claw.About.installUpdate")}
@@ -1906,21 +1947,9 @@ function App() {
                       type="text"
                       size="small"
                       aria-label={t("Claw.About.installUpdate")}
-                      onClick={async () => {
-                        try {
-                          const res =
-                            await window.electronAPI?.app?.installUpdate?.();
-                          if (res && !res.success) {
-                            message.error(
-                              res.error || t("Claw.About.installFailed"),
-                            );
-                          }
-                        } catch {
-                          message.error(t("Claw.About.installFailed"));
-                        }
-                      }}
+                      onClick={handleOpenAbout}
                       style={{
-                        // 橙底安装 icon：提示"下载完成，点击重启安装"
+                        // 橙底安装 icon：点击进入关于页确认重启安装。
                         display: "inline-flex",
                         alignItems: "center",
                         justifyContent: "center",
@@ -1936,8 +1965,35 @@ function App() {
                       <RocketOutlined />
                     </Button>
                   </Tooltip>
+                ) : updateState.status === "error" && updateState.version ? (
+                  <Tooltip
+                    title={t("Claw.About.updateError")}
+                    mouseEnterDelay={0.7}
+                  >
+                    <Button
+                      type="text"
+                      size="small"
+                      aria-label={t("Claw.About.updateError")}
+                      onClick={handleOpenAbout}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        width: 26,
+                        height: 26,
+                        padding: 0,
+                        borderRadius: 13,
+                        background: "#EF4444",
+                        color: "#fff",
+                        fontSize: 13,
+                      }}
+                    >
+                      <InfoCircleOutlined />
+                    </Button>
+                  </Tooltip>
                 ) : undefined
               }
+              dragRegions={titlebarDragRegions}
             />
 
             {/* 主体部分：平台 webview 常驻挂载，切换时仅隐藏不重载 */}
@@ -1970,6 +2026,7 @@ function App() {
                     ref={webviewRef}
                     reloadKey={browserOpenKey}
                     onNavStateChange={handleNavStateChange}
+                    onNavigationStart={handleGuestNavigationStart}
                   />
                 </div>
               </div>

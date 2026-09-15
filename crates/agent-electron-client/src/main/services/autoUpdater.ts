@@ -397,9 +397,24 @@ async function doCheckViaLatestJson(): Promise<UpdateInfo> {
     autoUpdater.setFeedURL({ provider: "generic", url: versionedUrl });
     // 初始化 electron-updater 内部状态，为后续 downloadUpdate() 做准备
     await autoUpdater.checkForUpdates();
+    // electron-updater 的 update-available 事件只保证 version；latest.json 才是
+    // 商业发布说明/日期的事实源，因此在检查完成后补回完整元数据。
+    setState({
+      status: "available",
+      version: latestJson.version,
+      releaseDate: latestJson.pub_date,
+      releaseNotes: latestJson.notes,
+      error: undefined,
+      isReadOnlyVolumeError: undefined,
+      canAutoUpdate: canAutoUpdate(),
+    });
   } else {
     setState({
       status: "not-available",
+      version: undefined,
+      releaseDate: undefined,
+      releaseNotes: undefined,
+      error: undefined,
       canAutoUpdate: canAutoUpdate(),
     });
   }
@@ -407,6 +422,7 @@ async function doCheckViaLatestJson(): Promise<UpdateInfo> {
   return {
     hasUpdate,
     version: latestJson.version,
+    releaseDate: latestJson.pub_date,
     releaseNotes: latestJson.notes,
   };
 }
