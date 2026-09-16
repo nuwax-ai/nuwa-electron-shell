@@ -208,7 +208,8 @@ body {
   overflow: hidden;
 }
 
-/* ========== 设置弹窗左栏（自绘导航：caption + 图标项 + 关于钉底） ========== */
+/* ========== 设置弹窗左栏（自绘导航：caption + 图标项 + 关于钉底） ==========
+   与内容区之间不放竖线：参考图侧栏无边界、融入弹窗底色，白卡片负责分层 */
 .app-sider {
   width: 200px;
   flex-shrink: 0;
@@ -216,7 +217,6 @@ body {
   flex-direction: column;
   padding: 14px 10px 12px;
   overflow-y: auto;
-  border-right: 1px solid var(--color-border);
 }
 
 /* 英文菜单文案更长，单独加宽侧边栏，避免文本被截断 */
@@ -246,7 +246,7 @@ body {
   align-items: center;
   gap: 8px;
   width: 100%;
-  height: 34px;
+  height: 38px;
   padding: 0 10px;
   border: none;
   border-radius: var(--border-radius);

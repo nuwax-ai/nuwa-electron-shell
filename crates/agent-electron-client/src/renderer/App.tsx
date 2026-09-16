@@ -2062,7 +2062,7 @@ function App() {
                 onCancel={() => setSettingsModalOpen(false)}
                 footer={null}
                 centered
-                width={880}
+                width={1000}
                 closable={false}
                 styles={{
                   // 弹窗整体灰底：让页面内白色卡片在灰底上浮出
@@ -2072,7 +2072,7 @@ function App() {
                     overflow: "hidden",
                     background: "var(--color-bg-layout)",
                   },
-                  // 固定尺寸 880×640：外壳不滚，左菜单/右内容在固定高度容器内各自滚动
+                  // 固定尺寸 1000×640：外壳不滚，左菜单/右内容在固定高度容器内各自滚动
                   body: {
                     height: 640,
                     boxSizing: "border-box",
