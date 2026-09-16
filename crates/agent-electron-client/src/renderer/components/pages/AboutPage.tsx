@@ -39,11 +39,23 @@ const SIMULATED_DURATION_MS = 45_000;
 type UpdateChannel = "stable" | "beta";
 const UPDATE_CHANNEL_SETTING_KEY = "update_channel";
 
-export default function AboutPage() {
+export interface AboutPageProps {
+  /** webview 前端启动时上报的构建信息（界面版本行展示；未上报时显示未知）。 */
+  webMeta?: { appVersion?: string; gitHash?: string };
+}
+
+export default function AboutPage({ webMeta }: AboutPageProps = {}) {
   const [updateState, setUpdateState] = useState<UpdateState>({
     status: "idle",
   });
   const [appVersion, setAppVersion] = useState<string>("");
+  /** 系统信息（app:getSystemInfo：OS/架构/内置 dist 版本） */
+  const [systemInfo, setSystemInfo] = useState<{
+    platformName?: string;
+    osVersion?: string;
+    arch?: string;
+    bundledDist?: { version: string; gitHash?: string } | null;
+  }>({});
   const hasShownInstallModal = useRef(false);
   const [installing, setInstalling] = useState(false);
   /** macOS/Linux 无真实进度时的模拟进度（0..SIMULATED_PROGRESS_CAP），有 progress 时不用 */
@@ -67,6 +79,10 @@ export default function AboutPage() {
     // 获取运行时版本号
     window.electronAPI?.app?.getVersion().then((v) => {
       if (v) setAppVersion(v);
+    });
+    // 系统信息（旧宿主无此 IPC 时保持空，展示占位）
+    window.electronAPI?.app?.getSystemInfo?.()?.then((info) => {
+      if (info) setSystemInfo(info);
     });
     // 初始化时获取一次当前更新状态
     window.electronAPI?.app?.getUpdateState?.()?.then((state) => {
@@ -507,6 +523,60 @@ export default function AboutPage() {
           }}
         >
           v{appVersion || "..."}
+        </div>
+        {/* 系统信息明细：客户端/界面(nuwax pc web)/操作系统/本地化内置 dist 四行 */}
+        <div
+          style={{
+            marginTop: 14,
+            padding: "10px 14px",
+            borderRadius: 8,
+            background: "var(--color-bg-layout)",
+            textAlign: "left",
+            display: "grid",
+            gridTemplateColumns: "auto 1fr",
+            gap: "6px 16px",
+            fontSize: 12,
+            lineHeight: 1.6,
+          }}
+        >
+          <span style={{ color: "var(--color-text-tertiary)" }}>
+            {t("Claw.About.systemInfo.clientVersion")}
+          </span>
+          <span style={{ color: "var(--color-text-secondary)" }}>
+            v{appVersion || "..."}
+          </span>
+          <span style={{ color: "var(--color-text-tertiary)" }}>
+            {t("Claw.About.systemInfo.uiVersion")}
+          </span>
+          <span style={{ color: "var(--color-text-secondary)" }}>
+            {webMeta?.appVersion
+              ? `v${webMeta.appVersion}${
+                  webMeta.gitHash ? ` (${webMeta.gitHash})` : ""
+                }`
+              : t("Claw.About.systemInfo.unknown")}
+          </span>
+          <span style={{ color: "var(--color-text-tertiary)" }}>
+            {t("Claw.About.systemInfo.os")}
+          </span>
+          <span style={{ color: "var(--color-text-secondary)" }}>
+            {systemInfo.osVersion
+              ? `${systemInfo.platformName ?? ""} ${systemInfo.osVersion} · ${
+                  systemInfo.arch ?? ""
+                }`
+              : t("Claw.About.systemInfo.unknown")}
+          </span>
+          <span style={{ color: "var(--color-text-tertiary)" }}>
+            {t("Claw.About.systemInfo.bundledDist")}
+          </span>
+          <span style={{ color: "var(--color-text-secondary)" }}>
+            {systemInfo.bundledDist
+              ? `v${systemInfo.bundledDist.version}${
+                  systemInfo.bundledDist.gitHash
+                    ? ` (${systemInfo.bundledDist.gitHash})`
+                    : ""
+                }`
+              : t("Claw.About.systemInfo.unknown")}
+          </span>
         </div>
         <div
           style={{

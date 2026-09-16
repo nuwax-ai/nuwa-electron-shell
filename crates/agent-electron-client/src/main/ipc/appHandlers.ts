@@ -25,9 +25,23 @@ import {
   openMacPrivacySettings,
   isMacPrivacyPane,
 } from "../services/system/macPermissions";
+import { getBundledDistVersion } from "../services/frontendDistVersion";
 import { getTrayManager } from "../window/trayManager";
 import { getAutoLaunchManager } from "../window/autoLaunchManager";
 import { t } from "../services/i18n";
+
+function platformDisplayName(): string {
+  switch (process.platform) {
+    case "darwin":
+      return "macOS";
+    case "win32":
+      return "Windows";
+    case "linux":
+      return "Linux";
+    default:
+      return os.type() || process.platform;
+  }
+}
 
 export function registerAppHandlers(ctx: HandlerContext): void {
   // Autolaunch
@@ -182,6 +196,60 @@ export function registerAppHandlers(ctx: HandlerContext): void {
   // App handlers
   ipcMain.handle("app:getVersion", () => {
     return app.getVersion();
+  });
+
+  // 系统信息（关于页「系统信息」明细行消费）
+  ipcMain.handle("app:getSystemInfo", () => {
+    const osVersion =
+      typeof process.getSystemVersion === "function"
+        ? process.getSystemVersion()
+        : os.release();
+    const bundledDist = getBundledDistVersion();
+    return {
+      clientVersion: app.getVersion(),
+      platform: process.platform,
+      platformName: platformDisplayName(),
+      osVersion,
+      arch: process.arch,
+      bundledDist,
+    };
+  });
+
+  // ---- webview（nuwax 前端）触达的宿主更新能力：与壳关于页共用同一 autoUpdater
+  // 单例（download 不会双跑），桥前端见 preload/webviewPerfBridge.ts updater 命名空间 ----
+  ipcMain.handle("updater:get-state", () => {
+    return { ...getUpdateState(), hostVersion: app.getVersion() };
+  });
+
+  ipcMain.handle("updater:check", async () => {
+    try {
+      return await checkForUpdates();
+    } catch (error) {
+      log.error("[IPC] updater:check failed:", error);
+      return { hasUpdate: false, error: String(error) };
+    }
+  });
+
+  ipcMain.handle("updater:download", async () => {
+    try {
+      const result = await downloadUpdate();
+      log.info(
+        `[IPC] updater:download → success=${result.success}, error="${result.error}"`,
+      );
+      return result;
+    } catch (error) {
+      log.error("[IPC] updater:download failed:", error);
+      return { success: false, error: String(error) };
+    }
+  });
+
+  ipcMain.handle("updater:install", () => {
+    try {
+      return installUpdate();
+    } catch (error) {
+      log.error("[IPC] updater:install failed:", error);
+      return { success: false, error: String(error) };
+    }
   });
 
   ipcMain.handle("app:getDeviceId", () => {

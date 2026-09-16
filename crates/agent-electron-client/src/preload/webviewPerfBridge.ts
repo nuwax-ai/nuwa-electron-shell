@@ -160,6 +160,30 @@ const localFiles = {
 };
 
 /**
+ * updater 命名空间：宿主客户端自身的更新状态与动作（nuwax 前端 logo 旁版本徽标消费）。
+ * 与壳关于页共用主进程同一 autoUpdater 单例（不会双下载）；旧宿主无此命名空间，
+ * nuwax 侧 feature-detect 后整体隐藏徽标。
+ */
+const updater = {
+  /** 当前更新状态 + 宿主客户端版本号（hostVersion）。 */
+  getState(): Promise<Record<string, unknown> | null> {
+    return ipcRenderer.invoke("updater:get-state");
+  },
+  /** 触发一次更新检查（与关于页「检查更新」同源）。 */
+  check(): Promise<Record<string, unknown> | null> {
+    return ipcRenderer.invoke("updater:check");
+  },
+  /** 下载更新（幂等：已在下载/已下载时由主进程侧守卫）。 */
+  download(): Promise<{ success: boolean; error?: string }> {
+    return ipcRenderer.invoke("updater:download");
+  },
+  /** 重启并安装（仅 downloaded 状态有意义）。 */
+  install(): Promise<{ success: boolean; error?: string }> {
+    return ipcRenderer.invoke("updater:install");
+  },
+};
+
+/**
  * events 命名空间：宿主→nuwax 入站命令通道。
  * nuwaclaw 工具栏等通过 <webview>.send('nuwax:host-command', payload) 下发，
  * 此处 ipcRenderer.on 接收并转发给 nuwax 注册的回调（contextBridge 保证回调在 guest
@@ -224,6 +248,17 @@ const i18n = {
 };
 
 /**
+ * meta 命名空间：nuwax → 壳的页面元信息上报（guest→host，fire-and-forget）。
+ * 页面启动时上报自身构建版本，壳关于页「界面版本（nuwax pc web）」展示。
+ */
+const meta = {
+  /** 上报前端构建信息（appVersion 来自构建期生成的版本常量）。 */
+  syncWebInfo(payload: { appVersion: string; gitHash?: string }): void {
+    ipcRenderer.send("nuwax:web-meta", payload);
+  },
+};
+
+/**
  * host 命名空间：宿主身份只读信息（host→nuwax）。
  * nuwax 凭 getProduct() 区分宿主产品：`nuwaclaw`（社区版）/ `nuwax`（商业版，
  * 2026-09 前为 nuwawork，存量宿主仍可能返回历史值），
@@ -242,9 +277,11 @@ contextBridge.exposeInMainWorld("NuwaClawBridge", {
   auth,
   native,
   localFiles,
+  updater,
   events,
   theme,
   layout,
   i18n,
+  meta,
   host,
 });

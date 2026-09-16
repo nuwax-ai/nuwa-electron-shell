@@ -3,6 +3,7 @@
  * 浏览器端不存在；nuwax 消费前需判断 `window.NuwaClawBridge` 是否存在。
  * 桥前端见 preload/webviewPerfBridge.ts，后端见 main/ipc/nuwaxBridgeHandlers.ts。
  */
+import type { ClientUpdateState } from "./updateTypes";
 export interface NuwaClawBridgePerf {
   enabled(): boolean;
   mark(stage: string, payload?: Record<string, unknown>): void;
@@ -35,6 +36,22 @@ export interface NuwaClawBridgeHost {
   getProduct(): string;
 }
 
+export interface NuwaClawBridgeUpdater {
+  /** 当前更新状态 + 宿主客户端版本（hostVersion），无更新器时 null。 */
+  getState(): Promise<ClientUpdateState | null>;
+  /** 触发一次更新检查（与关于页同源）。 */
+  check(): Promise<{ hasUpdate?: boolean; error?: string } | null>;
+  /** 下载更新（幂等）。 */
+  download(): Promise<{ success: boolean; error?: string }>;
+  /** 重启并安装（仅 downloaded 状态有意义）。 */
+  install(): Promise<{ success: boolean; error?: string }>;
+}
+
+export interface NuwaClawBridgeMeta {
+  /** 上报前端构建信息（关于页「界面版本」展示）。 */
+  syncWebInfo(payload: { appVersion: string; gitHash?: string }): void;
+}
+
 export interface TitlebarDragRegion {
   x: number;
   y: number;
@@ -53,6 +70,8 @@ export interface NuwaClawBridge {
   perf?: NuwaClawBridgePerf;
   auth?: NuwaClawBridgeAuth;
   native?: NuwaClawBridgeNative;
+  updater?: NuwaClawBridgeUpdater;
+  meta?: NuwaClawBridgeMeta;
   layout?: NuwaClawBridgeLayout;
   host?: NuwaClawBridgeHost;
 }

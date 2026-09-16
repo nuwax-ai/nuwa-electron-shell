@@ -529,6 +529,18 @@ import type { UpdateInfo, UpdateState } from "./updateTypes";
 export interface AppAPI {
   checkUpdate: () => Promise<UpdateInfo>;
   getVersion: () => Promise<string>;
+  getSystemInfo: () => Promise<{
+    clientVersion: string;
+    platform: string;
+    platformName: string;
+    osVersion: string;
+    arch: string;
+    bundledDist: {
+      name: string;
+      version: string;
+      gitHash?: string;
+    } | null;
+  }>;
   downloadUpdate: () => Promise<{ success: boolean; error?: string }>;
   installUpdate: () => Promise<{ success: boolean; error?: string }>;
   getUpdateState: () => Promise<UpdateState>;

@@ -38,3 +38,9 @@ export interface UpdateState {
   /** true 表示因应用在只读卷运行（如从「下载」直接打开）导致无法就地更新，应引导用户前往下载页 */
   isReadOnlyVolumeError?: boolean;
 }
+
+/** webview（nuwax 前端）消费的宿主更新状态：UpdateState + 宿主客户端版本号。 */
+export interface ClientUpdateState extends UpdateState {
+  /** 宿主客户端版本（app.getVersion()），logo 旁版本徽标展示用。 */
+  hostVersion: string;
+}

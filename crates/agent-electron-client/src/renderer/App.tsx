@@ -880,6 +880,28 @@ function App() {
     };
   }, []);
 
+  // webview 前端构建信息上报（main 转发 nuwax:web-meta-changed，来源页面启动时
+  // meta.syncWebInfo）：关于页「界面版本（nuwax pc web）」展示。未上报显示未知。
+  const [webMeta, setWebMeta] = useState<{
+    appVersion?: string;
+    gitHash?: string;
+  }>({});
+  useEffect(() => {
+    const onWebMeta = (payload: { appVersion?: string; gitHash?: string }) => {
+      if (typeof payload?.appVersion === "string" && payload.appVersion) {
+        setWebMeta({
+          appVersion: payload.appVersion,
+          gitHash:
+            typeof payload.gitHash === "string" ? payload.gitHash : undefined,
+        });
+      }
+    };
+    window.electronAPI?.on("nuwax:web-meta-changed", onWebMeta as any);
+    return () => {
+      window.electronAPI?.off("nuwax:web-meta-changed", onWebMeta as any);
+    };
+  }, []);
+
   // ============================================
   // 浏览器模式导航
   // ============================================
@@ -2163,7 +2185,7 @@ function App() {
                       {activeTab === "dependencies" && <DependenciesPage />}
                       {activeTab === "permissions" && <PermissionsPage />}
                       {activeTab === "logs" && <LogViewer />}
-                      {activeTab === "about" && <AboutPage />}
+                      {activeTab === "about" && <AboutPage webMeta={webMeta} />}
                     </div>
                   </div>
                 </div>

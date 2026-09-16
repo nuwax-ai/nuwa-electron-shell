@@ -539,6 +539,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   app: {
     checkUpdate: () => ipcRenderer.invoke("app:checkUpdate"),
     getVersion: () => ipcRenderer.invoke("app:getVersion"),
+    getSystemInfo: () => ipcRenderer.invoke("app:getSystemInfo"),
     downloadUpdate: () => ipcRenderer.invoke("app:downloadUpdate"),
     installUpdate: () => ipcRenderer.invoke("app:installUpdate"),
     getUpdateState: () => ipcRenderer.invoke("app:getUpdateState"),
@@ -606,6 +607,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       "nuwax:login-confirmed",
       "nuwax:serverHostChanged",
       "nuwax:lang-changed",
+      "nuwax:web-meta-changed",
       "services:ready",
     ];
     if (validChannels.includes(channel)) {
