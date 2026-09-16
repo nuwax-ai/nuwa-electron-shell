@@ -9,7 +9,6 @@ import React, {
 } from "react";
 import {
   ConfigProvider,
-  Menu,
   Badge,
   Button,
   Modal,
@@ -1902,8 +1901,7 @@ function App() {
                 // 商业版（nuwax）更新提醒由 nuwax web 单栏 logo 旁版本徽标承担，
                 // 壳顶栏右上入口仅社区版保留（社区 web 无徽标）；动作统一在 about 页。
                 APP_NAME_IDENTIFIER ===
-                "nuwax" ? undefined : // 顶栏只做提醒与导航，所有下载/安装动作统一在 about 页确认。
-                updateState.status === "available" ? (
+                "nuwax" ? undefined : updateState.status === "available" ? ( // 顶栏只做提醒与导航，所有下载/安装动作统一在 about 页确认。
                   <Tooltip
                     title={t("Claw.App.UpdateTag.update")}
                     mouseEnterDelay={0.7}
@@ -2057,59 +2055,26 @@ function App() {
               </div>
 
               {/* 系统配置浮层：原 configPane 整页切换 → antd Modal，沉浸式下不打断 webview。
-                  关闭钮不走 Modal 默认（绝对定位 top:17 与收紧后的 header 对不齐，且
-                  antd 5.29 styles 无 close 语义键），改为 closable=false + title 内 flex 行
-                  自渲染，随 header 文档流天然垂直居中。 */}
+                  无顶栏标题（样式对齐参考设计）：页标题移到右栏顶部行、关闭钮随行右上角；
+                  左栏为自绘导航（caption + 图标项，「关于」经分隔线钉底）。 */}
               <Modal
                 open={settingsModalOpen}
                 onCancel={() => setSettingsModalOpen(false)}
                 footer={null}
                 centered
-                width={800}
+                width={880}
                 closable={false}
-                title={
-                  <div
-                    style={{ display: "flex", alignItems: "center", gap: 8 }}
-                  >
-                    <span>客户端配置</span>
-                    <span style={{ flex: 1 }} />
-                    <Button
-                      type="text"
-                      size="small"
-                      aria-label="关闭"
-                      onClick={() => setSettingsModalOpen(false)}
-                      style={{
-                        width: 24,
-                        height: 24,
-                        padding: 0,
-                        display: "inline-flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        fontSize: 12,
-                        // 右移补偿：让 icon 视觉中心对齐 header 16px 右内边距
-                        marginInlineEnd: -6,
-                        color: "rgba(0, 0, 0, 0.58)",
-                      }}
-                    >
-                      <CloseOutlined />
-                    </Button>
-                  </div>
-                }
                 styles={{
-                  // 四周外边距收紧
+                  // 弹窗整体灰底：让页面内白色卡片在灰底上浮出
                   content: {
                     padding: "0",
                     borderRadius: "12px",
                     overflow: "hidden",
+                    background: "var(--color-bg-layout)",
                   },
-                  header: {
-                    padding: "10px 16px",
-                    marginBottom: "0",
-                    borderBottom: "1px solid var(--color-border)",
-                  },
-                  // 固定尺寸 800×600：外壳不滚，左菜单/右内容在固定高度容器内各自滚动
+                  // 固定尺寸 880×640：外壳不滚，左菜单/右内容在固定高度容器内各自滚动
                   body: {
-                    height: 600,
+                    height: 640,
                     boxSizing: "border-box",
                     overflow: "hidden",
                   },
@@ -2136,28 +2101,84 @@ function App() {
                         : "app-sider"
                     }
                   >
-                    <Menu
-                      mode="inline"
-                      inlineIndent={0}
-                      selectedKeys={[activeTab]}
-                      items={menuItems.map((item) => ({
-                        key: item.key,
-                        icon: item.icon,
-                        label: item.label,
-                        onClick: () => setActiveTab(item.key as TabKey),
-                      }))}
-                    />
+                    <div className="app-sider-caption">{APP_DISPLAY_NAME}</div>
+                    <nav className="app-sider-nav">
+                      {menuItems
+                        .filter((item) => item.key !== "about")
+                        .map((item) => (
+                          <button
+                            key={item.key}
+                            type="button"
+                            className={`app-sider-item${
+                              activeTab === item.key
+                                ? " app-sider-item-active"
+                                : ""
+                            }`}
+                            onClick={() => setActiveTab(item.key as TabKey)}
+                          >
+                            <span className="app-sider-item-icon">
+                              {item.icon}
+                            </span>
+                            <span className="app-sider-item-label">
+                              {item.label}
+                            </span>
+                          </button>
+                        ))}
+                    </nav>
+                    {/* 关于钉底：弹性占位 + 分隔线，推到左栏底部 */}
+                    <div className="app-sider-spacer" />
+                    <div className="app-sider-divider" />
+                    {menuItems
+                      .filter((item) => item.key === "about")
+                      .map((item) => (
+                        <button
+                          key={item.key}
+                          type="button"
+                          className={`app-sider-item${
+                            activeTab === item.key
+                              ? " app-sider-item-active"
+                              : ""
+                          }`}
+                          onClick={() => setActiveTab(item.key as TabKey)}
+                        >
+                          <span className="app-sider-item-icon">
+                            {item.icon}
+                          </span>
+                          <span className="app-sider-item-label">
+                            {item.label}
+                          </span>
+                        </button>
+                      ))}
                   </div>
                   <div className="app-content">
-                    <div
-                      style={{
-                        flex: 1,
-                        minHeight: 0,
-                        display: "flex",
-                        flexDirection: "column",
-                        background: "var(--color-bg-layout)",
-                      }}
-                    >
+                    <div className="app-content-titlebar">
+                      <span className="app-content-title">
+                        {menuItems.find((item) => item.key === activeTab)
+                          ?.label ?? ""}
+                      </span>
+                      <span style={{ flex: 1 }} />
+                      <Button
+                        type="text"
+                        size="small"
+                        aria-label={t("Claw.Common.close")}
+                        onClick={() => setSettingsModalOpen(false)}
+                        style={{
+                          width: 28,
+                          height: 28,
+                          padding: 0,
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          fontSize: 13,
+                          // 右移补偿：让 icon 视觉中心对齐标题行右内边距
+                          marginInlineEnd: -4,
+                          color: "var(--color-text-tertiary)",
+                        }}
+                      >
+                        <CloseOutlined />
+                      </Button>
+                    </div>
+                    <div className="app-content-body">
                       {activeTab === "client" && (
                         <ClientPage
                           onNavigate={(tab) => setActiveTab(tab as TabKey)}

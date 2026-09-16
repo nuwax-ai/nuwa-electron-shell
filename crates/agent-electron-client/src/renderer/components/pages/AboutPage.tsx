@@ -6,18 +6,13 @@
  * - 下载完成后弹窗确认是否立即重启安装
  * - Windows MSI 安装用户引导到官网下载安装页
  * - macOS/Linux 上 Squirrel 不发送 download-progress，用本地模拟进度保证进度条有变化
+ *
+ * 2026-09 行式重排：对齐设置弹窗参考样式——全宽卡片行列表（左标签/右动作），
+ * 替代原居中窄卡片；更新状态机、桥调用与旧版逐字一致，仅容器换皮。
  */
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import {
-  Button,
-  Progress,
-  message,
-  Space,
-  Modal,
-  Switch,
-  Typography,
-} from "antd";
+import { Button, Progress, message, Modal, Switch } from "antd";
 import {
   SyncOutlined,
   DownloadOutlined,
@@ -26,6 +21,7 @@ import {
 import { APP_DISPLAY_NAME } from "@shared/constants";
 import { t } from "../../services/core/i18n";
 import type { UpdateState } from "@shared/types/updateTypes";
+import styles from "../../styles/components/AboutPage.module.css";
 
 /** 官网地址，用于关于页「官网」链接 */
 const OFFICIAL_WEBSITE_URL = "https://nuwax.com";
@@ -42,6 +38,17 @@ const UPDATE_CHANNEL_SETTING_KEY = "update_channel";
 export interface AboutPageProps {
   /** webview 前端启动时上报的构建信息（界面版本行展示；未上报时显示未知）。 */
   webMeta?: { appVersion?: string; gitHash?: string };
+}
+
+/** 系统信息卡片的只读行：左标签、右值 */
+function InfoRow(props: { label: React.ReactNode; value: React.ReactNode }) {
+  const { label, value } = props;
+  return (
+    <div className={styles.row}>
+      <div className={styles.rowLabel}>{label}</div>
+      <div className={styles.rowValue}>{value}</div>
+    </div>
+  );
 }
 
 export default function AboutPage({ webMeta }: AboutPageProps = {}) {
@@ -334,31 +341,48 @@ export default function AboutPage({ webMeta }: AboutPageProps = {}) {
     }
   }, []);
 
-  const renderUpdateSection = () => {
-    const {
-      status,
-      version,
-      progress,
-      error,
-      canAutoUpdate: autoUpdate,
-      isReadOnlyVolumeError: readOnlyVolume,
-    } = updateState ?? { status: "idle" as const };
+  const {
+    status: updateStatus,
+    version: updateVersion,
+    progress: updateProgress,
+    error: updateError,
+    canAutoUpdate: autoUpdate,
+    isReadOnlyVolumeError: readOnlyVolume,
+  } = updateState ?? { status: "idle" as const };
+  const isDownloading = updateStatus === "downloading";
+  // 有真实进度（如 Windows）用主进程推送的 progress；无则用本地模拟进度（macOS/Linux）
+  const displayPercent =
+    updateProgress != null
+      ? Math.round(updateProgress.percent)
+      : Math.round(simulatedPercent);
 
-    switch (status) {
+  /**
+   * 版本行的状态说明（行左 desc）与动作按钮（行右 control）。
+   * 6 态状态机与旧版 renderUpdateSection 一致，只把「按钮右置 + 说明做行内描述」。
+   */
+  const renderUpdateStatus = (): {
+    desc?: React.ReactNode;
+    control?: React.ReactNode;
+  } => {
+    switch (updateStatus) {
       case "checking":
-        return (
-          <Button icon={<SyncOutlined spin />} disabled>
-            {t("Claw.About.checking")}
-          </Button>
-        );
+        return {
+          control: (
+            <Button icon={<SyncOutlined spin />} disabled>
+              {t("Claw.About.checking")}
+            </Button>
+          ),
+        };
 
       case "available":
-        return (
-          <Space direction="vertical" size={8} style={{ width: "100%" }}>
-            <div style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
-              {t("Claw.About.versionFound", { version })}
+        return {
+          desc: (
+            <div className={styles.rowDesc}>
+              {t("Claw.About.versionFound", { version: updateVersion })}
             </div>
-            {autoUpdate === false ? (
+          ),
+          control:
+            autoUpdate === false ? (
               <Button
                 type="primary"
                 icon={<LinkOutlined />}
@@ -374,70 +398,50 @@ export default function AboutPage({ webMeta }: AboutPageProps = {}) {
               >
                 {t("Claw.About.downloadUpdate")}
               </Button>
-            )}
-          </Space>
-        );
+            ),
+        };
 
-      case "downloading": {
-        // 有真实进度（如 Windows）用主进程推送的 progress；无则用本地模拟进度（macOS/Linux）
-        const displayPercent =
-          progress != null
-            ? Math.round(progress.percent)
-            : Math.round(simulatedPercent);
-        return (
-          <Space direction="vertical" size={8} style={{ width: "100%" }}>
-            <div style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
+      case "downloading":
+        // 进度条独占行下区块（见渲染处 .updateProgress），行内只放文案
+        return {
+          desc: (
+            <div className={styles.rowDesc}>
               {t("Claw.About.downloading", {
-                version,
+                version: updateVersion,
                 percent: displayPercent,
               })}
             </div>
-            <div
-              style={{
-                padding: "8px 0",
-                borderTop: "1px solid var(--color-border)",
-                borderBottom: "1px solid var(--color-border)",
-              }}
-            >
-              <Progress
-                percent={displayPercent}
-                size="small"
-                status="active"
-                showInfo={progress == null}
-                strokeColor="var(--color-primary)"
-              />
-            </div>
-          </Space>
-        );
-      }
+          ),
+        };
 
       case "downloaded":
-        return (
-          <Space direction="vertical" size={8} style={{ width: "100%" }}>
-            <div style={{ fontSize: 12, color: "var(--color-success)" }}>
-              {t("Claw.About.versionDownloaded", { version })}
+        return {
+          desc: (
+            <div
+              className={styles.rowDesc}
+              style={{ color: "var(--color-success)" }}
+            >
+              {t("Claw.About.versionDownloaded", { version: updateVersion })}
             </div>
+          ),
+          control: (
             <Button type="primary" onClick={handleInstall} loading={installing}>
               {t("Claw.About.installUpdate")}
             </Button>
-          </Space>
-        );
+          ),
+        };
 
       case "error":
         // 只读卷错误（如从「下载」直接打开）：无法就地更新，引导用户前往下载页或移动应用后重试
         if (readOnlyVolume) {
-          return (
-            <Space direction="vertical" size={8} style={{ width: "100%" }}>
-              <div
-                style={{
-                  fontSize: 12,
-                  color: "var(--color-text-secondary)",
-                  lineHeight: 1.5,
-                }}
-              >
+          return {
+            desc: (
+              <div className={styles.rowDesc} style={{ lineHeight: 1.5 }}>
                 {t("Claw.About.readOnlyVolumeError")}
               </div>
-              <Space>
+            ),
+            control: (
+              <>
                 <Button
                   type="primary"
                   icon={<LinkOutlined />}
@@ -448,255 +452,198 @@ export default function AboutPage({ webMeta }: AboutPageProps = {}) {
                 <Button icon={<SyncOutlined />} onClick={handleCheckUpdate}>
                   {t("Claw.Common.retry")}
                 </Button>
-              </Space>
-            </Space>
-          );
+              </>
+            ),
+          };
         }
-        return (
-          <Space direction="vertical" size={8} style={{ width: "100%" }}>
-            <div style={{ fontSize: 12, color: "var(--color-error)" }}>
-              {error || t("Claw.About.updateError")}
+        return {
+          desc: (
+            <div
+              className={styles.rowDesc}
+              style={{ color: "var(--color-error)" }}
+            >
+              {updateError || t("Claw.About.updateError")}
             </div>
+          ),
+          control: (
             <Button icon={<SyncOutlined />} onClick={handleCheckUpdate}>
               {t("Claw.Common.retry")}
             </Button>
-          </Space>
-        );
+          ),
+        };
 
       default:
-        return (
-          <Button icon={<SyncOutlined />} onClick={handleCheckUpdate}>
-            {t("Claw.About.checkUpdate")}
-          </Button>
-        );
+        return {
+          control: (
+            <Button icon={<SyncOutlined />} onClick={handleCheckUpdate}>
+              {t("Claw.About.checkUpdate")}
+            </Button>
+          ),
+        };
     }
   };
 
   const showReleaseMetadata =
     !!updateState.version &&
     ["available", "downloading", "downloaded", "error"].includes(
-      updateState.status,
+      updateStatus,
     ) &&
     (!!updateState.releaseDate || !!updateState.releaseNotes);
 
+  const updateStatusView = renderUpdateStatus();
+
   return (
-    <div
-      style={{
-        width: 400,
-        margin: "48px auto",
-        textAlign: "center",
-      }}
-    >
-      <div
-        style={{
-          border: "1px solid var(--color-border)",
-          borderRadius: 12,
-          background: "var(--color-bg-section)",
-          padding: "40px 32px",
-        }}
-      >
-        <img
-          src="./icon.png"
-          alt={APP_DISPLAY_NAME}
-          style={{
-            width: 64,
-            height: 64,
-            borderRadius: 16,
-          }}
-        />
-        <div
-          style={{
-            marginTop: 20,
-            fontSize: 20,
-            fontWeight: 600,
-            color: "var(--color-text)",
-          }}
-        >
-          {APP_DISPLAY_NAME}
-        </div>
-        <div
-          style={{
-            marginTop: 8,
-            fontSize: 16,
-            color: "var(--color-text-secondary)",
-            fontWeight: 500,
-          }}
-        >
-          v{appVersion || "..."}
-        </div>
-        {/* 系统信息明细：客户端/界面(nuwax pc web)/操作系统/本地化内置 dist 四行 */}
-        <div
-          style={{
-            marginTop: 14,
-            padding: "10px 14px",
-            borderRadius: 8,
-            background: "var(--color-bg-layout)",
-            textAlign: "left",
-            display: "grid",
-            gridTemplateColumns: "auto 1fr",
-            gap: "6px 16px",
-            fontSize: 12,
-            lineHeight: 1.6,
-          }}
-        >
-          <span style={{ color: "var(--color-text-tertiary)" }}>
-            {t("Claw.About.systemInfo.clientVersion")}
-          </span>
-          <span style={{ color: "var(--color-text-secondary)" }}>
-            v{appVersion || "..."}
-          </span>
-          <span style={{ color: "var(--color-text-tertiary)" }}>
-            {t("Claw.About.systemInfo.uiVersion")}
-          </span>
-          <span style={{ color: "var(--color-text-secondary)" }}>
-            {webMeta?.appVersion
-              ? `v${webMeta.appVersion}${
-                  webMeta.gitHash ? ` (${webMeta.gitHash})` : ""
-                }`
-              : t("Claw.About.systemInfo.unknown")}
-          </span>
-          <span style={{ color: "var(--color-text-tertiary)" }}>
-            {t("Claw.About.systemInfo.os")}
-          </span>
-          <span style={{ color: "var(--color-text-secondary)" }}>
-            {systemInfo.osVersion
-              ? `${systemInfo.platformName ?? ""} ${systemInfo.osVersion} · ${
-                  systemInfo.arch ?? ""
-                }`
-              : t("Claw.About.systemInfo.unknown")}
-          </span>
-          <span style={{ color: "var(--color-text-tertiary)" }}>
-            {t("Claw.About.systemInfo.bundledDist")}
-          </span>
-          <span style={{ color: "var(--color-text-secondary)" }}>
-            {systemInfo.bundledDist
-              ? `v${systemInfo.bundledDist.version}${
-                  systemInfo.bundledDist.gitHash
-                    ? ` (${systemInfo.bundledDist.gitHash})`
-                    : ""
-                }`
-              : t("Claw.About.systemInfo.unknown")}
-          </span>
-        </div>
-        <div
-          style={{
-            marginTop: 16,
-            fontSize: 14,
-            color: "var(--color-text-tertiary)",
-            lineHeight: 1.6,
-          }}
-        >
-          {t("Claw.About.crossPlatformDescription")}
-        </div>
-        {/* 官网链接：点击在系统浏览器打开 nuwax.com */}
-        <div style={{ marginTop: 12 }}>
-          <span
-            role="button"
-            tabIndex={0}
-            onClick={handleOpenOfficialWebsite}
-            onKeyDown={(e) => e.key === "Enter" && handleOpenOfficialWebsite()}
-            style={{
-              fontSize: 13,
-              color: "var(--color-text-secondary)",
-              cursor: "pointer",
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-            }}
-          >
-            <LinkOutlined />
-            {t("Claw.About.website")} {OFFICIAL_WEBSITE_URL}
-          </span>
-        </div>
-        <div style={{ marginTop: 24 }}>{renderUpdateSection()}</div>
-        {showReleaseMetadata && (
-          <div
-            style={{
-              marginTop: 16,
-              padding: 12,
-              borderRadius: 8,
-              background: "var(--color-bg-layout)",
-              textAlign: "left",
-            }}
-          >
-            {updateState.releaseDate && (
-              <div
-                style={{
-                  marginBottom: updateState.releaseNotes ? 8 : 0,
-                  fontSize: 12,
-                  color: "var(--color-text-tertiary)",
-                }}
-              >
-                {t("Claw.About.releaseDate", {
-                  date: updateState.releaseDate.slice(0, 10),
-                })}
+    <div className={styles.page}>
+      {/* 关于：版本/更新、品牌、Beta 通道 */}
+      <div className={styles.group}>
+        <div className={styles.groupCard}>
+          {/* 版本行：左「客户端版本 vX.Y.Z」+ 状态说明，右检查更新/状态动作 */}
+          <div className={styles.row}>
+            <div className={styles.rowInfo}>
+              <div className={styles.rowLabel}>
+                {t("Claw.About.systemInfo.clientVersion")}
+                <span className={styles.rowValue}>v{appVersion || "..."}</span>
+              </div>
+              {updateStatusView.desc}
+            </div>
+            {updateStatusView.control != null && (
+              <div className={styles.rowControl}>
+                {updateStatusView.control}
               </div>
             )}
-            {updateState.releaseNotes && (
-              <>
-                <div
-                  style={{
-                    marginBottom: 4,
-                    fontSize: 12,
-                    fontWeight: 600,
-                    color: "var(--color-text-secondary)",
-                  }}
-                >
-                  {t("Claw.About.releaseNotes")}
-                </div>
-                <div
-                  style={{
-                    maxHeight: 120,
-                    overflow: "auto",
-                    whiteSpace: "pre-wrap",
-                    overflowWrap: "anywhere",
-                    fontSize: 12,
-                    lineHeight: 1.6,
-                    color: "var(--color-text-secondary)",
-                  }}
-                >
-                  {updateState.releaseNotes}
-                </div>
-              </>
-            )}
           </div>
-        )}
-        <div
-          style={{
-            marginTop: 16,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 10,
-            flexWrap: "wrap",
-          }}
-        >
-          <Typography.Text
-            style={{ fontSize: 12, color: "var(--color-text-secondary)" }}
-          >
-            {t("Claw.About.betaChannel")}
-          </Typography.Text>
-          <Switch
-            size="small"
-            checked={updateChannel === "beta"}
-            loading={channelLoading}
-            onChange={handleChangeUpdateChannel}
-          />
-        </div>
-        <div
-          style={{
-            marginTop: 8,
-            fontSize: 12,
-            color: "var(--color-text-tertiary)",
-            lineHeight: 1.5,
-          }}
-        >
-          {t("Claw.About.betaDisclaimer")}
+          {/* 下载中：进度条独占行下区块 */}
+          {isDownloading && (
+            <div className={styles.updateProgress}>
+              <Progress
+                percent={displayPercent}
+                size="small"
+                status="active"
+                showInfo={updateProgress == null}
+                strokeColor="var(--color-primary)"
+              />
+            </div>
+          )}
+          {/* 品牌行：左「关于 {应用名}」+ 描述，右前往官网 */}
+          <div className={styles.row}>
+            <div className={styles.rowInfo}>
+              <div className={`${styles.rowLabel} ${styles.rowLabelBrand}`}>
+                <img
+                  src="./icon.png"
+                  alt={APP_DISPLAY_NAME}
+                  className={styles.brandIcon}
+                />
+                {t("Claw.About.aboutApp", { appName: APP_DISPLAY_NAME })}
+              </div>
+              <div className={styles.rowDesc}>
+                {t("Claw.About.crossPlatformDescription")}
+              </div>
+              <div className={`${styles.rowDesc} ${styles.rowDescMono}`}>
+                {OFFICIAL_WEBSITE_URL}
+              </div>
+            </div>
+            <div className={styles.rowControl}>
+              <Button onClick={handleOpenOfficialWebsite}>
+                {t("Claw.About.openOfficialWebsite")}
+              </Button>
+            </div>
+          </div>
+          {/* Beta 通道行：左说明，右 Switch */}
+          <div className={styles.row}>
+            <div className={styles.rowInfo}>
+              <div className={styles.rowLabel}>
+                {t("Claw.About.betaChannel")}
+              </div>
+              <div className={styles.rowDesc}>
+                {t("Claw.About.betaDisclaimer")}
+              </div>
+            </div>
+            <div className={styles.rowControl}>
+              <Switch
+                size="small"
+                checked={updateChannel === "beta"}
+                loading={channelLoading}
+                onChange={handleChangeUpdateChannel}
+              />
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* 调试面板 */}
-      <div style={{ marginTop: 16, textAlign: "center" }}>
+      {/* 系统信息：客户端/界面(nuwax pc web)/操作系统/本地化内置 dist 四行 */}
+      <div className={styles.group}>
+        <div className={styles.groupTitle}>
+          {t("Claw.About.systemInfo.title")}
+        </div>
+        <div className={styles.groupCard}>
+          <InfoRow
+            label={t("Claw.About.systemInfo.clientVersion")}
+            value={`v${appVersion || "..."}`}
+          />
+          <InfoRow
+            label={t("Claw.About.systemInfo.uiVersion")}
+            value={
+              webMeta?.appVersion
+                ? `v${webMeta.appVersion}${
+                    webMeta.gitHash ? ` (${webMeta.gitHash})` : ""
+                  }`
+                : t("Claw.About.systemInfo.unknown")
+            }
+          />
+          <InfoRow
+            label={t("Claw.About.systemInfo.os")}
+            value={
+              systemInfo.osVersion
+                ? `${systemInfo.platformName ?? ""} ${systemInfo.osVersion} · ${
+                    systemInfo.arch ?? ""
+                  }`
+                : t("Claw.About.systemInfo.unknown")
+            }
+          />
+          <InfoRow
+            label={t("Claw.About.systemInfo.bundledDist")}
+            value={
+              systemInfo.bundledDist
+                ? `v${systemInfo.bundledDist.version}${
+                    systemInfo.bundledDist.gitHash
+                      ? ` (${systemInfo.bundledDist.gitHash})`
+                      : ""
+                  }`
+                : t("Claw.About.systemInfo.unknown")
+            }
+          />
+        </div>
+      </div>
+
+      {/* 发布元数据：发现更新时展示发布日期与版本说明 */}
+      {showReleaseMetadata && (
+        <div className={styles.group}>
+          <div className={styles.groupCard}>
+            <div className={styles.metadataBlock}>
+              {updateState.releaseDate && (
+                <div className={styles.rowDesc}>
+                  {t("Claw.About.releaseDate", {
+                    date: updateState.releaseDate.slice(0, 10),
+                  })}
+                </div>
+              )}
+              {updateState.releaseNotes && (
+                <>
+                  <div className={styles.metadataTitle}>
+                    {t("Claw.About.releaseNotes")}
+                  </div>
+                  <div className={styles.metadataNotes}>
+                    {updateState.releaseNotes}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 调试面板（排障用，默认隐藏） */}
+      <div className={styles.debugBar}>
         <Button
           type="link"
           size="small"
@@ -712,28 +659,11 @@ export default function AboutPage({ webMeta }: AboutPageProps = {}) {
       </div>
 
       {showDebugInfo && debugInfo && (
-        <div
-          style={{
-            marginTop: 16,
-            padding: 16,
-            border: "1px dashed var(--color-border)",
-            borderRadius: 8,
-            background: "var(--color-bg-elevated)",
-            fontSize: 12,
-            fontFamily: "monospace",
-            textAlign: "left",
-          }}
-        >
-          <div style={{ marginBottom: 8, fontWeight: 600 }}>
+        <div className={styles.debugCard}>
+          <div className={styles.debugTitle}>
             {t("Claw.About.debugInfoTitle")}
           </div>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "auto 1fr",
-              gap: "8px 16px",
-            }}
-          >
+          <div className={styles.debugGrid}>
             <span style={{ color: "var(--color-text-secondary)" }}>
               {t("Claw.About.platform")}:
             </span>
