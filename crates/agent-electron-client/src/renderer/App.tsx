@@ -60,6 +60,7 @@ import {
   prefetchLangMap,
 } from "./services/core/i18n";
 import { getNuwaxAccessTokenKey } from "@shared/utils/domain";
+import { TITLEBAR_EMPTY_GRACE_MS } from "@shared/utils/titlebarDragRegions";
 import SetupDependencies from "./components/setup/SetupDependencies";
 import ClientPage from "./components/pages/ClientPage";
 import SettingsPage from "./components/pages/SettingsPage";
@@ -154,11 +155,6 @@ const STATUS_CONFIG: Record<
   stopped: { status: "default", textKey: "Claw.Agent.Status.stopped" },
   error: { status: "error", textKey: "Claw.Agent.Status.error" },
 };
-
-/** macOS/Linux 无 download-progress 时，header tag 用本地模拟进度避免长期显示 0%。 */
-const HEADER_SIMULATED_PROGRESS_CAP = 90;
-const HEADER_SIMULATED_PROGRESS_INTERVAL_MS = 500;
-const HEADER_SIMULATED_DURATION_MS = 45_000;
 
 // 服务状态接口（与 ClientPage 共享）
 export interface ServiceItem {
@@ -550,6 +546,13 @@ function App() {
   // nuwax 布局状态监听：secondMenuAvailable（按钮显隐）+ secondMenuCollapsed
   //（真实收起态，推送为准）：webview reload 后本地态不重置、reload 瞬间的
   // toggle 命令也可能丢失，nuwax 推送值校正失同步。
+  // 空热区宽限：guest 在 antd 过渡/侧栏动画期间会瞬时上报 []，立即清空会把
+  // 36px 条带打回 8px 保底条、期间按下即拖不动（mac 实测「成功拖一次后紧接着
+  // 再拖成功率低」的来源之一）。空数组延迟 TITLEBAR_EMPTY_GRACE_MS 落地，
+  // 宽限内来了非空即取消；导航开始的主动清空仍立即生效。
+  const titlebarEmptyGraceTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
   useEffect(() => {
     const onNuwaxLayoutChanged = (payload: {
       secondMenuAvailable?: boolean;
@@ -563,7 +566,19 @@ function App() {
         setSecondMenuCollapsed(payload.secondMenuCollapsed === true);
       }
       if (Array.isArray(payload?.titlebarDragRegions)) {
-        setTitlebarDragRegions(payload.titlebarDragRegions);
+        const regions = payload.titlebarDragRegions;
+        if (titlebarEmptyGraceTimerRef.current) {
+          clearTimeout(titlebarEmptyGraceTimerRef.current);
+          titlebarEmptyGraceTimerRef.current = null;
+        }
+        if (regions.length > 0) {
+          setTitlebarDragRegions(regions);
+        } else {
+          titlebarEmptyGraceTimerRef.current = setTimeout(() => {
+            titlebarEmptyGraceTimerRef.current = null;
+            setTitlebarDragRegions([]);
+          }, TITLEBAR_EMPTY_GRACE_MS);
+        }
       }
     };
     window.electronAPI?.on("nuwax:layout-changed", onNuwaxLayoutChanged as any);
@@ -572,6 +587,10 @@ function App() {
         "nuwax:layout-changed",
         onNuwaxLayoutChanged as any,
       );
+      if (titlebarEmptyGraceTimerRef.current) {
+        clearTimeout(titlebarEmptyGraceTimerRef.current);
+        titlebarEmptyGraceTimerRef.current = null;
+      }
     };
   }, []);
   // 系统配置浮层（替代原 mainViewMode=config 整页切换，沉浸式下不打断 webview）
@@ -611,10 +630,6 @@ function App() {
   const [updateState, setUpdateState] = useState<UpdateState>({
     status: "idle",
   });
-  const [headerSimulatedPercent, setHeaderSimulatedPercent] = useState(0);
-  const headerSimulatedIntervalRef = useRef<ReturnType<
-    typeof setInterval
-  > | null>(null);
   const statusExpectedKeys = useMemo(() => {
     const keys = ["mcpProxy", "agent", "fileServer", "lanproxy", "ttyd"];
     if (FEATURES.ENABLE_GUI_AGENT_SERVER && guiMcpEnabled) {
@@ -1504,39 +1519,6 @@ function App() {
     };
   }, []);
 
-  useEffect(() => {
-    const isDownloading = updateState.status === "downloading";
-    const hasRealProgress = updateState.progress != null;
-
-    if (isDownloading && !hasRealProgress) {
-      setHeaderSimulatedPercent(0);
-      const increment =
-        (HEADER_SIMULATED_PROGRESS_CAP / HEADER_SIMULATED_DURATION_MS) *
-        HEADER_SIMULATED_PROGRESS_INTERVAL_MS;
-      const id = setInterval(() => {
-        setHeaderSimulatedPercent((prev) => {
-          const next = prev + increment;
-          return next >= HEADER_SIMULATED_PROGRESS_CAP
-            ? HEADER_SIMULATED_PROGRESS_CAP
-            : next;
-        });
-      }, HEADER_SIMULATED_PROGRESS_INTERVAL_MS);
-      headerSimulatedIntervalRef.current = id;
-      return () => {
-        clearInterval(id);
-        headerSimulatedIntervalRef.current = null;
-      };
-    }
-
-    if (!isDownloading || hasRealProgress) {
-      if (headerSimulatedIntervalRef.current) {
-        clearInterval(headerSimulatedIntervalRef.current);
-        headerSimulatedIntervalRef.current = null;
-      }
-      setHeaderSimulatedPercent(0);
-    }
-  }, [updateState.status, updateState.progress]);
-
   // ============================================
   // 监听托盘/菜单事件
   // ============================================
@@ -1928,39 +1910,6 @@ function App() {
                       <DownloadOutlined />
                     </Button>
                   </Tooltip>
-                ) : updateState.status === "downloading" ? (
-                  <Button
-                    type="text"
-                    size="small"
-                    aria-label={t("Claw.App.UpdateTag.downloading", {
-                      percent: Math.round(
-                        updateState.progress?.percent ?? headerSimulatedPercent,
-                      ),
-                    })}
-                    onClick={handleOpenAbout}
-                    style={{
-                      // 蓝底进度胶囊：点击回关于页查看完整进度。
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 6,
-                      height: 26,
-                      padding: "0 10px",
-                      borderRadius: 13,
-                      background: "#2563eb",
-                      color: "#fff",
-                      fontSize: 12,
-                      lineHeight: 1,
-                      whiteSpace: "nowrap",
-                      border: 0,
-                    }}
-                  >
-                    <LoadingOutlined spin />
-                    {t("Claw.App.UpdateTag.downloading", {
-                      percent: Math.round(
-                        updateState.progress?.percent ?? headerSimulatedPercent,
-                      ),
-                    })}
-                  </Button>
                 ) : updateState.status === "downloaded" ? (
                   <Tooltip
                     title={t("Claw.About.installUpdate")}

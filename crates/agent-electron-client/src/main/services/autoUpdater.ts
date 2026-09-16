@@ -11,7 +11,7 @@
  * - Windows: NSIS 安装支持自动更新，MSI 安装引导到官网下载安装页
  */
 
-import { app, BrowserWindow, shell, dialog, net } from "electron";
+import { app, BrowserWindow, shell, dialog, net, powerMonitor } from "electron";
 import * as path from "path";
 import * as fs from "fs";
 import log from "electron-log";
@@ -251,6 +251,23 @@ export function shouldDisableDifferentialDownload(
 // ==================== 更新状态管理 ====================
 
 /**
+ * electron-updater 的加载入口：主进程为 CJS 环境，必须走 require 直加载；
+ * 单独拆成变量是给单测留注入缝（vitest 的 vi.mock 拦不住 require 路径）。
+ */
+let loadAutoUpdaterModule: () => { autoUpdater: any } =
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  () => require("electron-updater");
+
+/** 仅测试使用：注入 mock 的 electron-updater 模块；传 null 恢复真实 require */
+export function _setAutoUpdaterModuleLoaderForTest(
+  loader: (() => { autoUpdater: any }) | null,
+): void {
+  loadAutoUpdaterModule =
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    loader ?? (() => require("electron-updater"));
+}
+
+/**
  * MVP 仅支持 x.y.z 纯数字版本，避免 compareVersions 对 prerelease 得到 NaN
  */
 function isNumericSemver(version: string): boolean {
@@ -297,6 +314,11 @@ function setState(patch: Partial<UpdateState>): void {
 
 let checkInProgress = false;
 
+/** 检查选项：background=true 为后台定时复检——静默失败（不置 error 态、不进 checking 态），网络抖动不打扰 UI */
+export interface CheckOptions {
+  background?: boolean;
+}
+
 /**
  * 通过 OSS latest.json 检查更新
  *
@@ -307,7 +329,9 @@ let checkInProgress = false;
  *    并调用 autoUpdater.checkForUpdates() 初始化 electron-updater 下载状态
  * 4. OSS 不可达时直接报错，不 fallback 到 GitHub
  */
-async function checkForUpdatesViaLatestJson(): Promise<UpdateInfo> {
+async function checkForUpdatesViaLatestJson(
+  options: CheckOptions = {},
+): Promise<UpdateInfo> {
   if (checkInProgress) {
     log.info("[AutoUpdater] Check already in progress, skipping");
     // 返回 alreadyChecking: true，让调用方知道检查正在进行，避免误报"当前已是最新版本"
@@ -316,25 +340,29 @@ async function checkForUpdatesViaLatestJson(): Promise<UpdateInfo> {
   checkInProgress = true;
 
   try {
-    return await doCheckViaLatestJson();
+    return await doCheckViaLatestJson(options);
   } finally {
     checkInProgress = false;
   }
 }
 
-async function doCheckViaLatestJson(): Promise<UpdateInfo> {
-  const { autoUpdater } = require("electron-updater");
+async function doCheckViaLatestJson(
+  options: CheckOptions = {},
+): Promise<UpdateInfo> {
+  const { autoUpdater } = loadAutoUpdaterModule();
   const updateChannel = getUpdateChannel();
   const latestJsonUrl = getLatestJsonUrlByChannel(updateChannel);
   log.info(
-    `[AutoUpdater] Check updates via channel=${updateChannel}, url=${latestJsonUrl}`,
+    `[AutoUpdater] Check updates via channel=${updateChannel}, url=${latestJsonUrl}, background=${options.background === true}`,
   );
-  setState({
-    status: "checking",
-    error: undefined,
-    isReadOnlyVolumeError: undefined,
-    canAutoUpdate: canAutoUpdate(),
-  });
+  if (!options.background) {
+    setState({
+      status: "checking",
+      error: undefined,
+      isReadOnlyVolumeError: undefined,
+      canAutoUpdate: canAutoUpdate(),
+    });
+  }
 
   let latestJson: LatestJson;
 
@@ -345,6 +373,10 @@ async function doCheckViaLatestJson(): Promise<UpdateInfo> {
     log.error(
       `[AutoUpdater] Failed to fetch latest.json from OSS(channel=${updateChannel}): ${e.message}`,
     );
+    if (options.background) {
+      // 后台轮询静默失败：不置 error 态、保住先前状态（如已 available），下一轮再试
+      return { hasUpdate: false, error: e.message };
+    }
     const statusMatch = e.message.match(/^HTTP (\d+)/);
     const userMsg = statusMatch
       ? `HTTP ${statusMatch[1]}`
@@ -368,6 +400,9 @@ async function doCheckViaLatestJson(): Promise<UpdateInfo> {
     log.error(
       `[AutoUpdater] Invalid latest.json version for channel=${updateChannel}: ${latestJson.version}`,
     );
+    if (options.background) {
+      return { hasUpdate: false, error: msg };
+    }
     setState({
       status: "error",
       error: msg,
@@ -457,9 +492,8 @@ export function initAutoUpdater(
     );
   }
 
-  // CJS 兼容导入 electron-updater
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { autoUpdater } = require("electron-updater");
+  // CJS 具名导入 electron-updater（经加载缝，见 loadAutoUpdaterModule）
+  const { autoUpdater } = loadAutoUpdaterModule();
 
   autoUpdater.logger = log;
   autoUpdater.autoDownload = false;
@@ -560,53 +594,121 @@ export function initAutoUpdater(
     });
   });
 
-  function isUpdateInProgress(): boolean {
-    return (
-      currentState.status === "checking" ||
-      currentState.status === "available" ||
-      currentState.status === "downloading" ||
-      currentState.status === "downloaded"
-    );
-  }
+  // 后台定时复检：启动 10s 首查（静默失败），此后按固定间隔轮询，托盘常驻/长会话
+  // 也能发现新版本；发现新版只推状态亮徽标（available），下载仍由用户手动触发。
+  scheduleBackgroundCheck(STARTUP_CHECK_DELAY_MS);
 
-  // 延迟 10s 启动时检查一次，发现新版本弹窗提示；退出时清除避免在已退出状态下弹窗
-  const STARTUP_CHECK_DELAY_MS = 10_000;
-  const startupCheckTimerId = setTimeout(async () => {
-    log.info("[AutoUpdater] Initial startup check");
-    try {
-      if (isUpdateInProgress()) {
-        log.info(
-          "[AutoUpdater] Startup: update already in progress (status=%s), skipping",
-          currentState.status,
-        );
-        return;
-      }
-      const result = await checkForUpdatesViaLatestJson();
-      if (result.hasUpdate && result.version) {
-        log.info(`[AutoUpdater] Startup: found new version v${result.version}`);
-        showStartupUpdateDialog(result.version);
-      }
-    } catch (e: any) {
-      log.warn("[AutoUpdater] Startup check failed:", e.message);
-    }
-  }, STARTUP_CHECK_DELAY_MS);
+  // 系统睡眠期间 Node 定时器不走，唤醒后补查一轮让发现更及时
+  powerMonitor.on("resume", () => {
+    log.info("[AutoUpdater] System resumed, scheduling background check soon");
+    scheduleBackgroundCheck(RESUME_RECHECK_DELAY_MS);
+  });
 
   app.once("before-quit", () => {
-    clearTimeout(startupCheckTimerId);
+    clearBackgroundCheckTimer();
   });
 }
 
+// ==================== 后台定时复检调度器 ====================
+
+/** 启动后首查延迟（沿用原一次性启动检查的 10s 语义） */
+const STARTUP_CHECK_DELAY_MS = 10_000;
+/** 默认复检间隔 1h */
+const DEFAULT_RECHECK_INTERVAL_MS = 60 * 60 * 1000;
+/** 复检间隔下限：env 误配成极小值时防打爆 OSS */
+const MIN_RECHECK_INTERVAL_MS = 60_000;
+/** 系统唤醒后的补查延迟 */
+const RESUME_RECHECK_DELAY_MS = 30_000;
+
 /**
- * 启动时发现新版本，仅推送状态到渲染进程，由 header tag 展示更新入口
+ * 解析复检间隔：env NUWAX_UPDATE_CHECK_INTERVAL_MS 可覆盖（QA/dev 短间隔验证），
+ * 非法/未设置回默认 1h，低于下限按下限。
  */
-async function showStartupUpdateDialog(version: string): Promise<void> {
-  log.info(`[AutoUpdater] Startup: v${version} available, notifying renderer`);
-  setState({
-    status: "available",
-    version,
-    isReadOnlyVolumeError: undefined,
-    canAutoUpdate: canAutoUpdate(),
-  });
+export function resolveRecheckIntervalMs(
+  env: NodeJS.ProcessEnv = process.env,
+): number {
+  const raw = Number.parseInt(env.NUWAX_UPDATE_CHECK_INTERVAL_MS ?? "", 10);
+  if (!Number.isFinite(raw) || raw <= 0) {
+    return DEFAULT_RECHECK_INTERVAL_MS;
+  }
+  return Math.max(raw, MIN_RECHECK_INTERVAL_MS);
+}
+
+/**
+ * 后台复检的跳过判定：
+ * - checking：已有检查在跑（含手动触发）；
+ * - downloading/downloaded：下载中或已待安装，无需再查。
+ * available 不跳——允许把版本徽标的元数据刷新到更新的版本。
+ */
+export function shouldSkipBackgroundCheck(
+  status: UpdateState["status"],
+): boolean {
+  return (
+    status === "checking" || status === "downloading" || status === "downloaded"
+  );
+}
+
+let backgroundCheckTimerId: NodeJS.Timeout | null = null;
+let lastBackgroundCheckAt: number | null = null;
+let nextBackgroundCheckAt: number | null = null;
+
+function clearBackgroundCheckTimer(): void {
+  if (backgroundCheckTimerId) {
+    clearTimeout(backgroundCheckTimerId);
+    backgroundCheckTimerId = null;
+  }
+  nextBackgroundCheckAt = null;
+}
+
+function scheduleBackgroundCheck(delayMs: number): void {
+  clearBackgroundCheckTimer();
+  backgroundCheckTimerId = setTimeout(runBackgroundCheck, delayMs);
+  nextBackgroundCheckAt = Date.now() + delayMs;
+}
+
+async function runBackgroundCheck(): Promise<void> {
+  backgroundCheckTimerId = null;
+  nextBackgroundCheckAt = null;
+
+  if (shouldSkipBackgroundCheck(currentState.status)) {
+    log.info(
+      "[AutoUpdater] Background check skipped (status=%s), next in %dms",
+      currentState.status,
+      resolveRecheckIntervalMs(),
+    );
+    scheduleBackgroundCheck(resolveRecheckIntervalMs());
+    return;
+  }
+
+  lastBackgroundCheckAt = Date.now();
+  try {
+    const result = await checkForUpdatesViaLatestJson({ background: true });
+    log.info(
+      "[AutoUpdater] Background check done: hasUpdate=%s, version=%s",
+      result.hasUpdate,
+      result.version ?? "n/a",
+    );
+  } catch (e: any) {
+    // checkForUpdatesViaLatestJson 正常不抛；兜底防止调度链断裂
+    log.warn("[AutoUpdater] Background check failed:", e?.message ?? e);
+  } finally {
+    scheduleBackgroundCheck(resolveRecheckIntervalMs());
+  }
+}
+
+/**
+ * 调度器调试信息：关于页调试面板/QA 验证调度器是否活着，不必等 1h
+ */
+export function getBackgroundCheckDebugInfo(): {
+  recheckIntervalMs: number;
+  lastBackgroundCheckAt: number | null;
+  nextBackgroundCheckAt: number | null;
+} {
+  return {
+    recheckIntervalMs: resolveRecheckIntervalMs(),
+    lastBackgroundCheckAt,
+    nextBackgroundCheckAt,
+  };
 }
 
 /**
@@ -697,14 +799,17 @@ export async function showUpdateDialogFlow(): Promise<void> {
 // ==================== 公开 API ====================
 
 /**
- * 手动检查更新（通过 latest.json）
+ * 手动检查更新（通过 latest.json）；background 选项仅供后台调度器复用，
+ * IPC 手动入口不传，行为不变（失败置 error 态供关于页/徽标展示重试）
  */
-export async function checkForUpdates(): Promise<UpdateInfo> {
+export async function checkForUpdates(
+  options: CheckOptions = {},
+): Promise<UpdateInfo> {
   // 自定义更新源（本地测试用）直接走 electron-updater，适用于 stable 通道
   // beta 通道始终走 doCheckViaLatestJson，确保 feedURL 指向 beta-build 路径
   if (process.env.NUWAX_UPDATE_SERVER && getUpdateChannel() === "stable") {
     try {
-      const { autoUpdater } = require("electron-updater");
+      const { autoUpdater } = loadAutoUpdaterModule();
       setState({
         status: "checking",
         error: undefined,
@@ -737,7 +842,7 @@ export async function checkForUpdates(): Promise<UpdateInfo> {
     }
   }
 
-  return checkForUpdatesViaLatestJson();
+  return checkForUpdatesViaLatestJson(options);
 }
 
 /**
@@ -778,7 +883,7 @@ export async function downloadUpdate(): Promise<{
       progress: undefined,
       canAutoUpdate: true,
     });
-    const { autoUpdater } = require("electron-updater");
+    const { autoUpdater } = loadAutoUpdaterModule();
     await autoUpdater.downloadUpdate();
     return { success: true };
   } catch (err: any) {
@@ -833,7 +938,7 @@ export function installUpdate(): { success: boolean; error?: string } {
       log.info("[AutoUpdater] Running cleanup before install...");
       cleanupBeforeInstall();
     }
-    const { autoUpdater } = require("electron-updater");
+    const { autoUpdater } = loadAutoUpdaterModule();
     autoUpdater.quitAndInstall(false, true);
     return { success: true };
   } catch (err: any) {

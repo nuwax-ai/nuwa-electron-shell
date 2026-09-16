@@ -558,6 +558,12 @@ export interface AppAPI {
     exePath?: string;
     uninstallerFiles?: string[];
     totalAppFiles?: number;
+    /** 后台定时复检调度器（排障用：间隔与最近/下次检查时间戳） */
+    backgroundCheck?: {
+      recheckIntervalMs: number;
+      lastBackgroundCheckAt: number | null;
+      nextBackgroundCheckAt: number | null;
+    };
     error?: string;
   }>;
   getDeviceId: () => Promise<string>;

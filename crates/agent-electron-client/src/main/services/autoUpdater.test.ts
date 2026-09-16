@@ -8,12 +8,20 @@
  * 每个测试重置模块缓存以清除 cachedInstallerType
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // ── Mocks ──
 
 const mockExistsSync = vi.fn((...args: unknown[]) => false);
 const mockReaddirSync = vi.fn((...args: unknown[]) => [] as string[]);
+const mockAppOnce = vi.fn();
+const mockPowerMonitorOn = vi.fn();
+const mockNetRequest = vi.fn();
+const mockUpdaterOn = vi.fn();
+const mockUpdaterSetFeedURL = vi.fn();
+const mockUpdaterCheckForUpdates = vi.fn();
+const mockUpdaterDownloadUpdate = vi.fn();
+const mockUpdaterQuitAndInstall = vi.fn();
 
 vi.mock("fs", () => ({
   existsSync: (...args: unknown[]) => mockExistsSync(...args),
@@ -39,24 +47,33 @@ vi.mock("electron", () => ({
     },
     getAppPath: () => "/app",
     getVersion: () => "0.9.4",
+    once: (...args: unknown[]) => mockAppOnce(...args),
   },
   BrowserWindow: class {},
   shell: {},
   dialog: {},
-  net: {},
+  net: {
+    request: (...args: unknown[]) => mockNetRequest(...args),
+  },
+  powerMonitor: {
+    on: (...args: unknown[]) => mockPowerMonitorOn(...args),
+  },
 }));
 
-vi.mock("electron-updater", () => ({
+// electron-updater 走 require 直加载，vi.mock 拦不住（vitest 限制），
+// 测试经 _setAutoUpdaterModuleLoaderForTest 注入下面这份 fake 模块
+const fakeElectronUpdaterModule = () => ({
   autoUpdater: {
-    on: vi.fn(),
-    setFeedURL: vi.fn(),
-    checkForUpdates: vi.fn(),
-    downloadUpdate: vi.fn(),
-    quitAndInstall: vi.fn(),
+    on: (...args: unknown[]) => mockUpdaterOn(...args),
+    setFeedURL: (...args: unknown[]) => mockUpdaterSetFeedURL(...args),
+    checkForUpdates: (...args: unknown[]) =>
+      mockUpdaterCheckForUpdates(...args),
+    downloadUpdate: (...args: unknown[]) => mockUpdaterDownloadUpdate(...args),
+    quitAndInstall: (...args: unknown[]) => mockUpdaterQuitAndInstall(...args),
     autoDownload: false,
     autoInstallOnAppQuit: true,
   },
-}));
+});
 
 vi.mock("@shared/constants", () => ({
   APP_DATA_DIR_NAME: ".nuwaclaw",
@@ -82,6 +99,13 @@ vi.mock("./updatePlatformUtils", () => ({
 async function importFresh() {
   vi.resetModules();
   return import("./autoUpdater");
+}
+
+/** 重置并导入，同时注入 fake 的 electron-updater（require 路径需走加载缝） */
+async function importFreshWithUpdaterMock() {
+  const mod = await importFresh();
+  mod._setAutoUpdaterModuleLoaderForTest(fakeElectronUpdaterModule);
+  return mod;
 }
 
 /** 让 process.platform 模拟为 win32 */
@@ -444,5 +468,250 @@ describe("autoUpdater - yml URL 处理", () => {
       // 最终标准化为 .../beta-build/prerelease-v0.10.7/latest.yml/latest.yml（路径重复）
       expect(result).toContain("latest.yml/latest.yml");
     });
+  });
+});
+
+// ── 后台定时复检（获取新版本逻辑）──
+
+describe("resolveRecheckIntervalMs", () => {
+  it("未设置 env 时回默认 1h", async () => {
+    const { resolveRecheckIntervalMs } = await importFresh();
+    expect(resolveRecheckIntervalMs({})).toBe(60 * 60 * 1000);
+  });
+
+  it("合法值生效（QA/dev 短间隔验证）", async () => {
+    const { resolveRecheckIntervalMs } = await importFresh();
+    expect(
+      resolveRecheckIntervalMs({ NUWAX_UPDATE_CHECK_INTERVAL_MS: "120000" }),
+    ).toBe(120_000);
+  });
+
+  it("非法字符串回默认", async () => {
+    const { resolveRecheckIntervalMs } = await importFresh();
+    expect(
+      resolveRecheckIntervalMs({ NUWAX_UPDATE_CHECK_INTERVAL_MS: "abc" }),
+    ).toBe(60 * 60 * 1000);
+  });
+
+  it("0/负数视为非法回默认", async () => {
+    const { resolveRecheckIntervalMs } = await importFresh();
+    expect(
+      resolveRecheckIntervalMs({ NUWAX_UPDATE_CHECK_INTERVAL_MS: "0" }),
+    ).toBe(60 * 60 * 1000);
+    expect(
+      resolveRecheckIntervalMs({ NUWAX_UPDATE_CHECK_INTERVAL_MS: "-5000" }),
+    ).toBe(60 * 60 * 1000);
+  });
+
+  it("正值低于下限 60s 时按下限 clamp", async () => {
+    const { resolveRecheckIntervalMs } = await importFresh();
+    expect(
+      resolveRecheckIntervalMs({ NUWAX_UPDATE_CHECK_INTERVAL_MS: "1000" }),
+    ).toBe(60_000);
+  });
+});
+
+describe("shouldSkipBackgroundCheck", () => {
+  it("checking/downloading/downloaded 应跳过", async () => {
+    const { shouldSkipBackgroundCheck } = await importFresh();
+    expect(shouldSkipBackgroundCheck("checking")).toBe(true);
+    expect(shouldSkipBackgroundCheck("downloading")).toBe(true);
+    expect(shouldSkipBackgroundCheck("downloaded")).toBe(true);
+  });
+
+  it("available 不跳过（允许刷新到更新的版本元数据）", async () => {
+    const { shouldSkipBackgroundCheck } = await importFresh();
+    expect(shouldSkipBackgroundCheck("available")).toBe(false);
+  });
+
+  it("idle/not-available/error 不跳过", async () => {
+    const { shouldSkipBackgroundCheck } = await importFresh();
+    expect(shouldSkipBackgroundCheck("idle")).toBe(false);
+    expect(shouldSkipBackgroundCheck("not-available")).toBe(false);
+    expect(shouldSkipBackgroundCheck("error")).toBe(false);
+  });
+});
+
+describe("后台静默检查（checkForUpdates({background:true})）", () => {
+  beforeEach(() => {
+    mockDarwin();
+    mockNetRequest.mockReset();
+    mockUpdaterSetFeedURL.mockReset();
+    mockUpdaterCheckForUpdates.mockReset();
+    mockUpdaterCheckForUpdates.mockResolvedValue(undefined);
+  });
+
+  /** net.request 直接抛错（模拟 OSS 不可达） */
+  function failNetRequest() {
+    mockNetRequest.mockImplementation(() => {
+      throw new Error("HTTP 502 fetching latest.json");
+    });
+  }
+
+  /** net.request 回放一份 latest.json 响应 */
+  function respondLatestJson(latest: Record<string, unknown>) {
+    mockNetRequest.mockImplementation((() => {
+      const listeners: Record<string, (arg?: unknown) => void> = {};
+      return {
+        on: (event: string, cb: (arg?: unknown) => void) => {
+          listeners[event] = cb;
+        },
+        abort: vi.fn(),
+        end: () => {
+          queueMicrotask(() => {
+            listeners.response?.({
+              statusCode: 200,
+              on: (event: string, cb: (arg?: unknown) => void) => {
+                if (event === "data") cb(JSON.stringify(latest));
+                if (event === "end") cb();
+              },
+            });
+          });
+        },
+      };
+    }) as any);
+  }
+
+  it("失败不置 error 态：保持初始 idle", async () => {
+    failNetRequest();
+    const mod = await importFreshWithUpdaterMock();
+    const result = await mod.checkForUpdates({ background: true });
+    expect(result.hasUpdate).toBe(false);
+    expect(mod.getUpdateState().status).toBe("idle");
+  });
+
+  it("失败保住先前 available 状态（版本与 notes 不丢）", async () => {
+    respondLatestJson({
+      version: "0.9.5",
+      notes: "release notes",
+      pub_date: "2026-09-16T00:00:00Z",
+    });
+    const mod = await importFreshWithUpdaterMock();
+    await mod.checkForUpdates();
+    expect(mod.getUpdateState().status).toBe("available");
+
+    mockNetRequest.mockReset();
+    failNetRequest();
+    await mod.checkForUpdates({ background: true });
+    const state = mod.getUpdateState();
+    expect(state.status).toBe("available");
+    expect(state.version).toBe("0.9.5");
+    expect(state.releaseNotes).toBe("release notes");
+  });
+
+  it("成功路径推 available 并携带全量元数据", async () => {
+    respondLatestJson({
+      version: "0.9.5",
+      notes: "release notes",
+      pub_date: "2026-09-16T00:00:00Z",
+      yml: {
+        darwin:
+          "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/nuwax-electron/beta-build/prerelease-v0.9.5/latest-mac.yml",
+      },
+    });
+    const mod = await importFreshWithUpdaterMock();
+    const result = await mod.checkForUpdates({ background: true });
+    expect(result.hasUpdate).toBe(true);
+    const state = mod.getUpdateState();
+    expect(state.status).toBe("available");
+    expect(state.version).toBe("0.9.5");
+    expect(state.releaseDate).toBe("2026-09-16T00:00:00Z");
+    expect(state.releaseNotes).toBe("release notes");
+    expect(mockUpdaterSetFeedURL).toHaveBeenCalledWith({
+      provider: "generic",
+      url: "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/nuwax-electron/beta-build/prerelease-v0.9.5/",
+    });
+  });
+
+  it("手动检查（非 background）失败仍置 error 态（回归）", async () => {
+    failNetRequest();
+    const mod = await importFreshWithUpdaterMock();
+    await mod.checkForUpdates();
+    expect(mod.getUpdateState().status).toBe("error");
+  });
+});
+
+describe("后台复检调度器（initAutoUpdater）", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    mockDarwin();
+    mockNetRequest.mockReset();
+    mockNetRequest.mockImplementation(() => {
+      throw new Error("HTTP 502 fetching latest.json");
+    });
+    mockUpdaterDownloadUpdate.mockReset();
+    mockUpdaterDownloadUpdate.mockResolvedValue(undefined);
+    mockAppOnce.mockReset();
+    mockPowerMonitorOn.mockReset();
+    process.env.NUWAX_UPDATE_CHECK_INTERVAL_MS = "60000";
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    delete process.env.NUWAX_UPDATE_CHECK_INTERVAL_MS;
+  });
+
+  it("启动 10s 首查 + 间隔后复检 + before-quit 停摆", async () => {
+    const mod = await importFreshWithUpdaterMock();
+    mod.initAutoUpdater(() => null);
+    expect(mockNetRequest).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(mockNetRequest).toHaveBeenCalledTimes(1);
+    expect(
+      mod.getBackgroundCheckDebugInfo().lastBackgroundCheckAt,
+    ).not.toBeNull();
+    expect(
+      mod.getBackgroundCheckDebugInfo().nextBackgroundCheckAt,
+    ).not.toBeNull();
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(mockNetRequest).toHaveBeenCalledTimes(2);
+
+    // before-quit 清定时器，调度链停止
+    const quitHandler = mockAppOnce.mock.calls.find(
+      (c) => c[0] === "before-quit",
+    )?.[1] as (() => void) | undefined;
+    expect(quitHandler).toBeTypeOf("function");
+    quitHandler!();
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(mockNetRequest).toHaveBeenCalledTimes(2);
+    expect(mod.getBackgroundCheckDebugInfo().nextBackgroundCheckAt).toBeNull();
+  });
+
+  it("downloading 态跳过复检但调度链不断", async () => {
+    const mod = await importFreshWithUpdaterMock();
+    mod.initAutoUpdater(() => null);
+
+    // 进入 downloading 态（electron-updater mock 不发事件，状态停在 downloading）
+    await mod.downloadUpdate();
+    expect(mod.getUpdateState().status).toBe("downloading");
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(mockNetRequest).not.toHaveBeenCalled();
+    expect(
+      mod.getBackgroundCheckDebugInfo().nextBackgroundCheckAt,
+    ).not.toBeNull();
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(mockNetRequest).not.toHaveBeenCalled();
+  });
+
+  it("注册 powerMonitor resume 唤醒补查（30s 延迟）", async () => {
+    const mod = await importFreshWithUpdaterMock();
+    mod.initAutoUpdater(() => null);
+    expect(mockPowerMonitorOn).toHaveBeenCalledWith(
+      "resume",
+      expect.any(Function),
+    );
+
+    const resumeCb = mockPowerMonitorOn.mock.calls.find(
+      (c) => c[0] === "resume",
+    )![1] as () => void;
+    resumeCb();
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect(mockNetRequest).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(mockNetRequest).toHaveBeenCalledTimes(1);
   });
 });

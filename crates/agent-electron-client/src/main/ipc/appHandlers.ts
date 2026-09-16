@@ -304,10 +304,11 @@ export function registerAppHandlers(ctx: HandlerContext): void {
 
   ipcMain.handle("app:getUpdateDebugInfo", async () => {
     try {
-      const { getInstallerType, canAutoUpdate } =
+      const { getInstallerType, canAutoUpdate, getBackgroundCheckDebugInfo } =
         await import("../services/autoUpdater");
       const installerType = getInstallerType();
       const canUpdate = canAutoUpdate();
+      const backgroundCheck = getBackgroundCheckDebugInfo();
 
       let appFiles: string[] = [];
       if (process.platform === "win32") {
@@ -337,6 +338,8 @@ export function registerAppHandlers(ctx: HandlerContext): void {
         exePath: app.getPath("exe"),
         installerType,
         canAutoUpdate: canUpdate,
+        // 后台定时复检调度器（QA 验证：last/next 时间戳 + 实际生效间隔）
+        backgroundCheck,
         appDir:
           process.platform === "win32"
             ? path.dirname(app.getPath("exe"))
