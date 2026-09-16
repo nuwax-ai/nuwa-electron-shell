@@ -3,6 +3,13 @@ import type { TitlebarDragRegion } from "../types/webview";
 export const MAX_TITLEBAR_DRAG_REGIONS = 16;
 export const MAX_TITLEBAR_DRAG_HEIGHT = 48;
 
+/**
+ * host 侧空热区宽限：guest 过渡期（侧栏收展/antd 动画）会瞬时上报空数组，
+ * 宽限内来了非空即取消清空；超时仍空才回落 8px 保底条。导航开始的主动清空
+ * 不走此宽限。2026-09-16 实测侧栏收起过渡的空窗达 ~1.2s，取 1500ms 覆盖。
+ */
+export const TITLEBAR_EMPTY_GRACE_MS = 1500;
+
 /** 主进程边界：guest 输入不可信，只转发窗口范围内的有限顶部矩形。 */
 export function sanitizeTitlebarDragRegions(
   value: unknown,
