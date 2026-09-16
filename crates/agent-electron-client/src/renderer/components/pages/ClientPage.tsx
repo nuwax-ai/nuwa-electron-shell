@@ -558,6 +558,9 @@ function ClientPage({
         services.length > 0 &&
         services.filter((s) => s.key !== "guiServer").every((s) => s.running);
       const isButtonDisabled = !redirectUrl || !allServicesRunning;
+      // nuwax 宿主（商业版）会话入口在 web 端：账户区块只展示登录状态，不渲染
+      // 「开始会话/扫码使用」；社区壳（nuwaclaw）保持与 Tauri 对齐的双按钮。
+      const isNuwaxHost = APP_NAME_IDENTIFIER === "nuwax";
 
       return (
         <div className={styles.sectionBody}>
@@ -577,35 +580,37 @@ function ClientPage({
             </div>
 
             {/* 右侧：操作按钮（服务未全部启动时禁用，与 Tauri 行为一致） */}
-            <div className={styles.actionButtons}>
-              <Button
-                type="primary"
-                icon={<PlayCircleOutlined />}
-                onClick={handleStartSession}
-                size="small"
-                disabled={isButtonDisabled}
-                title={
-                  !allServicesRunning
-                    ? t("Claw.Client.startAllServicesFirst")
-                    : undefined
-                }
-              >
-                {t("Claw.Client.startSession")}
-              </Button>
-              <Button
-                icon={<QrcodeOutlined />}
-                onClick={handleShowQrCode}
-                size="small"
-                disabled={isButtonDisabled}
-                title={
-                  !allServicesRunning
-                    ? t("Claw.Client.startAllServicesFirst")
-                    : undefined
-                }
-              >
-                {t("Claw.Client.qrCode")}
-              </Button>
-            </div>
+            {!isNuwaxHost && (
+              <div className={styles.actionButtons}>
+                <Button
+                  type="primary"
+                  icon={<PlayCircleOutlined />}
+                  onClick={handleStartSession}
+                  size="small"
+                  disabled={isButtonDisabled}
+                  title={
+                    !allServicesRunning
+                      ? t("Claw.Client.startAllServicesFirst")
+                      : undefined
+                  }
+                >
+                  {t("Claw.Client.startSession")}
+                </Button>
+                <Button
+                  icon={<QrcodeOutlined />}
+                  onClick={handleShowQrCode}
+                  size="small"
+                  disabled={isButtonDisabled}
+                  title={
+                    !allServicesRunning
+                      ? t("Claw.Client.startAllServicesFirst")
+                      : undefined
+                  }
+                >
+                  {t("Claw.Client.qrCode")}
+                </Button>
+              </div>
+            )}
           </div>
         </div>
       );
