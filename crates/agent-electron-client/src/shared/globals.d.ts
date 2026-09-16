@@ -8,3 +8,4 @@ declare const __INJECT_GUI_MCP__: string | boolean;
 declare const __LOG_FULL_SECRETS__: string | boolean;
 declare const __ENABLE_GUI_AGENT_SERVER__: string | boolean;
 declare const __DARK_THEME__: string | boolean;
+declare const __DEBUG_TITLEBAR_DRAG__: string | boolean;

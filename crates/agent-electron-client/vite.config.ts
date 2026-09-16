@@ -19,6 +19,11 @@ function getFeatureFlags(mode: string) {
     __ENABLE_GUI_AGENT_SERVER__: toViteFlag(env.ENABLE_GUI_AGENT_SERVER),
     // 暗黑模式开关（默认关闭，恒浅色；设 DARK_THEME=true 恢复）
     __DARK_THEME__: toViteFlag(env.DARK_THEME),
+    // 标题栏拖拽热区可视化（红=guest 上报矩形 蓝=壳顶栏行）：dev 默认开；
+    // 打包构建默认关，QA 特殊构建可设 NUWAX_DEBUG_TITLEBAR_DRAG=true 打开
+    __DEBUG_TITLEBAR_DRAG__: toViteFlag(
+      env.NUWAX_DEBUG_TITLEBAR_DRAG ?? (mode === 'development' ? 'true' : 'false'),
+    ),
   };
 }
 

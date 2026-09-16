@@ -52,6 +52,13 @@ function getViteFlagDarkTheme(): boolean {
   );
 }
 
+function getViteFlagDebugTitlebarDrag(): boolean {
+  return (
+    typeof __DEBUG_TITLEBAR_DRAG__ !== "undefined" &&
+    (__DEBUG_TITLEBAR_DRAG__ === true || __DEBUG_TITLEBAR_DRAG__ === "true")
+  );
+}
+
 function hasViteFlagDarkTheme(): boolean {
   return typeof __DARK_THEME__ !== "undefined";
 }
@@ -91,6 +98,13 @@ export const FEATURES = {
   DARK_THEME: hasViteFlagDarkTheme()
     ? getViteFlagDarkTheme()
     : getProcessFlag("DARK_THEME", false),
+  /**
+   * 标题栏拖拽热区可视化：红=guest 上报矩形层（1099）、蓝=壳顶栏常驻拖拽行（1100）。
+   * dev 默认开；打包默认关，QA 特殊构建设 NUWAX_DEBUG_TITLEBAR_DRAG=true。
+   */
+  DEBUG_TITLEBAR_DRAG:
+    getViteFlagDebugTitlebarDrag() ||
+    getProcessFlag("NUWAX_DEBUG_TITLEBAR_DRAG"),
 } as const;
 
 export type FeatureFlag = keyof typeof FEATURES;
