@@ -1899,7 +1899,10 @@ function App() {
                 ) : undefined
               }
               updateEntry={
-                // 顶栏只做提醒与导航，所有下载/安装动作统一在 about 页确认。
+                // 商业版（nuwax）更新提醒由 nuwax web 单栏 logo 旁版本徽标承担，
+                // 壳顶栏右上入口仅社区版保留（社区 web 无徽标）；动作统一在 about 页。
+                APP_NAME_IDENTIFIER ===
+                "nuwax" ? undefined : // 顶栏只做提醒与导航，所有下载/安装动作统一在 about 页确认。
                 updateState.status === "available" ? (
                   <Tooltip
                     title={t("Claw.App.UpdateTag.update")}
