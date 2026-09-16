@@ -209,19 +209,20 @@ body {
 }
 
 /* ========== 设置弹窗左栏（自绘导航：caption + 图标项 + 关于钉底） ==========
-   与内容区之间不放竖线：参考图侧栏无边界、融入弹窗底色，白卡片负责分层 */
+   与内容区之间不放竖线：参考图侧栏无边界、融入弹窗底色，白卡片负责分层。
+   侧栏右内边距收窄到 6px：导航胶囊与内容区之间只留一条窄缝，省出的宽度归内容区 */
 .app-sider {
-  width: 200px;
+  width: 180px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  padding: 14px 10px 12px;
+  padding: 14px 6px 12px;
   overflow-y: auto;
 }
 
 /* 英文菜单文案更长，单独加宽侧边栏，避免文本被截断 */
 .app-sider.app-sider-en {
-  width: 220px;
+  width: 200px;
 }
 
 .app-sider-caption {
@@ -324,7 +325,7 @@ body {
   align-items: center;
   gap: 8px;
   height: 52px;
-  padding: 0 10px 0 24px;
+  padding: 0 10px 0 16px;
 }
 
 .app-content-title {
@@ -341,7 +342,7 @@ body {
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
-  padding: 2px 24px 20px;
+  padding: 2px 16px 20px;
 }
 
 /* ========== 沉浸式工具栏窗口控制（TrafficLightToolbar，Win/Linux 自绘三键） ========== */
