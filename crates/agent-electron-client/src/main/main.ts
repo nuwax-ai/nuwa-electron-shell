@@ -161,6 +161,13 @@ app.on("second-instance", () => {
 
 // Get icon path (works in both dev and production)
 function getIconPath() {
+  // Windows 任务栏按 DPI 从 ICO 取精确层（20/40/48/96…）；
+  // 整张 PNG 交给系统缩放会在 125%/150% 缩放下发糊
+  if (process.platform === "win32") {
+    return app.isPackaged
+      ? path.join(process.resourcesPath, "icon.ico")
+      : path.join(process.cwd(), "public", "icon.ico");
+  }
   if (app.isPackaged) {
     // Production: icons in app.asar (Resources)
     if (process.platform === "darwin") {
