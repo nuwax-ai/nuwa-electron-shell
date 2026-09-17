@@ -41,6 +41,10 @@ import { initI18n, setMainLang, DEFAULT_MAIN_LANG } from "./services/i18n";
 import { createTrayManager, TrayStatus } from "./window/trayManager";
 import { createServiceManager } from "./window/serviceManager";
 import { initAutoUpdater, showUpdateDialogFlow } from "./services/autoUpdater";
+import {
+  attachHostActivityWindow,
+  initHostActivity,
+} from "./services/hostActivity";
 import { migrateDataDir, migrateSettingsPaths } from "./bootstrap/migrate";
 import { getDeviceId, logSystemInfo } from "./services/system/deviceId";
 import { initWebviewPolicy } from "./services/system/webviewPolicy";
@@ -327,6 +331,9 @@ function createWindow() {
     mainWindow?.hide();
     log.info("[App] Window hidden to tray (close intercepted)");
   });
+
+  // 休眠控制：主窗口可见性 + 锁屏状态桥（不可见时通知 webview 暂停后台轮询）
+  attachHostActivityWindow(mainWindow);
 
   // Create application menu
   createMenu();
@@ -723,6 +730,9 @@ app.whenReady().then(async () => {
 
   // 须在 createWindow 之前初始化，否则主窗口 webContents 会错过 did-attach-webview 监听
   initWebviewPolicy(() => mainWindow);
+
+  // 休眠控制：powerMonitor 须在 app ready 后注册（锁屏/唤醒沿）
+  initHostActivity();
 
   createWindow();
   // 启动服务门禁：核心服务 ready 前壳层停在 loading（renderer 监听 services:ready）。
