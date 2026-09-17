@@ -237,6 +237,26 @@ const layout = {
 };
 
 /**
+ * titlebar 命名空间：标题栏手势（guest→host，fire-and-forget）。
+ * guest 在 mousedown 捕获阶段命中判定（目标空白且位于顶部带内）后请求主进程
+ * 跟随光标拖窗/双击切换最大化——壳层不再常驻拖拽矩形，页面点击零吞没。
+ */
+const titlebar = {
+  /** 空白处按下：开始拖拽会话（主进程 16ms 光标轮询移动窗口）。 */
+  beginDrag(): void {
+    ipcRenderer.send("nuwax:titlebar-drag-start");
+  },
+  /** 结束拖拽会话（mouseup / blur / buttons 异常时由 guest 补发）。 */
+  endDrag(): void {
+    ipcRenderer.send("nuwax:titlebar-drag-end");
+  },
+  /** 空白处双击：切换最大化/还原。 */
+  toggleMaximize(): void {
+    ipcRenderer.send("nuwax:titlebar-toggle-maximize");
+  },
+};
+
+/**
  * i18n 命名空间：nuwax → 壳的语言同步（guest→host，fire-and-forget）。
  * nuwax 切换多语言时推送当前语言，壳的 UI 文案与主进程语言跟随切换。
  */
@@ -281,6 +301,7 @@ contextBridge.exposeInMainWorld("NuwaClawBridge", {
   events,
   theme,
   layout,
+  titlebar,
   i18n,
   meta,
   host,

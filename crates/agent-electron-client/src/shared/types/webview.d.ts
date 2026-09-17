@@ -66,6 +66,16 @@ export interface NuwaClawBridgeLayout {
   setTitlebarDragRegions?(regions: TitlebarDragRegion[]): void;
 }
 
+/** 标题栏手势（2026-09-17 架构切换）：guest 命中判定后请求主进程拖窗/缩放。 */
+export interface NuwaClawBridgeTitlebar {
+  /** 空白处按下：主进程开始跟随光标移动窗口。 */
+  beginDrag?(): void;
+  /** 结束拖拽会话。 */
+  endDrag?(): void;
+  /** 空白处双击：切换最大化/还原。 */
+  toggleMaximize?(): void;
+}
+
 export interface NuwaClawBridge {
   perf?: NuwaClawBridgePerf;
   auth?: NuwaClawBridgeAuth;
@@ -73,6 +83,7 @@ export interface NuwaClawBridge {
   updater?: NuwaClawBridgeUpdater;
   meta?: NuwaClawBridgeMeta;
   layout?: NuwaClawBridgeLayout;
+  titlebar?: NuwaClawBridgeTitlebar;
   host?: NuwaClawBridgeHost;
 }
 
