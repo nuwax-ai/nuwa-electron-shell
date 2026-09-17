@@ -119,8 +119,16 @@ export const LOCAL_HOST_URL = "http://127.0.0.1";
 /** Anthropic API 默认地址 */
 export const DEFAULT_ANTHROPIC_API_URL = "https://api.anthropic.com";
 
-/** 默认后端服务器地址 */
-export const DEFAULT_SERVER_HOST = "https://agent.nuwax.com";
+const NUWAX_DEFAULT_SERVER_HOST_ENV = process.env.NUWAX_DEFAULT_SERVER_HOST;
+/**
+ * 默认后端服务器地址。
+ * NUWAX_DEFAULT_SERVER_HOST 可在构建期覆写（与品牌注入同一 define 机制）：
+ * nuwax-client 测试期商业构建注入测试环境域，不注入回落本正式域——
+ * 首启种子（step1_config.serverHost）与各处缺省兜底（reg/网关反代/i18n/
+ * lanproxy 探测）随之整体切换；社区版不注入，行为不变。
+ */
+export const DEFAULT_SERVER_HOST =
+  NUWAX_DEFAULT_SERVER_HOST_ENV?.trim() || "https://agent.nuwax.com";
 /** 测试环境预置域（回环形态「测试环境」下拉项对应的后端）。 */
 export const TEST_SERVER_HOST = "https://testagent.xspaceagi.com";
 
