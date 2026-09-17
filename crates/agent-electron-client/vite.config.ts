@@ -100,6 +100,11 @@ export default defineConfig(({ mode }) => {
     },
   },
   server: {
+    // 显式绑 IPv4 回环：Node 解析 localhost 族序不定，若 ::1 在前 vite 只绑 [::1]，
+    // Electron/Chromium 解析 localhost→127.0.0.1 即 ERR_CONNECTION_REFUSED（2026-09-17
+    // 实测：残留旧 vite 占住 ::1、新栈窗口打 IPv4 被拒）。显式 127.0.0.1 后 Chromium
+    // （IPv4 命中）与 Node 系探针（autoSelectFamily 双族回退）皆通；社区 dev 同受益。
+    host: '127.0.0.1',
     // 跟随端口偏移注入（与 constants DEFAULT_DEV_SERVER_PORT 同式）：商业版 dev 注
     // NUWAX_PORT_OFFSET=1000 → 61173，与社区版 dev（60173）同机双开不撞（strictPort 下撞则直接失败）
     port: 60173 + (Number.parseInt(process.env.NUWAX_PORT_OFFSET?.trim() ?? '0', 10) || 0),
