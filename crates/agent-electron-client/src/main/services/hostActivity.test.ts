@@ -363,3 +363,38 @@ describe("initHostActivity", () => {
     ]);
   });
 });
+
+// ── 菜单宿主命令下发（应用菜单「文件 → 新建任务/搜索」复用 guest 登记集合） ──
+
+describe("sendHostCommandToMainWindowGuests", () => {
+  it("向已登记 guest 下发任意宿主命令 payload", async () => {
+    const { sendHostCommandToMainWindowGuests } =
+      await import("./hostActivity");
+    const mock = createMockWindow();
+    attachHostActivityWindow(mock.win);
+
+    const g = createMockGuest();
+    mock.fireAttach(g.guest);
+
+    sendHostCommandToMainWindowGuests({ type: "new-task" });
+    expect(g.sent.filter((s) => s.channel === "nuwax:host-command")).toEqual([
+      { channel: "nuwax:host-command", payload: { type: "new-task" } },
+    ]);
+  });
+
+  it("跳过已销毁 guest 并顺带清理登记", async () => {
+    const { sendHostCommandToMainWindowGuests } =
+      await import("./hostActivity");
+    const mock = createMockWindow();
+    attachHostActivityWindow(mock.win);
+
+    const g = createMockGuest();
+    mock.fireAttach(g.guest);
+    g.destroy();
+
+    expect(() =>
+      sendHostCommandToMainWindowGuests({ type: "open-search" }),
+    ).not.toThrow();
+    expect(g.sent).toEqual([]);
+  });
+});
