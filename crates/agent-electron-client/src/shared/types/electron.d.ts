@@ -658,6 +658,8 @@ export interface ServicesAPI {
     success: boolean;
     results?: Record<string, { success: boolean; error?: string }>;
   }>;
+  /** 按当前配置刷新回环网关（不经登录门禁；运行时键变化广播 loopback-changed）。 */
+  refreshLoopbackGateway: () => Promise<{ success: boolean; error?: string }>;
   /** 启动服务门禁：已就绪结果缓存（null=仍在等待）。 */
   readyState: () => Promise<{
     ok: boolean;
