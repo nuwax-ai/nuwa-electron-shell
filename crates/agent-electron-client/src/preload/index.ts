@@ -287,6 +287,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
     syncConfig: () => ipcRenderer.invoke("services:syncConfig"),
     restartAll: () => ipcRenderer.invoke("services:restartAll"),
     stopAll: () => ipcRenderer.invoke("services:stopAll"),
+    /** 按当前配置刷新回环网关（不经登录门禁——网关是登录页的承载设施），
+     * 运行时键变化时 renderer 收 nuwax:loopback-changed 重解析 webview URL。 */
+    refreshLoopbackGateway: () =>
+      ipcRenderer.invoke("services:refreshLoopbackGateway"),
     /** 启动服务门禁：已就绪结果缓存（null=仍在等待）。 */
     readyState: () => ipcRenderer.invoke("services:readyState"),
     /** 手动重跑门禁（错误屏的重试按钮）。 */
