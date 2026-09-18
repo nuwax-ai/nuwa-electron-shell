@@ -89,11 +89,25 @@ const TopMenu: React.FC<{ label: string; items: MenuProps["items"] }> = ({
   label,
   items,
 }) => (
-  <Dropdown menu={{ items }} trigger={["click"]}>
+  <Dropdown
+    menu={{ items }}
+    trigger={["click"]}
+    // 下拉面板观感走 index.css .topbar-app-menu（Win11 原生菜单风）
+    rootClassName="topbar-app-menu"
+  >
     <button type="button" className="topbar-menu-btn">
       {label}
     </button>
   </Dropdown>
+);
+
+/** 菜单项内容：左侧文案 + 右侧快捷键提示（原生菜单标准形态；Win 无原生菜单，
+ * Ctrl 组合直达 guest，提示列与 mac accelerator 显示对齐）。 */
+const menuRow = (text: string, shortcut?: string): React.ReactNode => (
+  <span className="topbar-menu-row">
+    <span>{text}</span>
+    {shortcut ? <span className="topbar-menu-shortcut">{shortcut}</span> : null}
+  </span>
 );
 
 const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
@@ -209,17 +223,25 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
       <TopMenu
         label="文件(F)"
         items={[
-          { key: "newTask", label: "新建任务", onClick: onNewTask },
-          { key: "search", label: "搜索", onClick: onOpenSearch },
+          {
+            key: "newTask",
+            label: menuRow("新建任务", "Ctrl+N"),
+            onClick: onNewTask,
+          },
+          {
+            key: "search",
+            label: menuRow("搜索", "Ctrl+K"),
+            onClick: onOpenSearch,
+          },
           { type: "divider" },
           {
             key: "modifyWorkspace",
-            label: "更改工作空间目录…",
+            label: menuRow("更改工作空间目录…"),
             onClick: onModifyWorkspace,
           },
           {
             key: "openWorkspace",
-            label: "打开工作空间目录",
+            label: menuRow("打开工作空间目录"),
             onClick: onOpenWorkspace,
           },
         ]}
@@ -227,15 +249,35 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
       <TopMenu
         label="编辑(E)"
         items={[
-          { key: "undo", label: "撤销", onClick: () => editAction("undo") },
-          { key: "redo", label: "重做", onClick: () => editAction("redo") },
+          {
+            key: "undo",
+            label: menuRow("撤销", "Ctrl+Z"),
+            onClick: () => editAction("undo"),
+          },
+          {
+            key: "redo",
+            label: menuRow("重做", "Shift+Ctrl+Z"),
+            onClick: () => editAction("redo"),
+          },
           { type: "divider" },
-          { key: "cut", label: "剪切", onClick: () => editAction("cut") },
-          { key: "copy", label: "复制", onClick: () => editAction("copy") },
-          { key: "paste", label: "粘贴", onClick: () => editAction("paste") },
+          {
+            key: "cut",
+            label: menuRow("剪切", "Ctrl+X"),
+            onClick: () => editAction("cut"),
+          },
+          {
+            key: "copy",
+            label: menuRow("复制", "Ctrl+C"),
+            onClick: () => editAction("copy"),
+          },
+          {
+            key: "paste",
+            label: menuRow("粘贴", "Ctrl+V"),
+            onClick: () => editAction("paste"),
+          },
           {
             key: "selectAll",
-            label: "全选",
+            label: menuRow("全选", "Ctrl+A"),
             onClick: () => editAction("selectAll"),
           },
         ]}
@@ -250,7 +292,11 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
             disabled: !canGoForward,
             onClick: onForward,
           },
-          { key: "reload", label: "刷新页面", onClick: onReload },
+          {
+            key: "reload",
+            label: menuRow("刷新页面", "Ctrl+R"),
+            onClick: onReload,
+          },
           { type: "divider" },
           { key: "minimize", label: "最小化", onClick: onMin },
           {

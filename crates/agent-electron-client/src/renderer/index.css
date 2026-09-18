@@ -413,6 +413,75 @@ body {
   background: rgba(255, 255, 255, 0.1);
 }
 
+/* ---- 顶行菜单下拉面板（.topbar-app-menu，Win11 原生菜单观感） ----
+   antd Dropdown 默认弹层偏网页组件观感；此处按桌面原生菜单规范覆盖：
+   面板细边框+柔和阴影+8px 圆角+4px 内边距，菜单项 32px 高/13px 字/项内圆角，
+   右侧快捷键提示列（.topbar-menu-shortcut）。 */
+.topbar-app-menu .ant-dropdown-menu,
+.topbar-app-menu.ant-dropdown .ant-dropdown-menu {
+  padding: 4px;
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  box-shadow:
+    0 2px 4px rgba(0, 0, 0, 0.06),
+    0 6px 16px rgba(0, 0, 0, 0.12);
+  min-width: 200px;
+}
+
+.topbar-app-menu .ant-dropdown-menu-item {
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 20px;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+}
+
+.topbar-app-menu .ant-dropdown-menu-item:hover:not(.ant-dropdown-menu-item-disabled) {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.topbar-app-menu .ant-dropdown-menu-item-divider {
+  margin: 4px 8px;
+  border-block-start: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.topbar-menu-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 28px;
+  width: 100%;
+}
+
+.topbar-menu-shortcut {
+  color: rgba(0, 0, 0, 0.4);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+[data-theme="dark"] .topbar-app-menu .ant-dropdown-menu,
+[data-theme="dark"] .topbar-app-menu.ant-dropdown .ant-dropdown-menu {
+  background: #2b2b2b;
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow:
+    0 2px 4px rgba(0, 0, 0, 0.24),
+    0 6px 16px rgba(0, 0, 0, 0.36);
+}
+
+[data-theme="dark"] .topbar-app-menu .ant-dropdown-menu-item:hover:not(.ant-dropdown-menu-item-disabled) {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+[data-theme="dark"] .topbar-app-menu .ant-dropdown-menu-item-divider {
+  border-block-start-color: rgba(255, 255, 255, 0.1);
+}
+
+[data-theme="dark"] .topbar-menu-shortcut {
+  color: rgba(255, 255, 255, 0.35);
+}
+
 /* ========== 滚动条 ========== */
 ::-webkit-scrollbar {
   width: 5px;
