@@ -454,6 +454,24 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
       : restartAllServicesNow();
   });
 
+  // ==================== services:refreshLoopbackGateway ====================
+
+  // 仅刷新回环网关（停旧实例→按当前配置重确保→运行时键变化广播
+  // nuwax:loopback-changed），不触业务服务启停——网关在登录前就得就绪
+  // （gateway 形态承载登录页本身），不能复用被登录门禁拦在前面的
+  // services:restartAll。设置页切换加载形态（gateway/direct）即用。
+  registerServiceHandler("services:refreshLoopbackGateway", async () => {
+    try {
+      const { refreshLoopbackGateway } =
+        await import("../services/loopbackGateway");
+      await refreshLoopbackGateway();
+      return { success: true };
+    } catch (e) {
+      log.warn("[Services] refreshLoopbackGateway failed:", e);
+      return { success: false, error: String(e) };
+    }
+  });
+
   // ==================== services:stopAll ====================
 
   registerServiceHandler("services:stopAll", async () => {
