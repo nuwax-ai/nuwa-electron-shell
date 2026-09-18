@@ -1889,6 +1889,12 @@ function App() {
                 APP_NAME_IDENTIFIER === "nuwax" ? undefined : handleOpenSettings
               }
               onOpenAbout={handleOpenAbout}
+              onOpenSettingsMenu={() => {
+                // 与 menu:settings 通道同款行为：落 settings tab（顶行按钮
+                // handleOpenSettings 只开弹窗保持上次 tab，语义不同）
+                setActiveTab("settings");
+                setSettingsModalOpen(true);
+              }}
               onNewTask={handleMenuNewTask}
               onOpenSearch={handleMenuOpenSearch}
               onModifyWorkspace={handleMenuModifyWorkspace}

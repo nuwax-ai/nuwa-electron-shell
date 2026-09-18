@@ -68,6 +68,9 @@ export interface TrafficLightToolbarProps {
   onOpenSettings?: () => void;
   /** 打开「关于与检查更新」（App 侧落到设置弹窗 about tab，含完整更新流程）。 */
   onOpenAbout: () => void;
+  /** 「关于(A) → 设置」菜单项：打开设置弹窗 settings tab（与 mac 应用菜单「设置…」对齐）。
+   * 与顶行设置按钮（onOpenSettings，nuwax 宿主不传不渲染）独立——菜单入口双版本恒有。 */
+  onOpenSettingsMenu?: () => void;
   /** 「文件(F) → 新建任务」：向 nuwax guest 下发 new-task 宿主命令（Ctrl+N 同款）。 */
   onNewTask?: () => void;
   /** 「文件(F) → 搜索」：向 nuwax guest 下发 open-search 宿主命令（Ctrl+K 同款）。 */
@@ -121,6 +124,7 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
   onReload,
   onOpenSettings,
   onOpenAbout,
+  onOpenSettingsMenu,
   onNewTask,
   onOpenSearch,
   onModifyWorkspace,
@@ -212,7 +216,18 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
       <TopMenu
         label="关于(A)"
         items={[
-          { key: "about", label: "关于与检查更新", onClick: onOpenAbout },
+          {
+            key: "about",
+            label: menuRow("关于与检查更新"),
+            onClick: onOpenAbout,
+          },
+          { type: "divider" },
+          // 设置项与 mac 应用菜单「设置…」对齐；商业版 web 用户区入口并存不冲突
+          {
+            key: "settings",
+            label: menuRow("设置"),
+            onClick: onOpenSettingsMenu,
+          },
         ]}
       />
       {/*
