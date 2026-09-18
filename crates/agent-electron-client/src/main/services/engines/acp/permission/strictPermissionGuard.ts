@@ -169,6 +169,18 @@ function buildPathResolveContext(
   };
 }
 
+/** 仅关键词级写类判定（无路径候选兜底）：计划模式硬闸用——计划期允许读类工具 */
+export function isWriteKeywordRequest(params: AcpPermissionRequest): boolean {
+  const kindAndTitle =
+    `${params.toolCall.kind ?? ""} ${params.toolCall.title ?? ""}`
+      .toLowerCase()
+      .trim();
+  if (NON_WRITE_KEYWORDS.some((kw) => kindAndTitle.includes(kw))) {
+    return false;
+  }
+  return WRITE_KEYWORDS.some((kw) => kindAndTitle.includes(kw));
+}
+
 function isWriteLikePermissionRequest(params: AcpPermissionRequest): boolean {
   const kindAndTitle =
     `${params.toolCall.kind ?? ""} ${params.toolCall.title ?? ""}`

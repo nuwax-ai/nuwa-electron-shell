@@ -103,6 +103,9 @@ export const DEFAULT_DEV_SERVER_PORT = 60173 + NUWAX_PORT_OFFSET;
 /** ttyd Web 终端默认端口（仅监听回环 127.0.0.1） */
 export const DEFAULT_TTYD_PORT = 60009 + NUWAX_PORT_OFFSET;
 
+/** 计划模式（PLAN）MCP server 默认端口（仅监听回环；见 shared/planMode.ts） */
+export const DEFAULT_PLAN_MCP_PORT = 60010 + NUWAX_PORT_OFFSET;
+
 // ==================== 主机 / IP 配置 ====================
 
 /** 本地回环地址 */

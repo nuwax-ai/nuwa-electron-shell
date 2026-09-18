@@ -13,6 +13,7 @@ import {
   DEFAULT_LANPROXY_PORT,
   DEFAULT_DEV_SERVER_PORT,
   DEFAULT_TTYD_PORT,
+  DEFAULT_PLAN_MCP_PORT,
   STORAGE_KEYS,
 } from "./constants";
 
@@ -31,6 +32,8 @@ export const STARTUP_PORT_DEFAULTS = {
   ttyd: DEFAULT_TTYD_PORT,
   /** Vite 开发服务器（仅开发模式） */
   vite: DEFAULT_DEV_SERVER_PORT,
+  /** 计划模式 MCP server（仅监听回环；固定端口，无配置覆盖） */
+  planMcp: DEFAULT_PLAN_MCP_PORT,
 } as const;
 
 export type StartupPorts = {
@@ -40,6 +43,7 @@ export type StartupPorts = {
   lanproxyLocal: number;
   ttyd: number;
   vite: number;
+  planMcp: number;
 };
 
 /** 本地需检查占用的服务名（用于日志/脚本输出） */
@@ -50,6 +54,7 @@ export const STARTUP_PORT_LABELS: Record<keyof StartupPorts, string> = {
   lanproxyLocal: "Lanproxy",
   ttyd: "ttyd",
   vite: "Vite",
+  planMcp: "Plan MCP",
 };
 
 /** 初始化向导端口输入范围（与 SetupWizard InputNumber 一致） */
@@ -103,6 +108,7 @@ export function resolvePortsFromSettings(
     lanproxyLocal: STARTUP_PORT_DEFAULTS.lanproxyLocal,
     ttyd,
     vite: STARTUP_PORT_DEFAULTS.vite,
+    planMcp: STARTUP_PORT_DEFAULTS.planMcp,
   };
 }
 
@@ -130,6 +136,11 @@ export function getPortsToCheck(
         port: ports.lanproxyLocal,
       },
       { name: "ttyd", label: STARTUP_PORT_LABELS.ttyd, port: ports.ttyd },
+      {
+        name: "planMcp",
+        label: STARTUP_PORT_LABELS.planMcp,
+        port: ports.planMcp,
+      },
     ];
   if (includeVite) {
     list.push({

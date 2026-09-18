@@ -69,7 +69,8 @@ export interface AutoReloadConfig {
 export interface ChatAgentConfig {
   agent_server?: {
     agent_id?: string;
-    agent_mode?: "ask" | "yolo";
+    /** "plan" 为计划模式传输编码（云端 String 透传，不进 ACP 模式状态机，见 shared/planMode.ts） */
+    agent_mode?: "ask" | "yolo" | "plan";
     command?: string;
     args?: string[];
     env?: Record<string, string>;

@@ -53,6 +53,7 @@ import {
   stopWindowsMcp,
 } from "../services/packages/windowsMcp";
 import { stopAllEngines } from "../services/engines/engineManager";
+import { planModeService } from "../services/planMode/planModeService";
 import { clearAllSseEventBuffers } from "../services/computerServer";
 import { killProcessTreesListeningOnTcpPort } from "../services/utils/processTree";
 import { shouldStartGuiMcpServices } from "../services/packages/guiMcpLocalConfig";
@@ -711,6 +712,20 @@ export function createServiceManager(ctx: ServiceManagerContext) {
 
     await startGuiMcpServicesOnRestart(results);
 
+    // 2.5 启动计划模式（PLAN）MCP server（仅回环；幂等，失败不阻塞——注入侧
+    //     getUrl() 未监听时自动跳过，见 acpNewSessionParams）
+    try {
+      await planModeService.start();
+      results.planMcp = { success: true };
+      log.info("[ServiceManager] Plan MCP server started");
+    } catch (e) {
+      results.planMcp = { success: false, error: String(e) };
+      log.warn(
+        "[ServiceManager] Plan MCP server start failed (plan tools disabled):",
+        e,
+      );
+    }
+
     signal?.throwIfAborted();
     // 3. 启动 Agent（依赖 MCP Proxy 已就绪以便 getAgentMcpConfig 对应进程可连）
     try {
@@ -888,6 +903,20 @@ export function createServiceManager(ctx: ServiceManagerContext) {
 
     await startGuiMcpServicesOnRestart(results);
 
+    // 2.5 启动计划模式（PLAN）MCP server（仅回环；幂等，失败不阻塞——注入侧
+    //     getUrl() 未监听时自动跳过，见 acpNewSessionParams）
+    try {
+      await planModeService.start();
+      results.planMcp = { success: true };
+      log.info("[ServiceManager] Plan MCP server started");
+    } catch (e) {
+      results.planMcp = { success: false, error: String(e) };
+      log.warn(
+        "[ServiceManager] Plan MCP server start failed (plan tools disabled):",
+        e,
+      );
+    }
+
     // 3. 启动 Agent（依赖 MCP Proxy 已就绪）
     try {
       const finalConfig: AgentConfig = {
@@ -1026,6 +1055,15 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       } catch (e) {
         results.guiAgentServer = { success: false, error: String(e) };
       }
+    }
+
+    // 停止计划模式 MCP server
+    try {
+      await planModeService.stop();
+      results.planMcp = { success: true };
+      log.info("[ServiceManager] Plan MCP server stopped");
+    } catch (e) {
+      results.planMcp = { success: false, error: String(e) };
     }
 
     // 停止所有引擎

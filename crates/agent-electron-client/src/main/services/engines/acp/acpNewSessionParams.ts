@@ -27,6 +27,8 @@ import type { AgentConfig, AgentEngineType } from "../types";
 import type { AcpMcpServer, AcpEnvVariable } from "./acpClient";
 import type { McpServerEntry } from "../../packages/mcp";
 import { injectSandboxedMcpForSession } from "./sandbox/acpSandboxedMcpSession";
+import { planModeService } from "@main/services/planMode/planModeService";
+import { PLAN_MCP_SERVER_ID } from "@shared/planMode";
 import { allocateAcpMcpServerName } from "@main/services/utils/mcpServerName";
 import { mergeMcpServerConfigs } from "@main/services/utils/mcpServerMerge";
 
@@ -184,6 +186,18 @@ export function buildNewSessionParams(
     log.info(
       `${logTag} Skip GUI Agent MCP injection because sandbox is enabled`,
     );
+  }
+
+  // 计划模式（PLAN）MCP：常注入（工具休眠，靠提示词激活——用户要求先出计划时也可用）。
+  // 仅在 server 已监听时注入；与沙箱无互斥（无文件系统副作用）。
+  const planMcpUrl = planModeService.getUrl();
+  if (planMcpUrl && !mcpServers.some((m) => m.name === PLAN_MCP_SERVER_ID)) {
+    mcpServers.push({
+      name: PLAN_MCP_SERVER_ID,
+      url: planMcpUrl,
+      headers: [],
+      type: "http",
+    });
   }
 
   const { sandboxedBashInjected, sandboxedFsInjected } =

@@ -25,8 +25,11 @@ import type {
   ToolApprovalRuleInput,
 } from "@shared/types/computerTypes";
 import type { AcpMode } from "@shared/types/acpMode";
+import { isPlanToolTitle } from "@shared/planMode";
+import { planModeService } from "@main/services/planMode/planModeService";
 import {
   evaluateStrictWritePermission,
+  isWriteKeywordRequest,
   type StrictPermissionContext,
 } from "./strictPermissionGuard";
 import {
@@ -69,7 +72,15 @@ export class AcpPermissionCoordinator {
   private strictSnapshotLoggedSessions = new Set<string>();
   private static readonly MAX_SNAPSHOT_LOGGED_SESSIONS = 500;
 
-  constructor(private readonly logTag: string) {}
+  /** 计划模式硬闸查询（默认 planModeService；测试可注入 stub） */
+  private readonly planGate: { hasApprovedPlan(sessionId: string): boolean };
+
+  constructor(
+    private readonly logTag: string,
+    planGate?: { hasApprovedPlan(sessionId: string): boolean },
+  ) {
+    this.planGate = planGate ?? planModeService;
+  }
 
   // === 会话级状态维护 ===
 
@@ -119,6 +130,43 @@ export class AcpPermissionCoordinator {
     // ② strict write guard
     const strictEnabled = ctx.strictEnabled;
     const strictCheck = evaluateStrictWritePermission(params, ctx);
+
+    // ⓪a plan 工具自动放行：宿主自有 MCP 工具（nuwax_plan_*）无副作用，
+    // plan 轮内不应弹引擎侧权限卡（云端对 ask-question 是用 tool_approval_rules
+    // 做同样的事，我们在壳内做——零后端改动，见 docs/20260918-plan-mode-via-mcp.md §5）
+    if (isPlanToolTitle(params.toolCall.title)) {
+      const selected =
+        params.options.find((o) => o.kind === "allow_once") ||
+        params.options.find((o) => o.kind === "allow_always") ||
+        params.options[0];
+      if (selected) {
+        log.info(
+          `${this.logTag} 🔓 Auto-allowed plan tool: ${params.toolCall.title}`,
+        );
+        return {
+          kind: "select",
+          optionId: selected.optionId,
+          reason: "plan_tool_auto_allow",
+        };
+      }
+    }
+
+    // ⓪b 计划模式硬闸：plan 轮（agent_mode="plan" 传输编码）写类工具在计划
+    // 获批准前一律拒绝——模型被拒后按提示词契约回到计划工具；批准后放行。
+    // 注意写类判定用关键词级 isWriteKeywordRequest（strict 关闭时
+    // evaluateStrictWritePermission 恒报 isWriteRequest:false 与沙箱正交；
+    // 不用路径候选兜底——计划期允许 Read/Grep 等带路径读类）
+    if (
+      this.getEffectiveMode(acpSessionId) === "plan" &&
+      isWriteKeywordRequest(params) &&
+      !this.planGate.hasApprovedPlan(acpSessionId)
+    ) {
+      log.info(
+        `${this.logTag} 🚫 Plan-mode gate blocked write before approval: tool=${params.toolCall.title} kind=${params.toolCall.kind}`,
+      );
+      return { kind: "cancel", reason: "plan_mode_requires_approval" };
+    }
+
     if (strictEnabled) {
       if (!this.strictSnapshotLoggedSessions.has(acpSessionId)) {
         if (

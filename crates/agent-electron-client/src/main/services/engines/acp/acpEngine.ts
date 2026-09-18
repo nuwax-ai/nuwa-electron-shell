@@ -118,6 +118,7 @@ import {
   normalizePermissionGatedToolUpdate,
   type PermissionGatedToolInputCache,
 } from "./permission/permissionGatedToolUpdate";
+import { planModeService } from "@main/services/planMode/planModeService";
 import type {
   NotifyResolvedRequest,
   NotifyResolvedResponse,
@@ -243,6 +244,13 @@ export class AcpEngine extends EventEmitter {
     if (session) {
       // 仅跟踪本地权限 mode，不是引擎 ACP mode
       session.acpCurrentModeId = targetMode;
+    }
+    // 计划模式外挂轮次生命周期：plan 轮到达即重置「已批准」标记（新一轮需重新
+    // 提交计划）；离开 plan（回 ask/yolo）清标记。硬闸本体在 permissionCoordinator。
+    if (targetMode === "plan") {
+      planModeService.beginPlanTurn(acpSessionId);
+    } else {
+      planModeService.endPlanTurn(acpSessionId);
     }
     if (previous !== targetMode) {
       log.info(
@@ -1366,6 +1374,7 @@ export class AcpEngine extends EventEmitter {
       const acpKey = session.acpSessionId ?? sessionId;
       approvalInterventionService.cancelByAcpSession(acpKey);
       this.permissions.clearSession(acpKey);
+      planModeService.clearSession(acpKey);
 
       session.status = "idle";
       session.lastActivity = Date.now();
@@ -2392,6 +2401,22 @@ export class AcpEngine extends EventEmitter {
       return;
     }
 
+    // 计划模式观测器：plan 工具调用的会话关联 / plan 进度 SSE / submit 审批注册
+    // （见 docs/20260918-plan-mode-via-mcp.md §7；延迟机制不影响——plan 工具无 ui 表单）
+    if (
+      normalizedUpdate.sessionUpdate === "tool_call" ||
+      normalizedUpdate.sessionUpdate === "tool_call_update"
+    ) {
+      planModeService.observeToolUpdate({
+        acpSessionId,
+        engineName: this.engineName,
+        update: normalizedUpdate,
+        emit: (payload) => {
+          this.emit("computer:progress", payload);
+        },
+      });
+    }
+
     // sessionId and acpSessionId are the same UUID
     this.emit("computer:progress", {
       sessionId: acpSessionId,
@@ -2445,6 +2470,7 @@ export class AcpEngine extends EventEmitter {
 
     approvalInterventionService.cancelByAcpSession(acpSessionId, "new_chat");
     this.permissions.clearSession(acpSessionId);
+    planModeService.clearSession(acpSessionId);
   }
 
   private bumpPromptTurn(sessionId: string): number {
