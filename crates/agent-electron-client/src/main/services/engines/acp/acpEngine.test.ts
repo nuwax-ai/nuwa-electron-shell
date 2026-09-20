@@ -957,7 +957,55 @@ describe("AcpEngine.init", () => {
     } as any);
 
     expect(ok.ok).toBe(true);
-    expect(authenticate).toHaveBeenCalledWith({ methodId: "codex-api-key" });
+    expect(authenticate).toHaveBeenCalledWith({ methodId: "api-key" });
+
+    await engine.destroy();
+  });
+
+  it("codex-cli 鉴权激活失败不阻断 init（provider 走 env，错误留会话层暴露）", async () => {
+    const authenticate = vi
+      .fn()
+      .mockRejectedValue(new Error("auth backend down"));
+    const mockConnection = {
+      initialize: vi.fn().mockResolvedValue({
+        protocolVersion: 1,
+        agentInfo: { name: "codex-acp" },
+        agentCapabilities: {},
+      }),
+      authenticate,
+    };
+    const mockProcess = {
+      on: vi.fn(),
+      stdout: { removeAllListeners: vi.fn() },
+      stderr: { removeAllListeners: vi.fn() },
+      stdin: { removeAllListeners: vi.fn() },
+      removeAllListeners: vi.fn(),
+      kill: vi.fn(),
+    } as any;
+    const engine = new AcpEngine("codex-cli");
+    vi.spyOn(acpClient, "resolveAcpBinary").mockReturnValue({
+      binPath: "nuwax-codex-acp",
+      binArgs: [],
+      isNative: true,
+    });
+    vi.spyOn(acpClient, "createAcpConnection").mockResolvedValue({
+      connection: mockConnection,
+      process: mockProcess,
+      isolatedHome: null,
+      cleanup: vi.fn(),
+    } as any);
+    vi.spyOn(acpClient, "loadAcpSdk").mockResolvedValue({
+      PROTOCOL_VERSION: "1.0.0",
+    } as any);
+
+    const ok = await engine.init({
+      engine: "codex-cli",
+      workspaceDir: "/tmp",
+      apiKey: "ak-test",
+    } as any);
+
+    expect(ok.ok).toBe(true);
+    expect(authenticate).toHaveBeenCalledWith({ methodId: "api-key" });
 
     await engine.destroy();
   });
