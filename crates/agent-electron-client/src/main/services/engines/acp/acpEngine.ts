@@ -549,9 +549,22 @@ export class AcpEngine extends EventEmitter {
   ): "api-key" | null {
     if (this.engineName !== "codex-cli") return null;
 
-    // adapter (@nuwax-ai/nuwax-codex-acp-ts) 的 authenticate 仅接受
-    // api-key / chat-gpt / gateway（zod 枚举，其余 -32600 Invalid request 拒绝）；
-    // api-key 分支无 _meta 时回退读 CODEX_API_KEY / OPENAI_API_KEY 环境变量。
+    // adapter (@nuwax-ai/nuwax-codex-acp-ts) 的 authenticate() 第一步就无条件清空
+    // env 自动装配的自定义网关配置（this.gatewayConfig = null），而网关模式本就
+    // 无需登录（authRequired() 在 gatewayConfig 非空时返回 false）。配了自定义
+    // 网关时必须跳过 authenticate，否则 thread/start 不带 model_providers，
+    // codex 回退内置 openai provider（api.openai.com 403）。
+    // 网关判定对齐 acpClient：CODEX_BASE_URL = OPENAI_BASE_URL || config.baseUrl。
+    const hasCustomGateway = !!(
+      spawnEnv.CODEX_BASE_URL?.trim() ||
+      spawnEnv.OPENAI_BASE_URL?.trim() ||
+      config.baseUrl?.trim()
+    );
+    if (hasCustomGateway) return null;
+
+    // 无网关直连 OpenAI 时：authenticate 仅接受 api-key / chat-gpt / gateway
+    // （zod 枚举，其余 -32600 Invalid request 拒绝）；api-key 分支无 _meta 时
+    // 回退读 CODEX_API_KEY / OPENAI_API_KEY 环境变量。
     const hasApiKey = !!(
       config.apiKey?.trim() ||
       spawnEnv.CODEX_API_KEY?.trim() ||

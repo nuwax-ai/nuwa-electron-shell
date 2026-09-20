@@ -1010,6 +1010,53 @@ describe("AcpEngine.init", () => {
     await engine.destroy();
   });
 
+  it("codex-cli 配了自定义网关（baseUrl/CODEX_BASE_URL）时跳过 authenticate——adapter 会清空 env 网关配置致模型回退 openai", async () => {
+    const authenticate = vi.fn();
+    const mockConnection = {
+      initialize: vi.fn().mockResolvedValue({
+        protocolVersion: 1,
+        agentInfo: { name: "codex-acp" },
+        agentCapabilities: {},
+      }),
+      authenticate,
+    };
+    const mockProcess = {
+      on: vi.fn(),
+      stdout: { removeAllListeners: vi.fn() },
+      stderr: { removeAllListeners: vi.fn() },
+      stdin: { removeAllListeners: vi.fn() },
+      removeAllListeners: vi.fn(),
+      kill: vi.fn(),
+    } as any;
+    const engine = new AcpEngine("codex-cli");
+    vi.spyOn(acpClient, "resolveAcpBinary").mockReturnValue({
+      binPath: "nuwax-codex-acp",
+      binArgs: [],
+      isNative: true,
+    });
+    vi.spyOn(acpClient, "createAcpConnection").mockResolvedValue({
+      connection: mockConnection,
+      process: mockProcess,
+      isolatedHome: null,
+      cleanup: vi.fn(),
+    } as any);
+    vi.spyOn(acpClient, "loadAcpSdk").mockResolvedValue({
+      PROTOCOL_VERSION: "1.0.0",
+    } as any);
+
+    const ok = await engine.init({
+      engine: "codex-cli",
+      workspaceDir: "/tmp",
+      apiKey: "ak-test",
+      baseUrl: "https://test-llm-proxy.nuwax.com/api/proxy/model",
+    } as any);
+
+    expect(ok.ok).toBe(true);
+    expect(authenticate).not.toHaveBeenCalled();
+
+    await engine.destroy();
+  });
+
   it("沙箱启用时 nuwaxcode 1.1.x 不注入 sandbox 键，并禁用内置 bash/edit", async () => {
     const engine = new AcpEngine("nuwaxcode");
     let capturedEnv: Record<string, string> | undefined;
