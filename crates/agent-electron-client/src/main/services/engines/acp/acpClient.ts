@@ -934,6 +934,17 @@ export async function createAcpConnection(
       "codex",
     );
     env.RUST_LOG = "debug";
+
+    // Windows 上 codex-rs 经 Known Folder API 解析真实 ~/.codex（不吃 HOME/USERPROFILE
+    // 重定向），用户本机 .codex 状态（损坏 sqlite 库/并发 WAL 锁）会直接杀掉引擎。
+    // CODEX_HOME 整体隔离 + CODEX_SQLITE_HOME 明确 sqlite 库落点，均指
+    // isolatedHome/.codex：mac 与现状等价（HOME 重定向已生效），win 补齐隔离语义。
+    // codex 不会自建这两个目录（CODEX_HOME 校验存在性、sqlite 建库不建父目录），
+    // 必须先 mkdir；backend 显式下发同名 env 时不覆盖。
+    const codexHome = path.join(isolatedHome, ".codex");
+    fs.mkdirSync(codexHome, { recursive: true });
+    if (!env.CODEX_HOME) env.CODEX_HOME = codexHome;
+    if (!env.CODEX_SQLITE_HOME) env.CODEX_SQLITE_HOME = codexHome;
   }
 
   if (isNuwaxcodeEngine) {
@@ -999,6 +1010,8 @@ export async function createAcpConnection(
     CODEX_WIRE_API: env.CODEX_WIRE_API || "(not set)",
     CODEX_MODEL_CONTEXT_WINDOW: env.CODEX_MODEL_CONTEXT_WINDOW || "(not set)",
     CODEX_LOG_DIR: env.CODEX_LOG_DIR || "(not set)",
+    CODEX_HOME: env.CODEX_HOME || "(not set)",
+    CODEX_SQLITE_HOME: env.CODEX_SQLITE_HOME || "(not set)",
     RUST_LOG: env.RUST_LOG || "(not set)",
     CODEX_API_KEY: env.CODEX_API_KEY
       ? env.CODEX_API_KEY.slice(
