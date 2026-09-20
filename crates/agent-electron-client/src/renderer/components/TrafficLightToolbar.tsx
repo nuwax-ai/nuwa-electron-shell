@@ -7,10 +7,11 @@
  *    - 左（全平台同构的功能区，最左起）：侧栏开关（常驻；当前页无二级菜单时置灰）
  *      → 设置（注入 onOpenSettings 时渲染；nuwax 宿主入口在 web 用户区，不传不渲染）
  *      → 历史导航（后退/前进）→ statusEntry（服务异常点）；
- *    - 左（仅 Win/Linux，功能区之后）：自绘菜单栏 关于(A)/编辑(E)/窗口(W)/帮助(H)
- *      （antd Dropdown，12px 菜单文字）；编辑动作经 menu:editAction 路由到焦点
- *      webContents（webview guest 优先），页面/窗口动作复用 App 注入的
- *      onBack/onForward/onReload 与 window:* IPC；
+ *    - 左（仅 Win/Linux，功能区之后）：自绘菜单栏 关于(A)/文件(F)/编辑(E)/窗口(W)/
+ *      帮助(H)（antd Dropdown，12px 菜单文字）；文件菜单为 nuwax 快捷键能力
+ *      （新建任务/搜索）+ 工作空间目录动作（App 注入回调）；编辑动作经
+ *      menu:editAction 路由到焦点 webContents（webview guest 优先），页面/窗口
+ *      动作复用 App 注入的 onBack/onForward/onReload 与 window:* IPC；
  *    - 右（仅 Win/Linux）：贴角窗口三键（46×36，captionGlyphs 的 1px 细线字形，
  *      原生观感）；全平台仅 updateEntry（更新入口）按需注入。
  * 3) 编辑动作经 menu:editAction 路由到焦点 webContents；页面/窗口动作复用
@@ -67,6 +68,17 @@ export interface TrafficLightToolbarProps {
   onOpenSettings?: () => void;
   /** 打开「关于与检查更新」（App 侧落到设置弹窗 about tab，含完整更新流程）。 */
   onOpenAbout: () => void;
+  /** 「关于(A) → 设置」菜单项：打开设置弹窗 settings tab（与 mac 应用菜单「设置…」对齐）。
+   * 与顶行设置按钮（onOpenSettings，nuwax 宿主不传不渲染）独立——菜单入口双版本恒有。 */
+  onOpenSettingsMenu?: () => void;
+  /** 「文件(F) → 新建任务」：向 nuwax guest 下发 new-task 宿主命令（Ctrl+N 同款）。 */
+  onNewTask?: () => void;
+  /** 「文件(F) → 搜索」：向 nuwax guest 下发 open-search 宿主命令（Ctrl+K 同款）。 */
+  onOpenSearch?: () => void;
+  /** 「文件(F) → 更改工作空间目录…」：弹系统目录选择器改 step1_config.workspaceDir。 */
+  onModifyWorkspace?: () => void;
+  /** 「文件(F) → 打开工作空间目录」：系统文件管理器打开当前目录。 */
+  onOpenWorkspace?: () => void;
   /** 服务状态指示器（非绿色时由 App.tsx 注入颜色点，点击打开设置弹窗；全绿不渲染）。 */
   statusEntry?: React.ReactNode;
   /** 新版本更新入口（仅当检测到新版本时注入：下载 icon / 下载中百分比 / 待安装；其余不渲染）。 */
@@ -80,11 +92,25 @@ const TopMenu: React.FC<{ label: string; items: MenuProps["items"] }> = ({
   label,
   items,
 }) => (
-  <Dropdown menu={{ items }} trigger={["click"]}>
+  <Dropdown
+    menu={{ items }}
+    trigger={["click"]}
+    // 下拉面板观感走 index.css .topbar-app-menu（Win11 原生菜单风）
+    rootClassName="topbar-app-menu"
+  >
     <button type="button" className="topbar-menu-btn">
       {label}
     </button>
   </Dropdown>
+);
+
+/** 菜单项内容：左侧文案 + 右侧快捷键提示（原生菜单标准形态；Win 无原生菜单，
+ * Ctrl 组合直达 guest，提示列与 mac accelerator 显示对齐）。 */
+const menuRow = (text: string, shortcut?: string): React.ReactNode => (
+  <span className="topbar-menu-row">
+    <span>{text}</span>
+    {shortcut ? <span className="topbar-menu-shortcut">{shortcut}</span> : null}
+  </span>
 );
 
 const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
@@ -98,6 +124,11 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
   onReload,
   onOpenSettings,
   onOpenAbout,
+  onOpenSettingsMenu,
+  onNewTask,
+  onOpenSearch,
+  onModifyWorkspace,
+  onOpenWorkspace,
   statusEntry,
   updateEntry,
   dragRegions = [],
@@ -185,21 +216,83 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
       <TopMenu
         label="关于(A)"
         items={[
-          { key: "about", label: "关于与检查更新", onClick: onOpenAbout },
+          {
+            key: "about",
+            label: menuRow("关于与检查更新"),
+            onClick: onOpenAbout,
+          },
+          { type: "divider" },
+          // 设置项与 mac 应用菜单「设置…」对齐；商业版 web 用户区入口并存不冲突
+          {
+            key: "settings",
+            label: menuRow("设置"),
+            onClick: onOpenSettingsMenu,
+          },
+        ]}
+      />
+      {/*
+        文件(F)：nuwax web 快捷键能力的菜单化（新建任务=Ctrl+N / 搜索=Ctrl+K，
+        经宿主命令下发）+ 壳侧工作空间目录动作；与 mac 原生应用菜单「文件」对齐，
+        动作实现收口在 App.tsx（与 menu:workspace 通道共用 services/core/workspaceDir）
+      */}
+      <TopMenu
+        label="文件(F)"
+        items={[
+          {
+            key: "newTask",
+            label: menuRow("新建任务", "Ctrl+N"),
+            onClick: onNewTask,
+          },
+          {
+            key: "search",
+            label: menuRow("搜索", "Ctrl+K"),
+            onClick: onOpenSearch,
+          },
+          { type: "divider" },
+          {
+            key: "modifyWorkspace",
+            label: menuRow("更改工作空间目录…"),
+            onClick: onModifyWorkspace,
+          },
+          {
+            key: "openWorkspace",
+            label: menuRow("打开工作空间目录"),
+            onClick: onOpenWorkspace,
+          },
         ]}
       />
       <TopMenu
         label="编辑(E)"
         items={[
-          { key: "undo", label: "撤销", onClick: () => editAction("undo") },
-          { key: "redo", label: "重做", onClick: () => editAction("redo") },
+          {
+            key: "undo",
+            label: menuRow("撤销", "Ctrl+Z"),
+            onClick: () => editAction("undo"),
+          },
+          {
+            key: "redo",
+            label: menuRow("重做", "Shift+Ctrl+Z"),
+            onClick: () => editAction("redo"),
+          },
           { type: "divider" },
-          { key: "cut", label: "剪切", onClick: () => editAction("cut") },
-          { key: "copy", label: "复制", onClick: () => editAction("copy") },
-          { key: "paste", label: "粘贴", onClick: () => editAction("paste") },
+          {
+            key: "cut",
+            label: menuRow("剪切", "Ctrl+X"),
+            onClick: () => editAction("cut"),
+          },
+          {
+            key: "copy",
+            label: menuRow("复制", "Ctrl+C"),
+            onClick: () => editAction("copy"),
+          },
+          {
+            key: "paste",
+            label: menuRow("粘贴", "Ctrl+V"),
+            onClick: () => editAction("paste"),
+          },
           {
             key: "selectAll",
-            label: "全选",
+            label: menuRow("全选", "Ctrl+A"),
             onClick: () => editAction("selectAll"),
           },
         ]}
@@ -214,7 +307,11 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
             disabled: !canGoForward,
             onClick: onForward,
           },
-          { key: "reload", label: "刷新页面", onClick: onReload },
+          {
+            key: "reload",
+            label: menuRow("刷新页面", "Ctrl+R"),
+            onClick: onReload,
+          },
           { type: "divider" },
           { key: "minimize", label: "最小化", onClick: onMin },
           {

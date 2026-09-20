@@ -38,6 +38,10 @@ import {
   Step1Config,
   DEFAULT_STEP1_CONFIG,
 } from "./services/core/setup";
+import {
+  modifyWorkspaceDir,
+  openWorkspaceDir,
+} from "./services/core/workspaceDir";
 import { syncConfigToServer, normalizeServerHost } from "./services/core/auth";
 import {
   APP_DISPLAY_NAME,
@@ -965,6 +969,21 @@ function App() {
       return next;
     });
   }, []);
+  // 应用菜单「文件」动作（Win/Linux 自绘菜单栏 props 注入；mac 走主进程菜单
+  // 直发 guest）：新建任务/打开搜索 = nuwax 前端已有快捷键能力的宿主命令，
+  // 工作空间目录 = 壳侧目录选择器/文件管理器
+  const handleMenuNewTask = useCallback(() => {
+    webviewRef.current?.sendHostCommand({ type: "new-task" });
+  }, []);
+  const handleMenuOpenSearch = useCallback(() => {
+    webviewRef.current?.sendHostCommand({ type: "open-search" });
+  }, []);
+  const handleMenuModifyWorkspace = useCallback(() => {
+    void modifyWorkspaceDir();
+  }, []);
+  const handleMenuOpenWorkspace = useCallback(() => {
+    void openWorkspaceDir();
+  }, []);
   const handleToolbarBack = useCallback(() => webviewRef.current?.goBack(), []);
   const handleToolbarForward = useCallback(
     () => webviewRef.current?.goForward(),
@@ -1538,6 +1557,32 @@ function App() {
       window.electronAPI?.off("menu:settings", handleSettings),
     );
 
+    // 监听关于菜单（mac 应用菜单「关于」）：落设置弹窗 about tab
+    const handleAbout = () => {
+      console.log("[App] Received menu:about event");
+      setActiveTab("about");
+      setSettingsModalOpen(true);
+    };
+    window.electronAPI.on("menu:about", handleAbout);
+    cleanupHandlers.push(() =>
+      window.electronAPI?.off("menu:about", handleAbout),
+    );
+
+    // 监听工作空间目录菜单（mac 应用菜单「文件 → 更改/打开工作空间目录」）
+    const handleWorkspace = (payload: unknown) => {
+      const action = (payload as { action?: string } | undefined)?.action;
+      console.log("[App] Received menu:workspace event", action);
+      if (action === "modify") {
+        void modifyWorkspaceDir();
+      } else if (action === "open") {
+        void openWorkspaceDir();
+      }
+    };
+    window.electronAPI.on("menu:workspace", handleWorkspace);
+    cleanupHandlers.push(() =>
+      window.electronAPI?.off("menu:workspace", handleWorkspace),
+    );
+
     // 监听依赖管理菜单
     const handleDependencies = () => {
       console.log("[App] Received menu:dependencies event");
@@ -1844,6 +1889,16 @@ function App() {
                 APP_NAME_IDENTIFIER === "nuwax" ? undefined : handleOpenSettings
               }
               onOpenAbout={handleOpenAbout}
+              onOpenSettingsMenu={() => {
+                // 与 menu:settings 通道同款行为：落 settings tab（顶行按钮
+                // handleOpenSettings 只开弹窗保持上次 tab，语义不同）
+                setActiveTab("settings");
+                setSettingsModalOpen(true);
+              }}
+              onNewTask={handleMenuNewTask}
+              onOpenSearch={handleMenuOpenSearch}
+              onModifyWorkspace={handleMenuModifyWorkspace}
+              onOpenWorkspace={handleMenuOpenWorkspace}
               statusEntry={
                 // 单一语义：仅已登录后的确定终态故障显示红点。未登录、启动中、
                 // 主动停止、单轮探测抖动与正常运行均不渲染。

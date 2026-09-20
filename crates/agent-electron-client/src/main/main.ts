@@ -44,7 +44,14 @@ import { initAutoUpdater, showUpdateDialogFlow } from "./services/autoUpdater";
 import {
   attachHostActivityWindow,
   initHostActivity,
+  sendHostCommandToMainWindowGuests,
 } from "./services/hostActivity";
+import {
+  EDIT_ACTIONS,
+  resolveEditTargetWebContents,
+  type EditAction,
+} from "./ipc/windowHandlers";
+import { openLogDirectory } from "./ipc/appHandlers";
 import { migrateDataDir, migrateSettingsPaths } from "./bootstrap/migrate";
 import { getDeviceId, logSystemInfo } from "./services/system/deviceId";
 import { initWebviewPolicy } from "./services/system/webviewPolicy";
@@ -341,23 +348,50 @@ function createWindow() {
 
 function createMenu() {
   if (process.platform === "darwin") {
-    // macOS: 中文菜单（role 保留原生快捷键，仅覆盖 label）；Win/Linux 置 null，
-    // 菜单栏由 renderer 自绘（见 TrafficLightToolbar）。
-    // 帮助菜单补托盘同款「检查更新」（showUpdateDialogFlow）。
+    // macOS 标准应用菜单（六菜单：应用/文件/编辑/视图/窗口/帮助），结构上与
+    // Win/Linux 自绘菜单栏（TrafficLightToolbar：关于(A)/文件(F)/编辑(E)/窗口(W)/
+    // 帮助(H)）对齐——新增入口须双轨同步评估。
+    // 编辑命令禁用裸 role（webview 场景 role 落在宿主页面恒灰、Cmd+C/V/Z/A
+    // 失灵），一律显式路由活跃 webContents（resolveEditTargetWebContents）；
+    // 窗口 role（隐藏/最小化/关闭等）无 webview 路由问题，保留原生快捷键。
+    const editClick = (action: EditAction) => () => {
+      const target = resolveEditTargetWebContents(() => mainWindow);
+      if (target) EDIT_ACTIONS[action](target);
+    };
+    // 宿主动作（新建任务/搜索）下发主窗口 webview guest，与 ⌘N 拦截
+    // （webviewPolicy）同一 nuwax:host-command 通道
+    const hostCommand = (payload: unknown) => () => {
+      sendHostCommandToMainWindowGuests(payload);
+    };
+
     const template: Electron.MenuItemConstructorOptions[] = [
       {
         label: APP_DISPLAY_NAME,
         submenu: [
-          { role: "about", label: `关于 ${APP_DISPLAY_NAME}` },
           {
-            // 设置入口与 Win/Linux 顶行「关于(A)」菜单对齐：发既有
-            // menu:settings 事件，App.tsx 打开设置弹窗
-            label: "设置...",
+            // 关于落壳设置弹窗 about tab（与 Win/Linux「关于(A)」同一定位），
+            // 不用原生 role:"about"（Electron 默认关于框，无壳信息）
+            label: `关于 ${APP_DISPLAY_NAME}`,
+            click: () => {
+              mainWindow?.webContents.send("menu:about");
+            },
+          },
+          {
+            label: "检查更新…",
+            click: async () => {
+              await showUpdateDialogFlow();
+            },
+          },
+          { type: "separator" },
+          {
+            label: "设置…",
+            accelerator: "CmdOrCtrl+,",
             click: () => {
               mainWindow?.webContents.send("menu:settings");
             },
           },
           { type: "separator" },
+          { role: "services", label: "服务" },
           { role: "hide", label: `隐藏 ${APP_DISPLAY_NAME}` },
           { role: "hideOthers", label: "隐藏其他" },
           { role: "unhide", label: "全部显示" },
@@ -366,25 +400,100 @@ function createMenu() {
         ],
       },
       {
+        label: "文件",
+        submenu: [
+          {
+            label: "新建任务",
+            accelerator: "CmdOrCtrl+N",
+            click: hostCommand({ type: "new-task" }),
+          },
+          {
+            label: "搜索",
+            accelerator: "CmdOrCtrl+K",
+            click: hostCommand({ type: "open-search" }),
+          },
+          { type: "separator" },
+          {
+            label: "更改工作空间目录…",
+            click: () => {
+              mainWindow?.webContents.send("menu:workspace", {
+                action: "modify",
+              });
+            },
+          },
+          {
+            label: "打开工作空间目录",
+            click: () => {
+              mainWindow?.webContents.send("menu:workspace", {
+                action: "open",
+              });
+            },
+          },
+        ],
+      },
+      {
         label: "编辑",
         submenu: [
-          { role: "undo", label: "撤销" },
-          { role: "redo", label: "重做" },
+          {
+            label: "撤销",
+            accelerator: "CmdOrCtrl+Z",
+            click: editClick("undo"),
+          },
+          {
+            label: "重做",
+            accelerator: "Shift+CmdOrCtrl+Z",
+            click: editClick("redo"),
+          },
           { type: "separator" },
-          { role: "cut", label: "剪切" },
-          { role: "copy", label: "拷贝" },
-          { role: "paste", label: "粘贴" },
-          { role: "selectAll", label: "全选" },
+          {
+            label: "剪切",
+            accelerator: "CmdOrCtrl+X",
+            click: editClick("cut"),
+          },
+          {
+            label: "拷贝",
+            accelerator: "CmdOrCtrl+C",
+            click: editClick("copy"),
+          },
+          {
+            label: "粘贴",
+            accelerator: "CmdOrCtrl+V",
+            click: editClick("paste"),
+          },
+          {
+            label: "全选",
+            accelerator: "CmdOrCtrl+A",
+            click: editClick("selectAll"),
+          },
+        ],
+      },
+      {
+        label: "视图",
+        submenu: [
+          {
+            // 本版 Electron 类型不含 reload role，显式 click 作用于焦点
+            // webContents（webview guest 聚焦时即 guest）
+            label: "刷新页面",
+            accelerator: "CmdOrCtrl+R",
+            click: () => {
+              const wc = webContents.getFocusedWebContents();
+              if (wc && !wc.isDestroyed()) wc.reload();
+            },
+          },
+          { role: "togglefullscreen", label: "进入全屏" },
+          { type: "separator" },
+          { role: "toggleDevTools", label: "切换开发者工具" },
         ],
       },
       {
         label: "窗口",
         submenu: [
-          // 后退/前进/刷新：顶行图标精简后收进本菜单；本版 Electron 类型不含
-          // back/forward role，用显式 click 作用于焦点 webContents（webview
-          // guest 聚焦时即 guest），与 Win/Linux 自绘「窗口(W)」菜单对齐
+          // 本版 Electron 类型不含 back/forward role，显式 click 作用于焦点
+          // webContents（webview guest 聚焦时即 guest），与 Win/Linux 自绘
+          // 「窗口(W)」菜单对齐
           {
             label: "后退",
+            accelerator: "CmdOrCtrl+[",
             click: () => {
               const wc = webContents.getFocusedWebContents();
               if (wc && !wc.isDestroyed()) wc.goBack();
@@ -392,16 +501,10 @@ function createMenu() {
           },
           {
             label: "前进",
+            accelerator: "CmdOrCtrl+]",
             click: () => {
               const wc = webContents.getFocusedWebContents();
               if (wc && !wc.isDestroyed()) wc.goForward();
-            },
-          },
-          {
-            label: "刷新页面",
-            click: () => {
-              const wc = webContents.getFocusedWebContents();
-              if (wc && !wc.isDestroyed()) wc.reload();
             },
           },
           { type: "separator" },
@@ -416,9 +519,9 @@ function createMenu() {
         label: "帮助",
         submenu: [
           {
-            label: "检查更新",
-            click: async () => {
-              await showUpdateDialogFlow();
+            label: "打开日志目录",
+            click: () => {
+              void openLogDirectory();
             },
           },
         ],

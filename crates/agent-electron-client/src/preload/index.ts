@@ -587,6 +587,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
       "menu:settings",
       "menu:mcp-settings",
       "menu:dependencies",
+      "menu:about",
+      "menu:workspace",
       "cowork:message",
       "cowork:permission",
       "agent:event",

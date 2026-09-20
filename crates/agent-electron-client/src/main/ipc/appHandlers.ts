@@ -43,6 +43,42 @@ function platformDisplayName(): string {
   }
 }
 
+/**
+ * 打开日志目录（mac 在 Finder 中选中 latest 日志文件，win 资源管理器选中，
+ * 其余直接开目录）。log:openDir IPC 与应用菜单「帮助 → 打开日志目录」共用。
+ */
+export async function openLogDirectory(): Promise<{
+  success: boolean;
+  error?: string;
+}> {
+  try {
+    const currentPath = log.transports.file.getFile().path;
+    const logDir = currentPath
+      ? path.dirname(currentPath)
+      : app.getPath("logs");
+    const latestPath = path.join(logDir, LATEST_LOG_BASENAME);
+    const fileToSelect = fs.existsSync(latestPath)
+      ? latestPath
+      : currentPath || path.join(logDir, "main.log");
+    try {
+      if (process.platform === "darwin") {
+        execSync(`open -R "${fileToSelect}"`, { encoding: "utf-8" });
+      } else if (process.platform === "win32") {
+        const winPath = fileToSelect.replace(/\//g, "\\");
+        execSync(`explorer /select,"${winPath}"`, { encoding: "utf-8" });
+      } else {
+        await shell.openPath(logDir);
+      }
+    } catch (_) {
+      await shell.openPath(logDir);
+    }
+    return { success: true };
+  } catch (error) {
+    log.error("[IPC] log:openDir failed:", error);
+    return { success: false, error: String(error) };
+  }
+}
+
 export function registerAppHandlers(ctx: HandlerContext): void {
   // Autolaunch
   ipcMain.handle("autolaunch:get", async () => {
@@ -118,32 +154,7 @@ export function registerAppHandlers(ctx: HandlerContext): void {
   );
 
   ipcMain.handle("log:openDir", async () => {
-    try {
-      const currentPath = log.transports.file.getFile().path;
-      const logDir = currentPath
-        ? path.dirname(currentPath)
-        : app.getPath("logs");
-      const latestPath = path.join(logDir, LATEST_LOG_BASENAME);
-      const fileToSelect = fs.existsSync(latestPath)
-        ? latestPath
-        : currentPath || path.join(logDir, "main.log");
-      try {
-        if (process.platform === "darwin") {
-          execSync(`open -R "${fileToSelect}"`, { encoding: "utf-8" });
-        } else if (process.platform === "win32") {
-          const winPath = fileToSelect.replace(/\//g, "\\");
-          execSync(`explorer /select,"${winPath}"`, { encoding: "utf-8" });
-        } else {
-          await shell.openPath(logDir);
-        }
-      } catch (_) {
-        await shell.openPath(logDir);
-      }
-      return { success: true };
-    } catch (error) {
-      log.error("[IPC] log:openDir failed:", error);
-      return { success: false, error: String(error) };
-    }
+    return openLogDirectory();
   });
 
   const DEFAULT_LOG_LIST = 2000;

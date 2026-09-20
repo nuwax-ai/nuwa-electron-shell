@@ -75,6 +75,21 @@ function emitToGuests(visible: boolean, only?: WebContents): void {
   }
 }
 
+/**
+ * 向主窗口全部 webview guest 下发宿主命令（新建任务/打开搜索等应用菜单动作）。
+ * guests 集合由 attachHostActivityWindow 经 did-attach-webview 登记，只含主窗口
+ * 的 guest——菜单动作语义即"作用于主界面"，二级窗口的 guest 不在此列。
+ */
+export function sendHostCommandToMainWindowGuests(payload: unknown): void {
+  for (const guest of [...guests]) {
+    if (guest.isDestroyed()) {
+      guests.delete(guest);
+      continue;
+    }
+    guest.send(HOST_COMMAND_CHANNEL, payload);
+  }
+}
+
 function recompute(reason: string, force = false): void {
   const visible = computeHostVisible(state);
   if (!force && visible === lastPushedVisible) {
