@@ -546,18 +546,18 @@ export class AcpEngine extends EventEmitter {
   private resolveCodexAuthMethod(
     config: AgentConfig,
     spawnEnv: Record<string, string>,
-  ): "codex-api-key" | "openai-api-key" | null {
+  ): "api-key" | null {
     if (this.engineName !== "codex-cli") return null;
 
-    const hasCodexApiKey = !!(
-      config.apiKey?.trim() || spawnEnv.CODEX_API_KEY?.trim()
+    // adapter (@nuwax-ai/nuwax-codex-acp-ts) 的 authenticate 仅接受
+    // api-key / chat-gpt / gateway（zod 枚举，其余 -32600 Invalid request 拒绝）；
+    // api-key 分支无 _meta 时回退读 CODEX_API_KEY / OPENAI_API_KEY 环境变量。
+    const hasApiKey = !!(
+      config.apiKey?.trim() ||
+      spawnEnv.CODEX_API_KEY?.trim() ||
+      spawnEnv.OPENAI_API_KEY?.trim()
     );
-    if (hasCodexApiKey) return "codex-api-key";
-
-    const hasOpenAIApiKey = !!spawnEnv.OPENAI_API_KEY?.trim();
-    if (hasOpenAIApiKey) return "openai-api-key";
-
-    return null;
+    return hasApiKey ? "api-key" : null;
   }
 
   private async authenticateCodexWithEnv(
@@ -575,8 +575,17 @@ export class AcpEngine extends EventEmitter {
       return;
     }
 
-    await connection.authenticate({ methodId });
-    log.info(`${this.logTag} ACP env auth activated`, { methodId });
+    // 鉴权激活失败不阻断 init：模型 provider 已随 spawn env（CODEX_*）下发，
+    // accountLogin 失败时让引擎继续起，真实错误留到会话层暴露。
+    try {
+      await connection.authenticate({ methodId });
+      log.info(`${this.logTag} ACP env auth activated`, { methodId });
+    } catch (err) {
+      log.warn(
+        `${this.logTag} ACP env auth activate failed (continuing):`,
+        err instanceof Error ? err.message : err,
+      );
+    }
   }
 
   /** Get the PID of the underlying ACP process (for process registry) */
