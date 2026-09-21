@@ -276,7 +276,9 @@ function isNumericSemver(version: string): boolean {
 
 let currentState: UpdateState = { status: "idle" };
 let getMainWindow: (() => BrowserWindow | null) | null = null;
-let cleanupBeforeInstall: (() => void) | null = null;
+let cleanupBeforeInstall: (() => void | Promise<void>) | null = null;
+/** 安装前清理的等待上限：quitAndInstall 紧随其后，清理被卡死时不能拖死安装流程。 */
+const INSTALL_CLEANUP_TIMEOUT_MS = 10_000;
 /**
  * 在 quitAndInstall 前调用，通知主进程：
  * 1. 设置 isQuitting = true，防止窗口 close 事件被拦截到托盘
@@ -467,13 +469,14 @@ async function doCheckViaLatestJson(
 /**
  * 初始化自动更新（应在 app.whenReady 后调用）
  * @param getWindow 获取主窗口
- * @param cleanup 安装更新前的清理回调（停止服务、关闭数据库等）
+ * @param cleanup 安装更新前的清理回调（停止服务、关闭数据库等）；可返回 Promise，
+ *                quitAndInstall 前会 await（上限 INSTALL_CLEANUP_TIMEOUT_MS）
  * @param onMarkQuitting 在调用 quitAndInstall 前调用，用于设置主进程的 isQuitting/isInstallingUpdate 标志，
  *                       防止窗口 close 被拦截，并让 before-quit 不阻止退出
  */
 export function initAutoUpdater(
   getWindow: () => BrowserWindow | null,
-  cleanup?: () => void,
+  cleanup?: () => void | Promise<void>,
   onMarkQuitting?: () => void,
 ): void {
   getMainWindow = getWindow;
@@ -901,7 +904,10 @@ export async function downloadUpdate(): Promise<{
 /**
  * 退出并安装更新
  */
-export function installUpdate(): { success: boolean; error?: string } {
+export async function installUpdate(): Promise<{
+  success: boolean;
+  error?: string;
+}> {
   if (!app.isPackaged) {
     const errMsg = t("Claw.AutoUpdater.installDevUnsupported");
     log.info(
@@ -933,10 +939,18 @@ export function installUpdate(): { success: boolean; error?: string } {
       markQuitting();
     }
 
-    // 先停止所有服务，避免残留进程（cleanup 是同步触发的异步操作）
+    // 先停止所有服务再退出：await（带上限）——fire-and-forget 会与秒级退出
+    // 竞速，树杀（每引擎最长 5s）大概率被 app 退出截断而残留进程
     if (cleanupBeforeInstall) {
       log.info("[AutoUpdater] Running cleanup before install...");
-      cleanupBeforeInstall();
+      await Promise.race([
+        Promise.resolve(cleanupBeforeInstall()).catch((e) =>
+          log.error("[AutoUpdater] cleanup before install failed:", e),
+        ),
+        new Promise<void>((resolve) =>
+          setTimeout(resolve, INSTALL_CLEANUP_TIMEOUT_MS),
+        ),
+      ]);
     }
     const { autoUpdater } = loadAutoUpdaterModule();
     autoUpdater.quitAndInstall(false, true);

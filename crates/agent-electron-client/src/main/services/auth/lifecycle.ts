@@ -11,6 +11,8 @@ export interface LifecycleAdapter<T> {
   start(signal: AbortSignal): Promise<ServiceResult>;
   stop(): Promise<ServiceResult>;
   changed?(phase: string, error?: string): void;
+  /** 退出期附加进程清理（商业 overlay 注入，如 CUA daemon）；社区版可不实现。 */
+  stopExtras?(): Promise<void>;
 }
 export class AuthLifecycle<T> {
   private controller = new AbortController();
@@ -101,6 +103,14 @@ export class AuthLifecycle<T> {
       );
       return result;
     });
+  }
+  /**
+   * 退出期附加清理：直调 adapter.stopExtras（不经串行队列——quit 场景 invalidate
+   * 已撤销代次，且步骤超时由 cleanupAllProcesses 的 runCleanupStep 兜底）。
+   */
+  stopExtras(): Promise<void> {
+    const extras = this.adapter.stopExtras;
+    return extras ? extras() : Promise.resolve();
   }
   run<R>(work: () => Promise<R>): Promise<R> {
     const signal = this.controller.signal;

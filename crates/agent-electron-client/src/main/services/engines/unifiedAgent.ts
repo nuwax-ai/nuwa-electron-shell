@@ -120,6 +120,21 @@ export { resolveRequiredAgentEngine } from "./requestConfigResolver";
 /** Maximum number of concurrent per-project engines to prevent resource leaks */
 const MAX_ENGINES = 100;
 
+/**
+ * 引擎空闲驱逐：每引擎一整棵进程树（ACP 桥 → claude/codex → MCP 服务器），
+ * 仅靠 MAX_ENGINES 满员驱逐会无限累积（实测 4 代树存活 19h+）。空闲超过
+ * 阈值的引擎周期性销毁（树杀），下次请求 getOrCreateEngine 重建。
+ * env NUWAX_ENGINE_IDLE_TIMEOUT_MS 覆盖默认 30 分钟；<=0 禁用（维持旧行为）。
+ */
+const IDLE_EVICT_DEFAULT_MS = 30 * 60 * 1000;
+const IDLE_SWEEP_INTERVAL_MS = 60 * 1000;
+
+function idleEvictTimeoutMs(): number {
+  const raw = Number(process.env.NUWAX_ENGINE_IDLE_TIMEOUT_MS);
+  if (!Number.isFinite(raw)) return IDLE_EVICT_DEFAULT_MS;
+  return raw > 0 ? raw : 0;
+}
+
 export class UnifiedAgentService extends EventEmitter {
   /** Per-project engine registry: projectId → AcpEngine */
   private engines = new Map<string, AcpEngine>();
@@ -133,6 +148,10 @@ export class UnifiedAgentService extends EventEmitter {
     string,
     Record<string, McpServerEntry>
   >();
+  /** Per-project 最近活跃时间（chat 请求触碰；sweep 中活跃引擎续期） */
+  private engineLastActive = new Map<string, number>();
+  private idleSweepTimer: ReturnType<typeof setInterval> | null = null;
+  private idleSweeping = false;
   private engineType: AgentEngineType | null = null;
   private baseConfig: AgentConfig | null = null;
 
@@ -209,6 +228,8 @@ export class UnifiedAgentService extends EventEmitter {
     // Start process registry sweep to detect orphan ACP processes
     processRegistry.bindActivePidsFn(() => this.getActivePids());
     processRegistry.startPeriodicSweep(300_000);
+    // 空闲驱逐 sweep（env 可禁用）；unref 不阻止进程退出
+    this.startIdleSweep();
     setImmediate(() => {
       const skipPaths = this.getActiveIsolatedHomes();
       try {
@@ -289,6 +310,7 @@ export class UnifiedAgentService extends EventEmitter {
   async destroy(): Promise<void> {
     // Stop process registry sweep
     processRegistry.stopPeriodicSweep();
+    this.stopIdleSweep();
 
     // Trigger session-end memory extraction for each project
     if (memoryService.isInitialized() && this.baseConfig) {
@@ -337,6 +359,7 @@ export class UnifiedAgentService extends EventEmitter {
     this.engines.clear();
     this.engineConfigs.clear();
     this.engineRawMcpServers.clear();
+    this.engineLastActive.clear();
     this.assistantTextBuffers.clear();
     this.engineType = null;
     this.baseConfig = null;
@@ -361,6 +384,7 @@ export class UnifiedAgentService extends EventEmitter {
         this.engines.delete(registryKey);
         this.engineConfigs.delete(registryKey);
         this.engineRawMcpServers.delete(registryKey);
+        this.engineLastActive.delete(registryKey);
         log.info(
           `[UnifiedAgent] Engine stopped for project: ${registryKey} (query=${projectId}, baseConfig preserved)`,
         );
@@ -383,6 +407,7 @@ export class UnifiedAgentService extends EventEmitter {
       this.engines.clear();
       this.engineConfigs.clear();
       this.engineRawMcpServers.clear();
+      this.engineLastActive.clear();
       log.info("[UnifiedAgent] All engines stopped (baseConfig preserved)");
       return true;
     }
@@ -458,6 +483,7 @@ export class UnifiedAgentService extends EventEmitter {
     if (existing) {
       if (existing.isReady) {
         existing.updateConfig(effectiveConfig);
+        this.engineLastActive.set(projectId, Date.now());
         perfEmitter.duration("engine.getOrCreate (reuse)", Date.now() - t0);
         firstTokenTrace.trace("engine.get_or_create.reuse", {
           projectId,
@@ -474,6 +500,7 @@ export class UnifiedAgentService extends EventEmitter {
       this.engines.delete(projectId);
       this.engineConfigs.delete(projectId);
       this.engineRawMcpServers.delete(projectId);
+      this.engineLastActive.delete(projectId);
     }
 
     if (!this.baseConfig) {
@@ -536,6 +563,7 @@ export class UnifiedAgentService extends EventEmitter {
 
     this.engines.set(projectId, engine);
     this.engineConfigs.set(projectId, effectiveConfig);
+    this.engineLastActive.set(projectId, Date.now());
     perfEmitter.duration("engine.getOrCreate", t3 - t0, { project: projectId });
     firstTokenTrace.trace(
       "engine.get_or_create.created",
@@ -561,6 +589,7 @@ export class UnifiedAgentService extends EventEmitter {
         this.engines.delete(pid);
         this.engineConfigs.delete(pid);
         this.engineRawMcpServers.delete(pid);
+        this.engineLastActive.delete(pid);
         return;
       }
     }
@@ -574,6 +603,55 @@ export class UnifiedAgentService extends EventEmitter {
     this.engines.delete(oldestPid);
     this.engineConfigs.delete(oldestPid);
     this.engineRawMcpServers.delete(oldestPid);
+    this.engineLastActive.delete(oldestPid);
+  }
+
+  /** 启动空闲驱逐 sweep（IDLE_SWEEP_INTERVAL_MS 周期；env 禁用时 no-op）。 */
+  private startIdleSweep(): void {
+    if (this.idleSweepTimer || idleEvictTimeoutMs() === 0) return;
+    this.idleSweepTimer = setInterval(() => {
+      void this.sweepIdleEngines();
+    }, IDLE_SWEEP_INTERVAL_MS);
+    this.idleSweepTimer.unref?.();
+  }
+
+  private stopIdleSweep(): void {
+    if (this.idleSweepTimer) {
+      clearInterval(this.idleSweepTimer);
+      this.idleSweepTimer = null;
+    }
+  }
+
+  /**
+   * 空闲驱逐：销毁「无活跃 prompt 且超过 idleEvictTimeoutMs 未活跃」的引擎
+   * （进程树一并回收）。活跃引擎每轮续期，长 prompt 结束后仍享有完整空闲窗口。
+   */
+  private async sweepIdleEngines(): Promise<void> {
+    const timeoutMs = idleEvictTimeoutMs();
+    if (timeoutMs === 0 || this.idleSweeping) return;
+    this.idleSweeping = true;
+    try {
+      const now = Date.now();
+      for (const [projectId, engine] of [...this.engines]) {
+        if (engine.getActivePromptCount() > 0) {
+          this.engineLastActive.set(projectId, now);
+          continue;
+        }
+        const last = this.engineLastActive.get(projectId) ?? now;
+        if (now - last < timeoutMs) continue;
+        log.info(
+          `[UnifiedAgent] ♻️ Idle-evicting engine (idle ${now - last}ms >= ${timeoutMs}ms) for project: ${projectId}`,
+        );
+        engine.removeAllListeners();
+        await engine.destroy().catch(() => {});
+        this.engines.delete(projectId);
+        this.engineConfigs.delete(projectId);
+        this.engineRawMcpServers.delete(projectId);
+        this.engineLastActive.delete(projectId);
+      }
+    } finally {
+      this.idleSweeping = false;
+    }
   }
 
   /**

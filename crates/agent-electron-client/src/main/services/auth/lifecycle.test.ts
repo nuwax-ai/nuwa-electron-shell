@@ -69,4 +69,17 @@ describe("auth lifecycle", () => {
     adapter.stop.mockResolvedValue({ success: false });
     expect((await flow.stop()).success).toBe(false);
   });
+  it("stopExtras 直调 adapter 钩子（退出期附加清理，不触碰登录生命周期）", async () => {
+    const { adapter, flow } = fixture();
+    const stopExtras = vi.fn(async () => {});
+    Object.assign(adapter, { stopExtras });
+    await flow.stopExtras();
+    expect(stopExtras).toHaveBeenCalledTimes(1);
+    expect(adapter.stop).not.toHaveBeenCalled();
+    expect(adapter.register).not.toHaveBeenCalled();
+  });
+  it("adapter 未实现 stopExtras 时安全 no-op（社区版）", async () => {
+    const { flow } = fixture();
+    await expect(flow.stopExtras()).resolves.toBeUndefined();
+  });
 });

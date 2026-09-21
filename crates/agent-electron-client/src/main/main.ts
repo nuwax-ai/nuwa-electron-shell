@@ -593,6 +593,7 @@ async function cleanupAllProcesses(): Promise<void> {
   const runCleanupStep = async (
     label: string,
     fn: () => Promise<void> | void,
+    timeoutMs = stepTimeoutMs,
   ): Promise<void> => {
     let completed = false;
     let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
@@ -614,11 +615,11 @@ async function cleanupAllProcesses(): Promise<void> {
       new Promise<void>((resolve) => {
         timeoutHandle = setTimeout(() => {
           if (!completed) {
-            log.warn(`[Cleanup] ${label} timed out after ${stepTimeoutMs}ms`);
+            log.warn(`[Cleanup] ${label} timed out after ${timeoutMs}ms`);
           }
           timeoutHandle = null;
           resolve();
-        }, stepTimeoutMs);
+        }, timeoutMs);
       }),
     ]);
   };
@@ -664,6 +665,16 @@ async function cleanupAllProcesses(): Promise<void> {
     await processRegistry.killAll();
     log.info("[Cleanup] Process registry cleared");
   });
+
+  // 商业 overlay 注入的退出期附加清理（CUA daemon 等）；社区版未注入为 no-op。
+  // daemon 协议停机超时 4s + 兜底强杀，须高于默认步进超时（15s/6=2.5s）。
+  await runCleanupStep(
+    "Commercial extras stop",
+    async () => {
+      await commercialLifecycle?.stopExtras();
+    },
+    Math.max(stepTimeoutMs, 8000),
+  );
 
   // Await owned process trees before app.exit; fire-and-forget kill loses escalation.
   // NOTE: guiServer is a legacy placeholder and typically not started directly.

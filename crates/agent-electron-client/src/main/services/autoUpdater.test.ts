@@ -715,3 +715,75 @@ describe("后台复检调度器（initAutoUpdater）", () => {
     expect(mockNetRequest).toHaveBeenCalledTimes(1);
   });
 });
+
+// ────────────────────────────────────────────────────────────────────────────
+// installUpdate：安装前清理必须 await 完成后才 quitAndInstall——
+// fire-and-forget 会与秒级退出竞速，树杀（每引擎最长 5s）被截断而残留进程。
+// ────────────────────────────────────────────────────────────────────────────
+describe("installUpdate — 安装前清理 await 语义", () => {
+  beforeEach(() => {
+    mockWin32();
+    mockExistsSync.mockImplementation((...args: unknown[]) =>
+      String(args[0]).includes("Uninstall NuwaClaw.exe"),
+    );
+    mockUpdaterQuitAndInstall.mockClear();
+  });
+
+  it("cleanup 未完成前不调 quitAndInstall，完成后才安装", async () => {
+    vi.useFakeTimers();
+    try {
+      const { initAutoUpdater, installUpdate } =
+        await importFreshWithUpdaterMock();
+
+      let resolveCleanup!: () => void;
+      const cleanupGate = new Promise<void>((r) => (resolveCleanup = r));
+      let cleanupFinished = false;
+      initAutoUpdater(
+        () => null,
+        async () => {
+          await cleanupGate;
+          cleanupFinished = true;
+        },
+        () => {},
+      );
+
+      const pending = installUpdate();
+      await Promise.resolve();
+      // 清理挂起中：不得触发安装
+      expect(mockUpdaterQuitAndInstall).not.toHaveBeenCalled();
+      expect(cleanupFinished).toBe(false);
+
+      resolveCleanup();
+      const result = await pending;
+      expect(result.success).toBe(true);
+      expect(cleanupFinished).toBe(true);
+      expect(mockUpdaterQuitAndInstall).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("清理被卡死时 10s 上限放行安装（不拖死安装流程）", async () => {
+    vi.useFakeTimers();
+    try {
+      const { initAutoUpdater, installUpdate } =
+        await importFreshWithUpdaterMock();
+
+      initAutoUpdater(
+        () => null,
+        () => new Promise<void>(() => {}), // 永不 resolve
+        () => {},
+      );
+
+      const pending = installUpdate();
+      await vi.advanceTimersByTimeAsync(9_999);
+      expect(mockUpdaterQuitAndInstall).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      const result = await pending;
+      expect(result.success).toBe(true);
+      expect(mockUpdaterQuitAndInstall).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
