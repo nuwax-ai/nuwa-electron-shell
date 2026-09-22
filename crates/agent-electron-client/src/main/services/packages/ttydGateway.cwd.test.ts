@@ -7,7 +7,7 @@
  * - 目录不存在 / 存在但为空（云端沙箱会话、绝对路径轨道会话的空壳）
  *   → 回退 getTtydInitialCwd()（最近活跃引擎工作区 → 配置工作区 → HOME）。
  */
-import { describe, it, expect, afterAll, vi } from "vitest";
+import { describe, it, expect, afterAll, beforeEach, vi } from "vitest";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
@@ -30,6 +30,7 @@ vi.mock("../engines/unifiedAgent", () => ({
   agentService: {
     getAgentConfig: vi.fn(() => null),
     getRecentWorkspaceDir: vi.fn(() => null),
+    getWorkspaceDirForProject: vi.fn(() => null),
   },
 }));
 
@@ -38,10 +39,7 @@ vi.mock("./ttydHelper", () => ({
   getTtydInitialCwd: () => initialCwdMock(),
 }));
 
-import {
-  isUsableWorkspaceDir,
-  resolveRouteCwd,
-} from "./ttydGateway";
+import { isUsableWorkspaceDir, resolveRouteCwd } from "./ttydGateway";
 import { agentService } from "../engines/unifiedAgent";
 
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ttyd-gw-cwd-"));
@@ -52,6 +50,11 @@ fs.mkdirSync(baseWorkspace, { recursive: true });
 
 afterAll(() => {
   fs.rmSync(tmpRoot, { recursive: true, force: true });
+});
+
+beforeEach(() => {
+  initialCwdMock.mockClear();
+  vi.mocked(agentService.getWorkspaceDirForProject).mockReturnValue(null);
 });
 
 describe("isUsableWorkspaceDir", () => {
@@ -80,30 +83,48 @@ describe("isUsableWorkspaceDir", () => {
 });
 
 describe("resolveRouteCwd · 禅道 2526 回退链", () => {
+  it("conversationId 命中引擎配置：使用精确工作区（即使目录为空）", () => {
+    const exactDir = path.join(tmpRoot, "absolute-track-empty");
+    fs.mkdirSync(exactDir);
+    vi.mocked(agentService.getWorkspaceDirForProject).mockReturnValue(exactDir);
+
+    const cwd = resolveRouteCwdWithBase(baseWorkspace, "1", "1694106-exact");
+
+    expect(cwd).toBe(exactDir);
+    expect(initialCwdMock).not.toHaveBeenCalled();
+  });
+
   it("拼接目录存在且非空 → 原样使用（存量行为不回归）", () => {
-    const projDir = path.join(baseWorkspace, "computer-project-workspace", "1", "1694106");
+    const projDir = path.join(
+      baseWorkspace,
+      "computer-project-workspace",
+      "1",
+      "1694106",
+    );
     fs.mkdirSync(projDir, { recursive: true });
     fs.writeFileSync(path.join(projDir, "README.md"), "content");
 
     const cwd = resolveRouteCwdWithBase(baseWorkspace, "1", "1694106");
     expect(cwd).toBe(projDir);
     expect(initialCwdMock).not.toHaveBeenCalled();
-    initialCwdMock.mockClear();
   });
 
   it("拼接目录为空（QA 场景）→ 回退 getTtydInitialCwd", () => {
-    const projDir = path.join(baseWorkspace, "computer-project-workspace", "1", "1694106-empty");
+    const projDir = path.join(
+      baseWorkspace,
+      "computer-project-workspace",
+      "1",
+      "1694106-empty",
+    );
     fs.mkdirSync(projDir, { recursive: true }); // 存在但空
     const cwd = resolveRouteCwdWithBase(baseWorkspace, "1", "1694106-empty");
     expect(cwd).toBe("/fallback/workspace");
     expect(initialCwdMock).toHaveBeenCalled();
-    initialCwdMock.mockClear();
   });
 
   it("拼接目录不存在（绝对路径轨道 / 云端会话）→ 回退 getTtydInitialCwd", () => {
     const cwd = resolveRouteCwdWithBase(baseWorkspace, "1", "404404");
     expect(cwd).toBe("/fallback/workspace");
-    initialCwdMock.mockClear();
   });
 });
 

@@ -98,6 +98,19 @@ export function isUsableWorkspaceDir(dir: string): boolean {
  * 否则回退 getTtydInitialCwd()（最近活跃引擎工作区 → 配置工作区 → HOME；禅道 2526）。
  */
 export function resolveRouteCwd(userId: string, projectId: string): string {
+  // 优先按当前会话精确反查引擎配置。绝对路径轨道的 workspaceDir 不在
+  // computer-project-workspace/<user>/<conversation> 下，而且新项目可以合法为空；
+  // 只用“拼接目录非空”判断会误回退到最近另一个会话的工作区。
+  const exactWorkspace = agentService.getWorkspaceDirForProject(projectId);
+  if (exactWorkspace) {
+    try {
+      if (fs.statSync(exactWorkspace).isDirectory()) {
+        return exactWorkspace;
+      }
+    } catch {
+      // 精确目录已被移除时继续走兼容回退链。
+    }
+  }
   const resolved = resolveComputerProjectWorkspaceDir(
     getBaseWorkspaceDir(),
     userId,

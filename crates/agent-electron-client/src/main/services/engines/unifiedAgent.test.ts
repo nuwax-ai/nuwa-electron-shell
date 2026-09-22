@@ -579,6 +579,32 @@ describe("UnifiedAgentService.listAllSessionsDetailed — 仅返回 ready 引擎
   });
 });
 
+describe("UnifiedAgentService.getWorkspaceDirForProject — 终端精确 cwd", () => {
+  it("conversationId 可经 session.projectId 反查所属引擎工作区", () => {
+    const svc = new UnifiedAgentService() as any;
+    svc.engines = new Map([
+      [
+        "/workspace/current-project",
+        {
+          findSessionByProjectId: (id: string) =>
+            id === "1694106" ? { projectId: id } : null,
+        },
+      ],
+    ]);
+    svc.engineConfigs = new Map([
+      [
+        "/workspace/current-project",
+        { workspaceDir: "/workspace/current-project" },
+      ],
+    ]);
+
+    expect(svc.getWorkspaceDirForProject("1694106")).toBe(
+      "/workspace/current-project",
+    );
+    expect(svc.getWorkspaceDirForProject("unknown")).toBeNull();
+  });
+});
+
 // ────────────────────────────────────────────────────────────────────────────
 // 引擎空闲驱逐（idle eviction）：每引擎一整棵进程树，仅靠 MAX_ENGINES 满员
 // 驱逐会无限累积（实测多代树存活 19h+）。此处锁定超时驱逐/活跃保留/禁用三态。

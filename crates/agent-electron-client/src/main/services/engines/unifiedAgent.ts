@@ -978,6 +978,19 @@ export class UnifiedAgentService extends EventEmitter {
   }
 
   /**
+   * 按项目/会话标识返回其所属引擎的精确工作目录。
+   *
+   * 终端 URL 里的 projectId 实际可能是平台 conversationId；resolveEngineKey
+   * 会同时匹配引擎注册 key、session.projectId、内部 session id 与 ACP session id，
+   * 因而比“最近活跃会话工作区”更适合 per-connection cwd。
+   */
+  getWorkspaceDirForProject(projectId: string): string | null {
+    const registryKey = this.resolveEngineKey(projectId);
+    if (!registryKey) return null;
+    return this.engineConfigs.get(registryKey)?.workspaceDir ?? null;
+  }
+
+  /**
    * 定位 Map 中的引擎用于 stop/reload（不要求 isReady，初始化中的进程也可停）。
    */
   findEngineForStop(
