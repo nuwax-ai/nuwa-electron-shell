@@ -2,7 +2,7 @@
   "private": true,
   "scripts": {
     "postinstall": "pnpm run build:agent-kit",
-    "build:agent-kit": "pnpm -C crates/agent-kit install --ignore-workspace --prefer-offline && pnpm -C crates/agent-kit run build",
+    "build:agent-kit": "CI=true pnpm -C crates/agent-kit install --ignore-workspace --prefer-offline && pnpm -C crates/agent-kit run build",
     "prepare": "husky",
     "test:electron": "cd crates/agent-electron-client && npm run test:run",
     "test:electron:scripts": "cd crates/agent-electron-client && npm run test:scripts"
@@ -46,6 +46,7 @@
       "electron",
       "better-sqlite3",
       "esbuild",
+      "nuwax-codex",
       "protobufjs",
       "sharp"
     ]

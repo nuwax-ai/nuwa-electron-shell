@@ -10,7 +10,10 @@ import { APP_DATA_DIR_NAME } from "@shared/constants";
 import { readSetting } from "../../db";
 import { LOCALHOST_IP } from "../constants";
 import { agentService } from "../engines/unifiedAgent";
-import { resolveComputerProjectWorkspaceDir } from "../workspacePaths";
+import {
+  findProjectWorkspaceByProjectId,
+  resolveComputerProjectWorkspaceDir,
+} from "../workspacePaths";
 import { getTtydInitialCwd } from "./ttydHelper";
 
 type GatewayStartOptions = {
@@ -105,6 +108,19 @@ export function resolveRouteCwd(userId: string, projectId: string): string {
   );
   if (isUsableWorkspaceDir(resolved)) {
     return resolved;
+  }
+  // userId 轨道不可信时（开发代理写死 local / 跨端 userId 不一致），按 projectId 反查
+  // computer-project-workspace/*/{projectId}，命中唯一可用目录则用之，避免终端落进 HOME。
+  const byProjectId = findProjectWorkspaceByProjectId(
+    getBaseWorkspaceDir(),
+    projectId,
+    isUsableWorkspaceDir,
+  );
+  if (byProjectId) {
+    log.info(
+      `[ttydGateway] route cwd by projectId: '${resolved}' unusable, matched '${byProjectId}'`,
+    );
+    return byProjectId;
   }
   const fallback = getTtydInitialCwd();
   if (fallback !== resolved) {

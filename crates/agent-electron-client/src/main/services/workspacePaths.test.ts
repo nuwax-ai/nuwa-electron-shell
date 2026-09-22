@@ -1,10 +1,34 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, afterEach } from "vitest";
+import * as fs from "fs";
+import * as os from "os";
 import * as path from "path";
 import {
   resolveComputerProjectWorkspaceDir,
   resolveWorkspacePrefix,
   resolveAgentServerPaths,
+  findProjectWorkspaceByProjectId,
 } from "./workspacePaths";
+
+const isUsableDir = (dir: string) => {
+  try {
+    return fs.statSync(dir).isDirectory() && fs.readdirSync(dir).length > 0;
+  } catch {
+    return false;
+  }
+};
+
+const tempDirs: string[] = [];
+function makeTempBase(): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "nuwax-ws-"));
+  tempDirs.push(dir);
+  return dir;
+}
+afterEach(() => {
+  while (tempDirs.length) {
+    const d = tempDirs.pop();
+    if (d) fs.rmSync(d, { recursive: true, force: true });
+  }
+});
 
 describe("resolveComputerProjectWorkspaceDir", () => {
   it("base workspace 下追加 computer project workspace", () => {
@@ -23,6 +47,40 @@ describe("resolveComputerProjectWorkspaceDir", () => {
 
     expect(resolveComputerProjectWorkspaceDir(projectDir, "u1", "p1")).toBe(
       projectDir,
+    );
+  });
+});
+
+describe("findProjectWorkspaceByProjectId", () => {
+  it("userId 轨道不对时按 projectId 唯一命中", () => {
+    const base = makeTempBase();
+    const real = path.join(base, "computer-project-workspace", "6", "1694288");
+    fs.mkdirSync(real, { recursive: true });
+    fs.writeFileSync(path.join(real, "a.txt"), "x");
+
+    // 精确拼接（userId=local）不存在；按 projectId 反查命中 6/1694288
+    expect(findProjectWorkspaceByProjectId(base, "1694288", isUsableDir)).toBe(
+      real,
+    );
+  });
+
+  it("多命中不猜返回 null", () => {
+    const base = makeTempBase();
+    for (const uid of ["6", "7"]) {
+      const d = path.join(base, "computer-project-workspace", uid, "p1");
+      fs.mkdirSync(d, { recursive: true });
+      fs.writeFileSync(path.join(d, "a.txt"), "x");
+    }
+    expect(findProjectWorkspaceByProjectId(base, "p1", isUsableDir)).toBeNull();
+  });
+
+  it("空目录/无命中返回 null", () => {
+    const base = makeTempBase();
+    const empty = path.join(base, "computer-project-workspace", "6", "p1");
+    fs.mkdirSync(empty, { recursive: true });
+    expect(findProjectWorkspaceByProjectId(base, "p1", isUsableDir)).toBeNull();
+    expect(findProjectWorkspaceByProjectId(base, "missing", isUsableDir)).toBe(
+      null,
     );
   });
 });
