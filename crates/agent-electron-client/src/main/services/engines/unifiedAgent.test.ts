@@ -99,6 +99,7 @@ import {
   rawMcpServersEqual,
 } from "../packages/mcpHelpers";
 import type { McpServerEntry } from "../packages/mcp";
+import { collectSessionWorkspaceCandidates } from "./acp/acpSessionWorkspace";
 
 // ────────────────────────────────────────────────────────────────────────────
 // 辅助：构建 stdio MCP server entry
@@ -586,24 +587,43 @@ describe("UnifiedAgentService.getWorkspaceDirForProject — 终端精确 cwd", (
       [
         "/workspace/current-project",
         {
-          findSessionByProjectId: (id: string) =>
-            id === "1694106"
-              ? { projectId: id, cwd: "/workspace/current-project" }
-              : null,
+          getSessionWorkspaceCandidates: (id: string) =>
+            collectSessionWorkspaceCandidates(
+              [
+                {
+                  id: "ses_current",
+                  projectId: "1694106",
+                  cwd: "/workspace/current-project",
+                },
+              ],
+              id,
+            ),
         },
       ],
     ]);
     svc.engineConfigs = new Map([
-      [
-        "/workspace/current-project",
-        { workspaceDir: "/workspace" },
-      ],
+      ["/workspace/current-project", { workspaceDir: "/workspace" }],
     ]);
 
     expect(svc.getWorkspaceDirForProject("1694106")).toBe(
       "/workspace/current-project",
     );
     expect(svc.getWorkspaceDirForProject("unknown")).toBeNull();
+  });
+
+  it("同标识在多个引擎对应不同 cwd 时不猜测；无会话的引擎 config 也不算精确命中", () => {
+    const svc = new UnifiedAgentService() as any;
+    svc.engines = new Map([
+      ["old", { getSessionWorkspaceCandidates: () => ["/old"] }],
+      ["new", { getSessionWorkspaceCandidates: () => ["/new"] }],
+    ]);
+    expect(svc.getWorkspaceDirForProject("1694106")).toBeNull();
+
+    svc.engines = new Map([
+      ["1694106", { getSessionWorkspaceCandidates: () => [] }],
+    ]);
+    svc.engineConfigs = new Map([["1694106", { workspaceDir: "/workspace" }]]);
+    expect(svc.getWorkspaceDirForProject("1694106")).toBeNull();
   });
 });
 

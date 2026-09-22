@@ -4,8 +4,8 @@
  * 行为口径：
  * - 拼接目录 computer-project-workspace/<userId>/<projectId> 存在且非空
  *   （标识符轨道且引擎已在本机跑过）→ 原样使用（存量行为不回归）；
- * - 目录不存在 / 存在但为空（云端沙箱会话、绝对路径轨道会话的空壳）
- *   → 回退 getTtydInitialCwd()（最近活跃引擎工作区 → 配置工作区 → HOME）。
+ * - 已匹配会话的真实目录允许为空；未匹配且拼接目录不可用
+ *   → 回退配置工作区 / HOME，不能跳到最近其他会话。
  */
 import { describe, it, expect, afterAll, beforeEach, vi } from "vitest";
 import * as fs from "fs";
@@ -122,9 +122,37 @@ describe("resolveRouteCwd · 禅道 2526 回退链", () => {
     expect(initialCwdMock).not.toHaveBeenCalled();
   });
 
-  it("拼接目录不存在（绝对路径轨道 / 云端会话）→ 回退 getTtydInitialCwd", () => {
+  it("拼接目录不存在（绝对路径轨道 / 云端会话）→ 回退默认工作区", () => {
     const cwd = resolveRouteCwdWithBase(baseWorkspace, "1", "404404");
-    expect(cwd).toBe("/fallback/workspace");
+    expect(cwd).toBe(baseWorkspace);
+    expect(initialCwdMock).not.toHaveBeenCalled();
+  });
+
+  it("精确目录已删除或变成文件时不借用其他会话", () => {
+    for (const exactDir of [
+      path.join(tmpRoot, "removed"),
+      path.join(tmpRoot, "not-a-directory"),
+    ]) {
+      if (exactDir.endsWith("not-a-directory")) fs.writeFileSync(exactDir, "x");
+      vi.mocked(agentService.getWorkspaceDirForProject).mockReturnValue(
+        exactDir,
+      );
+      expect(resolveRouteCwdWithBase(baseWorkspace, "1", "missing-exact")).toBe(
+        baseWorkspace,
+      );
+    }
+    expect(initialCwdMock).not.toHaveBeenCalled();
+  });
+
+  it("默认工作区也不存在时回 HOME", () => {
+    expect(
+      resolveRouteCwdWithBase(
+        path.join(tmpRoot, "missing-base"),
+        "1",
+        "unknown",
+      ),
+    ).toBe(os.tmpdir());
+    expect(initialCwdMock).not.toHaveBeenCalled();
   });
 });
 

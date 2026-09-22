@@ -290,7 +290,7 @@ describe("resolveSessionForChat", () => {
       const deps = makeDeps({
         agentCapabilities: { loadSession: true },
         // 永不 resolve，模拟同引擎 load 挂起
-        loadSession: vi.fn(() => new Promise(() => {})),
+        loadSession: vi.fn(() => new Promise<AcpSessionLike>(() => {})),
       });
 
       const pending = resolveSessionForChat(deps, {

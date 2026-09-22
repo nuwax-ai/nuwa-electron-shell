@@ -11,7 +11,6 @@ import { readSetting } from "../../db";
 import { LOCALHOST_IP } from "../constants";
 import { agentService } from "../engines/unifiedAgent";
 import { resolveComputerProjectWorkspaceDir } from "../workspacePaths";
-import { getTtydInitialCwd } from "./ttydHelper";
 
 type GatewayStartOptions = {
   listenPort: number;
@@ -94,11 +93,11 @@ export function isUsableWorkspaceDir(dir: string): boolean {
 }
 
 /**
- * 终端路由 cwd 推导（导出供测试）：拼接目录可用则用之，
- * 否则回退 getTtydInitialCwd()（最近活跃引擎工作区 → 配置工作区 → HOME；禅道 2526）。
+ * 终端路由 cwd 推导：精确会话目录 → 存量非空项目目录 → 默认工作区 → HOME。
+ * 未匹配到会话时不得借用最近其他会话的目录（禅道 2526）。
  */
 export function resolveRouteCwd(userId: string, projectId: string): string {
-  // 优先按当前会话精确反查引擎配置。绝对路径轨道的 workspaceDir 不在
+  // 优先按当前会话精确反查 session.cwd。绝对路径轨道的 cwd 不在
   // computer-project-workspace/<user>/<conversation> 下，而且新项目可以合法为空；
   // 只用“拼接目录非空”判断会误回退到最近另一个会话的工作区。
   const exactWorkspace = agentService.getWorkspaceDirForProject(projectId);
@@ -111,15 +110,21 @@ export function resolveRouteCwd(userId: string, projectId: string): string {
       // 精确目录已被移除时继续走兼容回退链。
     }
   }
+  const baseWorkspace = getBaseWorkspaceDir();
   const resolved = resolveComputerProjectWorkspaceDir(
-    getBaseWorkspaceDir(),
+    baseWorkspace,
     userId,
     projectId,
   );
   if (isUsableWorkspaceDir(resolved)) {
     return resolved;
   }
-  const fallback = getTtydInitialCwd();
+  let fallback = app.getPath("home");
+  try {
+    if (fs.statSync(baseWorkspace).isDirectory()) fallback = baseWorkspace;
+  } catch {
+    // 配置目录不存在时使用 HOME，不跳入其他会话目录。
+  }
   if (fallback !== resolved) {
     log.info(
       `[ttydGateway] route cwd fallback: '${resolved}' unusable (missing/empty), using '${fallback}'`,

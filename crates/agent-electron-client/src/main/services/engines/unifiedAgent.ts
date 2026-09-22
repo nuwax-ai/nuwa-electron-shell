@@ -978,16 +978,19 @@ export class UnifiedAgentService extends EventEmitter {
   }
 
   /**
-   * 按项目/会话标识返回其所属引擎的精确工作目录。
-   *
-   * 终端 URL 里的 projectId 实际可能是平台 conversationId；resolveEngineKey
-   * 会同时匹配引擎注册 key、session.projectId、内部 session id 与 ACP session id，
-   * 因而比“最近活跃会话工作区”更适合 per-connection cwd。
+   * 按项目/会话标识返回已恢复 ACP 会话的实际 cwd。
+   * 引擎 workspaceDir 对 claude-code/nuwaxcode 是总工作区，不能替代 session.cwd。
+   * 未恢复会话或同一标识匹配多个目录时返回 null，由终端选择安全默认目录。
    */
   getWorkspaceDirForProject(projectId: string): string | null {
-    const registryKey = this.resolveEngineKey(projectId);
-    if (!registryKey) return null;
-    return this.engineConfigs.get(registryKey)?.workspaceDir ?? null;
+    if (!projectId) return null;
+    const directories = new Set<string>();
+    for (const engine of this.engines.values()) {
+      for (const cwd of engine.getSessionWorkspaceCandidates(projectId)) {
+        directories.add(cwd);
+      }
+    }
+    return directories.size === 1 ? [...directories][0] : null;
   }
 
   /**
