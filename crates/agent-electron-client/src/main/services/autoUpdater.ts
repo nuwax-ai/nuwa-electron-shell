@@ -8,12 +8,14 @@
  *
  * - autoDownload = false: 用户控制下载时机
  * - autoInstallOnAppQuit = true: 下载完成后退出时自动安装
- * - Windows: NSIS 安装支持自动更新，MSI 安装引导到官网下载安装页
+ * - Windows: NSIS 安装支持自动更新；MSI 安装（注册表 UninstallString 为
+ *   msiexec 的真 MSI，非「找不到卸载程序」的兜底误判）引导到官网下载安装页
  */
 
 import { app, BrowserWindow, shell, dialog, net, powerMonitor } from "electron";
 import * as path from "path";
 import * as fs from "fs";
+import { execFileSync } from "child_process";
 import log from "electron-log";
 import type {
   UpdateState,
@@ -42,7 +44,13 @@ const OSS_BASE =
   "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/nuwaclaw-electron";
 const OSS_STABLE_LATEST_JSON_URL = `${OSS_BASE}/latest/latest.json`;
 const OSS_BETA_LATEST_JSON_URL = `${OSS_BASE}/beta/latest.json`;
-const OFFICIAL_DOWNLOAD_PAGE_URL = "https://nuwax.com/nuwaclaw.html";
+// 官网下载安装页（MSI 等不支持自动更新的安装形态引导到此页）。商业版构建期经
+// NUWAX_DOWNLOAD_PAGE_URL 覆盖（机制同 NUWAX_UPDATE_FEED_BASE，见 constants.ts
+// 头注；⚠️ 不得加 typeof process 守卫，会丢弃 define 注入的字面量）。社区默认
+// 指向 NuwaClaw 桌面端下载页；商业版暂无独立产品页，先指官网首页，待上线后改正式值。
+const OFFICIAL_DOWNLOAD_PAGE_URL =
+  process.env.NUWAX_DOWNLOAD_PAGE_URL?.trim() ||
+  "https://nuwax.com/nuwaclaw.html";
 type UpdateChannel = "stable" | "beta";
 const UPDATE_CHANNEL_SETTING_KEY = "update_channel";
 
@@ -134,6 +142,93 @@ function fetchLatestJson(url: string, timeoutMs = 15_000): Promise<LatestJson> {
 type InstallerType = "nsis" | "msi" | "mac" | "linux" | "dev";
 
 /**
+ * Windows 注册表探测（经 reg.exe；注入缝供单测替换）。
+ *
+ * MSI 安装由 Windows Installer 管理：app 目录不放卸载程序文件，注册表
+ * Uninstall 键的 UninstallString 形如 `MsiExec.exe /I{ProductCode}`——这是
+ * 区分「真 MSI」与「tar 解压/绿色目录部署」的唯一可靠证据。
+ */
+interface WindowsRegistryAdapter {
+  /** 在 Uninstall 根键下按 DisplayName 数据搜索，返回命中的键路径列表 */
+  searchUninstallKeysByDisplayName(displayName: string): string[];
+  /** 读取指定键的字符串值（REG_SZ），不存在返回 null */
+  queryValue(key: string, valueName: string): string | null;
+}
+
+const WINDOWS_UNINSTALL_REGISTRY_ROOTS = [
+  "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
+  "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
+  "HKLM\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
+];
+
+function runReg(args: string[]): string | null {
+  try {
+    return execFileSync("reg", args, {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 5_000,
+      windowsHide: true,
+    });
+  } catch {
+    // 键不存在 / reg 退出码 1（无匹配）/ reg 不可用 —— 一律视为查不到
+    return null;
+  }
+}
+
+const defaultRegistryAdapter: WindowsRegistryAdapter = {
+  searchUninstallKeysByDisplayName(displayName: string): string[] {
+    const keys: string[] = [];
+    for (const root of WINDOWS_UNINSTALL_REGISTRY_ROOTS) {
+      const out = runReg(["query", root, "/s", "/f", displayName, "/d"]);
+      if (!out) continue;
+      for (const line of out.split(/\r?\n/)) {
+        const trimmed = line.trim();
+        if (/^HKEY_\S+\\Uninstall\\/i.test(trimmed)) keys.push(trimmed);
+      }
+    }
+    return keys;
+  },
+  queryValue(key: string, valueName: string): string | null {
+    const out = runReg(["query", key, "/v", valueName]);
+    if (!out) return null;
+    const line = out
+      .split(/\r?\n/)
+      .find((l) => l.includes("REG_SZ") && l.includes(valueName));
+    if (!line) return null;
+    const idx = line.indexOf("REG_SZ");
+    return line.slice(idx + "REG_SZ".length).trim() || null;
+  },
+};
+
+let registryAdapter: WindowsRegistryAdapter = defaultRegistryAdapter;
+
+/** 仅测试使用：注入 fake 注册表探测；传 null 恢复真实 reg.exe 实现 */
+export function _setRegistryAdapterForTest(
+  adapter: WindowsRegistryAdapter | null,
+): void {
+  registryAdapter = adapter ?? defaultRegistryAdapter;
+}
+
+/**
+ * 在 Windows 注册表中寻找本产品的真 MSI 卸载项：
+ * DisplayName 精确等于 productName 且 UninstallString 含 msiexec。
+ * 返回命中的键路径（证据），无则 null。
+ */
+function findMsiUninstallKey(productName: string): string | null {
+  const candidates =
+    registryAdapter.searchUninstallKeysByDisplayName(productName);
+  for (const key of candidates) {
+    const display = registryAdapter.queryValue(key, "DisplayName");
+    if (display !== productName) continue;
+    const uninstall = registryAdapter.queryValue(key, "UninstallString");
+    if (uninstall && /msiexec/i.test(uninstall)) {
+      return key;
+    }
+  }
+  return null;
+}
+
+/**
  * 检测 Windows 安装类型（NSIS vs MSI）
  *
  * NSIS 安装会在应用目录下创建卸载程序文件，按优先级检测：
@@ -141,7 +236,11 @@ type InstallerType = "nsis" | "msi" | "mac" | "linux" | "dev";
  * 2. NSIS 通用命名：unins000.exe, unins001.exe 等
  * 3. 匹配 Uninstall*.exe 或 unins*.exe（避免误判其他文件）
  *
- * MSI 安装由 Windows Installer 管理，通常不含卸载程序文件。
+ * MSI 安装由 Windows Installer 管理，通常不含卸载程序文件——但「目录里没有
+ * 卸载程序」不再直接判 MSI（2026-09-22 修）：真 MSI 以注册表 UninstallString
+ * 为 msiexec 为准；注册表也无 MSI 证据时按 NSIS 兜底（tar 解压 / 绿色目录
+ * 部署等形态，electron-updater 下载后运行 NSIS 安装器可全新落装，此前被
+ * 误判 MSI 导致点「更新」跳下载页而非直更）。
  */
 function detectInstallerType(): InstallerType {
   if (!app.isPackaged) return "dev";
@@ -207,11 +306,19 @@ function detectInstallerType(): InstallerType {
       }
     }
 
-    // Fallback: 找不到任何卸载程序文件，判定为 MSI
+    // 无卸载程序文件 ≠ MSI：按注册表证据判定真 MSI，否则按 NSIS 兜底
+    // （解压/绿色部署形态，见函数头注）
+    const msiKey = findMsiUninstallKey(productName);
+    if (msiKey) {
+      log.info(
+        `[AutoUpdater] Windows installer type: MSI (registry uninstall key: ${msiKey})`,
+      );
+      return "msi";
+    }
     log.info(
-      "[AutoUpdater] Windows installer type: MSI (no uninstaller found in app directory)",
+      "[AutoUpdater] Windows installer type: NSIS assumed (no uninstaller file in app directory, no MSI registry evidence — unpacked/portable deploy tolerated)",
     );
-    return "msi";
+    return "nsis";
   }
 
   return "nsis"; // 非预期平台 fallback（实际 win32/mac/linux 已覆盖）

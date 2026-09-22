@@ -218,35 +218,101 @@ describe("autoUpdater - getInstallerType & canAutoUpdate", () => {
     });
   });
 
-  describe("Windows MSI 检测 (fallback)", () => {
+  describe("Windows MSI 检测 (注册表证据)", () => {
     beforeEach(() => {
       mockWin32();
     });
 
-    it("目录中无卸载程序文件应返回 'msi'", async () => {
-      mockReaddirSync.mockReturnValue(["app.exe", "resources", "locales"]);
-
-      const { getInstallerType } = await importFresh();
-      expect(getInstallerType()).toBe("msi");
+    afterEach(async () => {
+      const { _setRegistryAdapterForTest } = await import("./autoUpdater");
+      _setRegistryAdapterForTest(null);
     });
 
-    it("readdirSync 抛出异常应 fallback 为 'msi'", async () => {
+    /**
+     * 注入 fake 注册表：keys = DisplayName 命中的键路径列表，values = 键路径 → {值名 → 数据}。
+     * 须在 importFresh 之后调用（操作的是当前模块实例的注入缝）。
+     */
+    function stubRegistry(
+      mod: typeof import("./autoUpdater"),
+      keys: string[],
+      values: Record<string, Record<string, string>>,
+    ) {
+      mod._setRegistryAdapterForTest({
+        searchUninstallKeysByDisplayName: () => keys,
+        queryValue: (key: string, valueName: string) =>
+          values[key]?.[valueName] ?? null,
+      });
+    }
+
+    it("无卸载程序文件 + 注册表 MSI 证据（msiexec）应返回 'msi'", async () => {
+      mockReaddirSync.mockReturnValue(["app.exe", "resources", "locales"]);
+      const mod = await importFresh();
+      stubRegistry(
+        mod,
+        [
+          "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{GUID}",
+        ],
+        {
+          "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{GUID}":
+            {
+              DisplayName: "NuwaClaw",
+              UninstallString:
+                "MsiExec.exe /I{12345678-AAAA-BBBB-CCCC-DDDDEEEEFFFF}",
+            },
+        },
+      );
+      expect(mod.getInstallerType()).toBe("msi");
+    });
+
+    it("无卸载程序文件 + 注册表无任何证据应兜底 'nsis'（解压/绿色部署）", async () => {
+      mockReaddirSync.mockReturnValue(["app.exe", "resources", "locales"]);
+      const mod = await importFresh();
+      stubRegistry(mod, [], {});
+      expect(mod.getInstallerType()).toBe("nsis");
+    });
+
+    it("readdirSync 抛出异常 + 注册表无证据应兜底 'nsis'", async () => {
       mockReaddirSync.mockImplementation(() => {
         throw new Error("ENOENT");
       });
-
-      const { getInstallerType } = await importFresh();
-      expect(getInstallerType()).toBe("msi");
+      const mod = await importFresh();
+      stubRegistry(mod, [], {});
+      expect(mod.getInstallerType()).toBe("nsis");
     });
 
-    it("目录为空应返回 'msi'", async () => {
+    it("目录为空 + 注册表无证据应兜底 'nsis'", async () => {
       mockReaddirSync.mockReturnValue([]);
-
-      const { getInstallerType } = await importFresh();
-      expect(getInstallerType()).toBe("msi");
+      const mod = await importFresh();
+      stubRegistry(mod, [], {});
+      expect(mod.getInstallerType()).toBe("nsis");
     });
 
-    it("不应将无关文件误判为 NSIS", async () => {
+    it("注册表 DisplayName 子串命中他款产品（非精确匹配）不算 MSI", async () => {
+      mockReaddirSync.mockReturnValue(["app.exe"]);
+      const mod = await importFresh();
+      stubRegistry(mod, ["HKLM\\...\\Uninstall\\OtherSoft"], {
+        "HKLM\\...\\Uninstall\\OtherSoft": {
+          DisplayName: "Some Other NuwaClaw Helper",
+          UninstallString: "MsiExec.exe /I{OTHER}",
+        },
+      });
+      expect(mod.getInstallerType()).toBe("nsis");
+    });
+
+    it("注册表命中但 UninstallString 非 msiexec（NSIS 键）不算 MSI", async () => {
+      mockReaddirSync.mockReturnValue(["app.exe"]);
+      const mod = await importFresh();
+      stubRegistry(mod, ["HKCU\\...\\Uninstall\\Nuwax"], {
+        "HKCU\\...\\Uninstall\\Nuwax": {
+          DisplayName: "NuwaClaw",
+          UninstallString:
+            '"C:\\Users\\user\\AppData\\Local\\Programs\\NuwaClaw\\Uninstall NuwaClaw.exe" /currentuser',
+        },
+      });
+      expect(mod.getInstallerType()).toBe("nsis");
+    });
+
+    it("无关文件（非卸载程序形态）不阻断注册表 MSI 判定", async () => {
       mockReaddirSync.mockReturnValue([
         "app.exe",
         "nuwaclaw.exe",
@@ -255,9 +321,14 @@ describe("autoUpdater - getInstallerType & canAutoUpdate", () => {
         "uninstall", // 无扩展名
         "helper.dll",
       ]);
-
-      const { getInstallerType } = await importFresh();
-      expect(getInstallerType()).toBe("msi");
+      const mod = await importFresh();
+      stubRegistry(mod, ["HKLM\\...\\Uninstall\\{GUID}"], {
+        "HKLM\\...\\Uninstall\\{GUID}": {
+          DisplayName: "NuwaClaw",
+          UninstallString: "msiexec /X{GUID}",
+        },
+      });
+      expect(mod.getInstallerType()).toBe("msi");
     });
   });
 
@@ -272,12 +343,33 @@ describe("autoUpdater - getInstallerType & canAutoUpdate", () => {
       expect(canAutoUpdate()).toBe(true);
     });
 
-    it("MSI 不支持自动更新", async () => {
+    it("真 MSI（注册表证据）不支持自动更新", async () => {
       mockWin32();
       mockReaddirSync.mockReturnValue(["app.exe"]);
+      const mod = await importFresh();
+      mod._setRegistryAdapterForTest({
+        searchUninstallKeysByDisplayName: () => ["HKLM\\...\\Uninstall\\{G}"],
+        queryValue: (key: string, valueName: string) =>
+          key.includes("{G}") && valueName === "DisplayName"
+            ? "NuwaClaw"
+            : key.includes("{G}") && valueName === "UninstallString"
+              ? "MsiExec.exe /I{G}"
+              : null,
+      });
+      expect(mod.canAutoUpdate()).toBe(false);
+      mod._setRegistryAdapterForTest(null);
+    });
 
-      const { canAutoUpdate } = await importFresh();
-      expect(canAutoUpdate()).toBe(false);
+    it("解压态（无卸载程序 + 无注册表证据）应支持自动更新（2026-09-22 修复回归）", async () => {
+      mockWin32();
+      mockReaddirSync.mockReturnValue(["app.exe"]);
+      const mod = await importFresh();
+      mod._setRegistryAdapterForTest({
+        searchUninstallKeysByDisplayName: () => [],
+        queryValue: () => null,
+      });
+      expect(mod.canAutoUpdate()).toBe(true);
+      mod._setRegistryAdapterForTest(null);
     });
 
     it("macOS 应支持自动更新", async () => {
