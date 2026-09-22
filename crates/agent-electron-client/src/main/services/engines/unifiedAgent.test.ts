@@ -587,14 +587,16 @@ describe("UnifiedAgentService.getWorkspaceDirForProject — 终端精确 cwd", (
         "/workspace/current-project",
         {
           findSessionByProjectId: (id: string) =>
-            id === "1694106" ? { projectId: id } : null,
+            id === "1694106"
+              ? { projectId: id, cwd: "/workspace/current-project" }
+              : null,
         },
       ],
     ]);
     svc.engineConfigs = new Map([
       [
         "/workspace/current-project",
-        { workspaceDir: "/workspace/current-project" },
+        { workspaceDir: "/workspace" },
       ],
     ]);
 

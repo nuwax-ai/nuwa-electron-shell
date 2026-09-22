@@ -109,7 +109,7 @@ describe("resolveRouteCwd · 禅道 2526 回退链", () => {
     expect(initialCwdMock).not.toHaveBeenCalled();
   });
 
-  it("拼接目录为空（QA 场景）→ 回退 getTtydInitialCwd", () => {
+  it("无法匹配会话时回默认工作区，不回最近其他会话", () => {
     const projDir = path.join(
       baseWorkspace,
       "computer-project-workspace",
@@ -118,8 +118,8 @@ describe("resolveRouteCwd · 禅道 2526 回退链", () => {
     );
     fs.mkdirSync(projDir, { recursive: true }); // 存在但空
     const cwd = resolveRouteCwdWithBase(baseWorkspace, "1", "1694106-empty");
-    expect(cwd).toBe("/fallback/workspace");
-    expect(initialCwdMock).toHaveBeenCalled();
+    expect(cwd).toBe(baseWorkspace);
+    expect(initialCwdMock).not.toHaveBeenCalled();
   });
 
   it("拼接目录不存在（绝对路径轨道 / 云端会话）→ 回退 getTtydInitialCwd", () => {
