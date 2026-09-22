@@ -1,5 +1,6 @@
 import * as http from "http";
 import * as net from "net";
+import * as fs from "fs";
 import * as path from "path";
 import { randomBytes } from "crypto";
 import type { Duplex } from "stream";
@@ -10,6 +11,7 @@ import { readSetting } from "../../db";
 import { LOCALHOST_IP } from "../constants";
 import { agentService } from "../engines/unifiedAgent";
 import { resolveComputerProjectWorkspaceDir } from "../workspacePaths";
+import { getTtydInitialCwd } from "./ttydHelper";
 
 type GatewayStartOptions = {
   listenPort: number;
@@ -74,6 +76,45 @@ function hasExplicitCwdArg(params: URLSearchParams): boolean {
   return params.getAll("arg").includes("--cwd");
 }
 
+/**
+ * 目录是否为「可当工作区用」：存在、是目录、且有内容。
+ *
+ * 禅道 2526：URL 路径里的 projectId 是平台 conversationId，直接拼出的
+ * computer-project-workspace/<userId>/<projectId> 只在「标识符轨道且引擎已在本机跑过」
+ * 时是会话真实工作区；对云端沙箱会话 / 绝对路径轨道（web 端目录弹窗自选）会话，
+ * 该目录不存在或为空（ensureProjectWorkspace 建的空壳）。终端不应落进这种目录。
+ */
+export function isUsableWorkspaceDir(dir: string): boolean {
+  try {
+    if (!fs.statSync(dir).isDirectory()) return false;
+    return fs.readdirSync(dir).length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 终端路由 cwd 推导（导出供测试）：拼接目录可用则用之，
+ * 否则回退 getTtydInitialCwd()（最近活跃引擎工作区 → 配置工作区 → HOME；禅道 2526）。
+ */
+export function resolveRouteCwd(userId: string, projectId: string): string {
+  const resolved = resolveComputerProjectWorkspaceDir(
+    getBaseWorkspaceDir(),
+    userId,
+    projectId,
+  );
+  if (isUsableWorkspaceDir(resolved)) {
+    return resolved;
+  }
+  const fallback = getTtydInitialCwd();
+  if (fallback !== resolved) {
+    log.info(
+      `[ttydGateway] route cwd fallback: '${resolved}' unusable (missing/empty), using '${fallback}'`,
+    );
+  }
+  return fallback;
+}
+
 function parseTtydRoute(rawUrl: string | undefined): ParsedTtydRoute | null {
   const url = new URL(rawUrl || "/", `http://${LOCALHOST_IP}`);
   const segments = url.pathname.split("/").filter(Boolean);
@@ -92,11 +133,7 @@ function parseTtydRoute(rawUrl: string | undefined): ParsedTtydRoute | null {
   const rest = segments.slice(4).join("/");
   const targetPathname = `/${rest || ""}`;
   const params = url.searchParams;
-  const cwd = resolveComputerProjectWorkspaceDir(
-    getBaseWorkspaceDir(),
-    userId,
-    projectId,
-  );
+  const cwd = resolveRouteCwd(userId, projectId);
 
   if (targetPathname === "/ws" && !hasExplicitCwdArg(params)) {
     params.append("arg", "--cwd");
