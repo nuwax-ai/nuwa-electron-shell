@@ -286,6 +286,8 @@ export function getWindowsPowerShellPath(): string {
  *  1. 优先解析 ttyd -a flag 透传的 --cwd <dir> 参数（前端通过 URL query 传入）
  *  2. 若未传 --cwd，读取 ttyd-cwd 文件（ttyd 启动/刷新时写入）
  *  3. 校验目录存在后 cd，最终 exec 交互 shell（默认不加载用户 rc，避免覆盖内置 PATH）
+ *  4. exec 前保证 UTF-8 locale（禅道 2526：GUI 启动无 LANG + no-rc shell
+ *     导致中文输入逐字节乱码）
  *
  * 返回 wrapper 脚本路径；写出失败则返回 null（调用方降级为直接使用 login shell）。
  */
@@ -321,6 +323,21 @@ fi
 if [ -n "$_NUWAX_TARGET" ]; then
     cd "$_NUWAX_TARGET" || echo "[ttyd-wrapper] WARNING: cd to '$_NUWAX_TARGET' failed" >&2
 fi
+# 保证 UTF-8 locale（禅道 2526）：mac 从 GUI（Finder/Dock）启动的进程不继承登录 shell 的
+# LANG（launchd 环境无 locale），下方又以 no-rc 方式 exec 交互 shell（zsh -f 不读 .zshrc，
+# 没有任何环节补 locale），zsh 在非 UTF-8 locale 下按单字节处理行编辑输入——
+# 中文输入被逐字节显示为 <00XX> 乱码、cd 中文目录同样失败。
+# 已有 UTF-8 locale（LC_ALL/LC_CTYPE/LANG 任一）则不动；否则探测系统首个 UTF-8
+# locale，探测不到兜底 en_US.UTF-8（macOS 内建恒可用；Linux 侧 C.utf8 亦可命中探测）。
+case "\${LC_ALL:-\${LC_CTYPE:-\${LANG:-}}}" in
+    *UTF-8*|*utf8*|*utf-8*) ;;
+    *)
+        _NUWAX_UTF8_LOCALE="\$(locale -a 2>/dev/null | grep -iE '^(en_US|zh_CN)\\.utf-?8\$' | head -n 1)"
+        [ -z "\$_NUWAX_UTF8_LOCALE" ] && _NUWAX_UTF8_LOCALE="\$(locale -a 2>/dev/null | grep -iE '\\.utf-?8\$' | head -n 1)"
+        export LANG="\${_NUWAX_UTF8_LOCALE:-en_US.UTF-8}"
+        unset _NUWAX_UTF8_LOCALE
+        ;;
+esac
 # 加载应用内置环境（uv/pnpm/node/rg/nuwaxcode 等）；文件不存在时静默跳过。
 if [ -f "${envScriptPath}" ]; then
     # shellcheck disable=SC1090
