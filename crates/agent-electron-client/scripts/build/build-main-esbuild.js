@@ -104,6 +104,7 @@ esbuild
       'process.env.NUWAX_APP_IDENTIFIER': JSON.stringify(process.env.NUWAX_APP_IDENTIFIER ?? ''),
       'process.env.NUWAX_APP_DISPLAY_NAME': JSON.stringify(process.env.NUWAX_APP_DISPLAY_NAME ?? ''),
       'process.env.NUWAX_UPDATE_FEED_BASE': JSON.stringify(process.env.NUWAX_UPDATE_FEED_BASE ?? ''),
+      'process.env.NUWAX_DOWNLOAD_PAGE_URL': JSON.stringify(process.env.NUWAX_DOWNLOAD_PAGE_URL ?? ''),
       'process.env.NUWAX_PORT_OFFSET': JSON.stringify(process.env.NUWAX_PORT_OFFSET ?? '0'),
     },
     plugins: [resolvePlugin],
