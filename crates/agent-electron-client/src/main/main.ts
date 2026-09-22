@@ -962,6 +962,24 @@ app.on("activate", () => {
 
 let isCleaningUp = false;
 
+// SIGINT/SIGTERM（Ctrl+C、make dev 进程组 TERM）：转 app.quit() 走 before-quit
+// 完整清理链（引擎树/本地服务/CUA daemon/loopback）。裸信号退出会跳过该链并
+// 把子进程孤儿化——与 app.exit(0) 同类问题。第二次同信号强制 exit，防止卡清理。
+let signalQuitArmed = true;
+function quitOnSignal(signal: NodeJS.Signals): void {
+  if (!signalQuitArmed) {
+    // 128+signo：SIGINT=130，SIGTERM=143（避免 SIGTERM 也写死 130）
+    const exitCode = signal === "SIGTERM" ? 143 : 130;
+    log.warn(`[App] ${signal} during cleanup, force exit ${exitCode}`);
+    process.exit(exitCode);
+  }
+  signalQuitArmed = false;
+  log.info(`[App] ${signal} received, app.quit() for full cleanup`);
+  app.quit();
+}
+process.on("SIGINT", () => quitOnSignal("SIGINT"));
+process.on("SIGTERM", () => quitOnSignal("SIGTERM"));
+
 app.on("before-quit", (e) => {
   if (isCleaningUp) return;
   isCleaningUp = true;

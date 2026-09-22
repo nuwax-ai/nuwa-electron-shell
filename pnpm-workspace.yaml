@@ -8,8 +8,10 @@ packages:
 confirmModulesPurge: false
 
 allowBuilds:
+  '@nuwax-ai/nuwax-codex-acp-ts': true
   better-sqlite3: true
   electron: true
   esbuild: true
+  nuwax-codex: true
   protobufjs: true
   sharp: true

@@ -38,10 +38,7 @@ vi.mock("./ttydHelper", () => ({
   getTtydInitialCwd: () => initialCwdMock(),
 }));
 
-import {
-  isUsableWorkspaceDir,
-  resolveRouteCwd,
-} from "./ttydGateway";
+import { isUsableWorkspaceDir, resolveRouteCwd } from "./ttydGateway";
 import { agentService } from "../engines/unifiedAgent";
 
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ttyd-gw-cwd-"));
@@ -81,7 +78,12 @@ describe("isUsableWorkspaceDir", () => {
 
 describe("resolveRouteCwd · 禅道 2526 回退链", () => {
   it("拼接目录存在且非空 → 原样使用（存量行为不回归）", () => {
-    const projDir = path.join(baseWorkspace, "computer-project-workspace", "1", "1694106");
+    const projDir = path.join(
+      baseWorkspace,
+      "computer-project-workspace",
+      "1",
+      "1694106",
+    );
     fs.mkdirSync(projDir, { recursive: true });
     fs.writeFileSync(path.join(projDir, "README.md"), "content");
 
@@ -92,7 +94,12 @@ describe("resolveRouteCwd · 禅道 2526 回退链", () => {
   });
 
   it("拼接目录为空（QA 场景）→ 回退 getTtydInitialCwd", () => {
-    const projDir = path.join(baseWorkspace, "computer-project-workspace", "1", "1694106-empty");
+    const projDir = path.join(
+      baseWorkspace,
+      "computer-project-workspace",
+      "1",
+      "1694106-empty",
+    );
     fs.mkdirSync(projDir, { recursive: true }); // 存在但空
     const cwd = resolveRouteCwdWithBase(baseWorkspace, "1", "1694106-empty");
     expect(cwd).toBe("/fallback/workspace");
@@ -102,6 +109,38 @@ describe("resolveRouteCwd · 禅道 2526 回退链", () => {
 
   it("拼接目录不存在（绝对路径轨道 / 云端会话）→ 回退 getTtydInitialCwd", () => {
     const cwd = resolveRouteCwdWithBase(baseWorkspace, "1", "404404");
+    expect(cwd).toBe("/fallback/workspace");
+    initialCwdMock.mockClear();
+  });
+
+  it("userId 轨道不对（开发代理写死 local）→ 按 projectId 反查唯一工作区", () => {
+    const projDir = path.join(
+      baseWorkspace,
+      "computer-project-workspace",
+      "6",
+      "1694288",
+    );
+    fs.mkdirSync(projDir, { recursive: true });
+    fs.writeFileSync(path.join(projDir, "a.txt"), "x");
+
+    const cwd = resolveRouteCwdWithBase(baseWorkspace, "local", "1694288");
+    expect(cwd).toBe(projDir);
+    expect(initialCwdMock).not.toHaveBeenCalled();
+    initialCwdMock.mockClear();
+  });
+
+  it("projectId 反查多命中不猜 → 回退 getTtydInitialCwd", () => {
+    for (const uid of ["8", "9"]) {
+      const d = path.join(
+        baseWorkspace,
+        "computer-project-workspace",
+        uid,
+        "multi",
+      );
+      fs.mkdirSync(d, { recursive: true });
+      fs.writeFileSync(path.join(d, "a.txt"), "x");
+    }
+    const cwd = resolveRouteCwdWithBase(baseWorkspace, "local", "multi");
     expect(cwd).toBe("/fallback/workspace");
     initialCwdMock.mockClear();
   });

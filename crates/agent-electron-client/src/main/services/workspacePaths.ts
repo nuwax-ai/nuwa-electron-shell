@@ -1,3 +1,4 @@
+import * as fs from "fs";
 import * as path from "path";
 
 const COMPUTER_PROJECT_WORKSPACE_SEGMENT = "computer-project-workspace";
@@ -32,6 +33,36 @@ export function resolveComputerProjectWorkspaceDir(
   }
 
   return path.join(normalizedBase, ...suffixSegments);
+}
+
+/**
+ * 在 computer-project-workspace 下按 projectId 反查唯一可用工作区（userId 层任意）。
+ *
+ * 场景：终端路由的 userId 轨道不可信（开发代理写死 `local`、或云端会话 userId 与本机
+ * 落盘轨道不一致）时，精确拼接目录不存在；但引擎真实落盘是
+ * computer-project-workspace/{真实userId}/{projectId}。命中恰好一个非空目录则返回，
+ * 0 个或多个返回 null（多命中不猜，交由调用方走 fallback）。
+ */
+export function findProjectWorkspaceByProjectId(
+  baseWorkspaceDir: string,
+  projectId: string,
+  isUsable: (dir: string) => boolean,
+): string | null {
+  if (!projectId) return null;
+  const root = path.join(
+    path.normalize(baseWorkspaceDir),
+    COMPUTER_PROJECT_WORKSPACE_SEGMENT,
+  );
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(root);
+  } catch {
+    return null;
+  }
+  const hits = entries
+    .map((name) => path.join(root, name, projectId))
+    .filter((dir) => isUsable(dir));
+  return hits.length === 1 ? hits[0] : null;
 }
 
 // =============================================================================
