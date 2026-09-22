@@ -840,8 +840,8 @@ body {
 }
 
 /* ========== 加载页面（初始化/启动全屏大 loading）==========
- * 图标绝对定位钉在全窗口正中（flex 整组居中会把图标顶到中心上方），
- * spinner/文案/错误重试作为独立层放在图标正下方。 */
+ * 图标框绝对定位钉在全窗口正中（flex 整组居中会把图标顶到中心上方），
+ * 错误重试作为独立层放在图标正下方。 */
 .app-loading {
   position: relative;
   display: flex;
@@ -853,7 +853,18 @@ body {
   background: #f8f9fa;
 }
 
-.app-loading-icon {
+/* 覆盖模式：fixed 全窗盖在主界面（webview z-1000 / 工具栏 z-1100）之上，
+ * webview 首载期间保持图标动效，不让位于 guest 白屏/页内 loading。 */
+.app-loading--overlay {
+  position: fixed;
+  inset: 0;
+  height: auto;
+  width: auto;
+  z-index: 2000;
+}
+
+/* 图标框：圆角裁剪承载扫光高光带；投影落在框上（overflow:hidden 裁剪内部）。 */
+.app-loading-icon-frame {
   position: absolute;
   left: 50%;
   top: 50%;
@@ -861,26 +872,52 @@ body {
   width: 88px;
   height: 88px;
   border-radius: 20px;
+  overflow: hidden;
   /* macOS 风格柔和投影，衬托图标悬浮感 */
   filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.12));
   user-select: none;
+}
+
+.app-loading-icon-img {
+  display: block;
+  width: 100%;
+  height: 100%;
   -webkit-user-drag: none;
 }
 
-/* 启动等待态：图标自身呼吸缩放表达加载（替代 icon 下方转圈 Spin）。
- * 关键帧须携带定位 transform（translate(-50%,-50%)），否则动画会覆盖居中。 */
-@keyframes app-loading-breathe {
-  0%,
-  100% {
-    transform: translate(-50%, -50%) scale(1);
+/* 扫光动效：光条自左向右斜扫过图标（单次约 0.9s，周期 2.6s 含停顿），
+ * 仅在 logo 白色字形区显形（见 .app-loading-icon-sheen 的亮度 mask）；
+ * 替代旧呼吸缩放（app-loading-breathe）。 */
+@keyframes app-loading-sheen {
+  0% {
+    transform: translateX(-120%);
   }
-  50% {
-    transform: translate(-50%, -50%) scale(1.08);
+  35% {
+    transform: translateX(120%);
+  }
+  100% {
+    transform: translateX(120%);
   }
 }
 
-.app-loading-icon--pulse {
-  animation: app-loading-breathe 1.6s ease-in-out infinite;
+.app-loading-icon-sheen {
+  position: absolute;
+  inset: 0;
+  /* 光条加宽 30%→70%（对比初版 42%→58% 约 2.5 倍）；灰色在白字形上形成
+     光泽扫过，mask（行内按 icon 亮度）保证只作用于 logo 白色区。 */
+  background: linear-gradient(
+    105deg,
+    transparent 30%,
+    rgba(0, 0, 0, 0.22) 50%,
+    transparent 70%
+  );
+  mask-size: 100% 100%;
+  -webkit-mask-size: 100% 100%;
+  mask-repeat: no-repeat;
+  -webkit-mask-repeat: no-repeat;
+  transform: translateX(-120%);
+  animation: app-loading-sheen 2.6s ease-in-out infinite;
+  pointer-events: none;
 }
 
 /* 图标下方辅助层：top = 中心 + 图标半高(44) + 间距(24) */

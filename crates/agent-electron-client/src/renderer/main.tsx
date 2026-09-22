@@ -10,6 +10,7 @@ import App from "./App";
 import i18n, { initSupportedLangs } from "./services/i18n"; // 初始化 i18next（自动检测浏览器语言）
 import { initI18n, getCurrentLang } from "./services/core/i18n"; // 初始化自定义 i18n 服务
 import { rootTheme } from "./styles/theme";
+import { AppIconLoading } from "./components/AppIconLoading";
 import "./index.css";
 
 // i18n 就绪标志（模块级别，由 initI18n 设置）
@@ -72,20 +73,6 @@ function toHtmlLang(lang: string): string {
   return "en-US";
 }
 
-function resolveBootLoadingText(): string {
-  // 启动早期优先使用本地已知语言（缓存/current i18n/browser），未命中统一回退英文。
-  const candidates = [
-    getCurrentLang(),
-    i18n.language,
-    typeof navigator !== "undefined" ? navigator.language : "",
-  ];
-  const lang = String(candidates.find((v) => v) || "en-US").toLowerCase();
-
-  if (lang.startsWith("zh-tw") || lang.startsWith("zh-hk")) return "載入中...";
-  if (lang.startsWith("zh")) return "加载中...";
-  return "Loading...";
-}
-
 function Main() {
   const splashFloorMet = useSplashFloor();
   const [antdLocale, setAntdLocale] = useState(zhCN);
@@ -118,21 +105,12 @@ function Main() {
   }, []);
 
   // i18n 未就绪时显示加载状态（所有 hooks 已经在上面执行完毕）。
-  // 与 App 内加载分支保持同一视觉（图标 + Spin + 文案），避免启动早期出现
-  // 「先无图标、后带图标」的跳变。
+  // 与 App 内加载分支共用 AppIconLoading（图标扫光动效，等待态不出文案），
+  // 避免启动早期出现「先无图标、后带图标」的跳变。
   if (!ready || !splashFloorMet) {
     return (
       <ConfigProvider locale={zhCN}>
-        <div className="app-loading">
-          <img
-            src="./icon.png"
-            alt=""
-            className="app-loading-icon app-loading-icon--pulse"
-          />
-          <div className="app-loading-body">
-            <div className="app-loading-text">{resolveBootLoadingText()}</div>
-          </div>
-        </div>
+        <AppIconLoading />
       </ConfigProvider>
     );
   }

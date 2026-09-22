@@ -7,6 +7,7 @@ import {
   dialog,
   ipcMain,
   nativeImage,
+  nativeTheme,
   session,
   webContents,
 } from "electron";
@@ -236,6 +237,9 @@ function createWindow() {
     minHeight: DEFAULT_WINDOW_MIN_HEIGHT,
     title: APP_DISPLAY_NAME,
     icon: getIconPath(),
+    // 首帧底色对齐 .app-loading（index.css --color-bg-layout 两态值），
+    // 消除窗口显示瞬间白→浅灰的色跳。
+    backgroundColor: nativeTheme.shouldUseDarkColors ? "#09090b" : "#f8f9fa",
     // 沉浸式无边框：隐藏原生系统标题栏，让 nuwax 内容顶到窗口上沿。
     // mac 保留原生红绿灯（悬浮于内容之上）；Win/Linux 完全无边框，由 renderer 自绘窗口控制按钮。
     ...(process.platform === "darwin"
@@ -490,13 +494,23 @@ function createMenu() {
         submenu: [
           // 本版 Electron 类型不含 back/forward role，显式 click 作用于焦点
           // webContents（webview guest 聚焦时即 guest），与 Win/Linux 自绘
-          // 「窗口(W)」菜单对齐
+          // 「窗口(W)」菜单对齐。goBack/goForward 在 webview guest 加载回环
+          // 网关 origin（http://127.0.0.1:46800）时失明（Electron 40 实证，
+          // bug 2432），改经 navigationHistory 真值 goToIndex（索引计算避开
+          // 同一失明路径）。
           {
             label: "后退",
             accelerator: "CmdOrCtrl+[",
             click: () => {
               const wc = webContents.getFocusedWebContents();
-              if (wc && !wc.isDestroyed()) wc.goBack();
+              if (!wc || wc.isDestroyed()) return;
+              try {
+                const h = wc.navigationHistory;
+                const active = h.getActiveIndex();
+                if (active > 0) h.goToIndex(active - 1);
+              } catch {
+                wc.goBack();
+              }
             },
           },
           {
@@ -504,7 +518,15 @@ function createMenu() {
             accelerator: "CmdOrCtrl+]",
             click: () => {
               const wc = webContents.getFocusedWebContents();
-              if (wc && !wc.isDestroyed()) wc.goForward();
+              if (!wc || wc.isDestroyed()) return;
+              try {
+                const h = wc.navigationHistory;
+                const active = h.getActiveIndex();
+                if (active < h.getAllEntries().length - 1)
+                  h.goToIndex(active + 1);
+              } catch {
+                wc.goForward();
+              }
             },
           },
           { type: "separator" },
