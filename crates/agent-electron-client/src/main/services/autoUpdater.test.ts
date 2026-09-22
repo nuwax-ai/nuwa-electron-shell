@@ -287,6 +287,18 @@ describe("autoUpdater - getInstallerType & canAutoUpdate", () => {
       expect(mod.getInstallerType()).toBe("nsis");
     });
 
+    it("注册表 DisplayName 带版本后缀（win-pc 真机形态 'Nuwax 1.0.24'）且 msiexec 应判 MSI", async () => {
+      mockReaddirSync.mockReturnValue(["app.exe"]);
+      const mod = await importFresh();
+      stubRegistry(mod, ["HKLM\\...\\Uninstall\\{GUID}"], {
+        "HKLM\\...\\Uninstall\\{GUID}": {
+          DisplayName: "NuwaClaw 1.0.24",
+          UninstallString: "MsiExec.exe /I{GUID}",
+        },
+      });
+      expect(mod.getInstallerType()).toBe("msi");
+    });
+
     it("注册表 DisplayName 子串命中他款产品（非精确匹配）不算 MSI", async () => {
       mockReaddirSync.mockReturnValue(["app.exe"]);
       const mod = await importFresh();
@@ -299,12 +311,12 @@ describe("autoUpdater - getInstallerType & canAutoUpdate", () => {
       expect(mod.getInstallerType()).toBe("nsis");
     });
 
-    it("注册表命中但 UninstallString 非 msiexec（NSIS 键）不算 MSI", async () => {
+    it("注册表命中但 UninstallString 非 msiexec（win-pc 真机 NSIS 键，tar 部署丢了卸载文件）不算 MSI", async () => {
       mockReaddirSync.mockReturnValue(["app.exe"]);
       const mod = await importFresh();
       stubRegistry(mod, ["HKCU\\...\\Uninstall\\Nuwax"], {
         "HKCU\\...\\Uninstall\\Nuwax": {
-          DisplayName: "NuwaClaw",
+          DisplayName: "NuwaClaw 1.0.24",
           UninstallString:
             '"C:\\Users\\user\\AppData\\Local\\Programs\\NuwaClaw\\Uninstall NuwaClaw.exe" /currentuser',
         },

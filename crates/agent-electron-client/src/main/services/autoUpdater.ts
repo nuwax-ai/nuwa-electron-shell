@@ -211,15 +211,18 @@ export function _setRegistryAdapterForTest(
 
 /**
  * 在 Windows 注册表中寻找本产品的真 MSI 卸载项：
- * DisplayName 精确等于 productName 且 UninstallString 含 msiexec。
- * 返回命中的键路径（证据），无则 null。
+ * DisplayName 为 productName 或「productName + 空格 + 版本」（electron-builder
+ * NSIS/MSI 的 uninstallDisplayName 模板带版本后缀，win-pc 真机实证
+ * "Nuwax 1.0.24"）且 UninstallString 含 msiexec。返回命中的键路径,无则 null。
  */
 function findMsiUninstallKey(productName: string): string | null {
   const candidates =
     registryAdapter.searchUninstallKeysByDisplayName(productName);
   for (const key of candidates) {
     const display = registryAdapter.queryValue(key, "DisplayName");
-    if (display !== productName) continue;
+    if (display !== productName && !display.startsWith(productName + " ")) {
+      continue;
+    }
     const uninstall = registryAdapter.queryValue(key, "UninstallString");
     if (uninstall && /msiexec/i.test(uninstall)) {
       return key;
