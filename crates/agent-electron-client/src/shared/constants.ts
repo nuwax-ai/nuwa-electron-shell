@@ -124,15 +124,6 @@ export const DEFAULT_SERVER_HOST = "https://agent.nuwax.com";
 /** 测试环境预置域（回环形态「测试环境」下拉项对应的后端）。 */
 export const TEST_SERVER_HOST = "https://testagent.xspaceagi.com";
 
-/**
- * 开发联调时 webview 加载的本地 nuwax dev server（唯一事实源）。
- * renderer 的 webview URL 解析（NuwaxHostWebview，import.meta.env.DEV 分支）
- * 与主进程的 token 准入名单（nuwaxBridgeHandlers 的 auth:getToken，app.isPackaged
- * 守卫）共用——两侧不同源会出现「webview 在 dev origin、token 准入不认」的
- * 静默断链（getToken 零日志 return null，登录态进不了壳）。
- */
-export const NUWAX_DEV_HOST = "http://localhost:3000";
-
 // ==================== AI 默认配置 ====================
 
 /** 默认 Agent 引擎类型 */
@@ -235,6 +226,19 @@ export const DEPS_SYNC_TIMEOUT = 120_000;
  * 2026-09-12 用户拍板 3s（暂定值，仅改此常量即可调整）。
  */
 export const MIN_SPLASH_MS = 3000;
+
+/**
+ * webview 首载覆盖层：guest 加载停止后的追加覆盖时长 (ms)。
+ * 覆盖 webview 内前端自身的 loading 全程（JS 启动 ~0.2-1s + authWithLoading
+ * 最少 500ms + 用户信息请求 ~0.3-2s），保证用户全程只见壳层图标扫光动效，
+ * 不露出页内「加载中」——统一入口在壳层，不在 webview 侧另做一套。
+ */
+export const WEBVIEW_COVER_GRACE_MS = 3500;
+
+/**
+ * webview 首载覆盖层硬上限 (ms)：自加载起超过此时长必掀开，防 webview 长加载永挂。
+ */
+export const MAX_LOADING_OVERLAY_MS = 12_000;
 
 /**
  * 启动早期 IPC 探询超时 (ms)。

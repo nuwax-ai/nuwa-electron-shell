@@ -19,15 +19,12 @@ import React, {
   useImperativeHandle,
   forwardRef,
 } from "react";
-import {
-  APP_DISPLAY_NAME,
-  DEFAULT_SERVER_HOST,
-  NUWAX_DEV_HOST,
-} from "@shared/constants";
-import { Spin } from "antd";
+import { APP_DISPLAY_NAME, DEFAULT_SERVER_HOST } from "@shared/constants";
 import { normalizeServerHost } from "../../services/core/auth";
 import { buildHomeUrl } from "../../services/utils/sessionUrl";
 import { logger } from "../../services/utils/logService";
+import type { GuestLoadPhase } from "../../bootTiming";
+import { AppIconLoading } from "../AppIconLoading";
 
 /** 暴露给 App.tsx 的 webview 控制句柄（工具栏 icon 经此调用）。 */
 export interface NuwaxHostWebviewHandle {
@@ -52,13 +49,20 @@ export interface NuwaxHostWebviewProps {
   }) => void;
   /** guest 顶层导航开始时清除旧页面上报的拖拽矩形。 */
   onNavigationStart?: () => void;
+  /** guest 加载阶段上报（resolving/loading/stopped），供 App 首载覆盖层计时。 */
+  onGuestLoadStateChange?: (phase: GuestLoadPhase) => void;
 }
 
 const NuwaxHostWebview = forwardRef<
   NuwaxHostWebviewHandle,
   NuwaxHostWebviewProps
 >(function NuwaxHostWebview(
-  { reloadKey = 0, onNavStateChange, onNavigationStart },
+  {
+    reloadKey = 0,
+    onNavStateChange,
+    onNavigationStart,
+    onGuestLoadStateChange,
+  },
   ref,
 ) {
   const [url, setUrl] = useState("");
@@ -134,6 +138,8 @@ const NuwaxHostWebview = forwardRef<
   }, []);
   useEffect(() => {
     let cancelled = false;
+    // URL 重解析开始（启动/域名形态切换）：上报 resolving，App 覆盖层重新兜盖。
+    onGuestLoadStateChange?.("resolving");
     (async () => {
       try {
         const step1 = (await window.electronAPI?.settings.get(
@@ -151,17 +157,14 @@ const NuwaxHostWebview = forwardRef<
         const override = (await window.electronAPI?.settings.get(
           "nuwax.webviewOverride",
         )) as { origin?: string | null } | null;
-        // 开发联调（vite dev）：优先加载本地 nuwax dev server(localhost:3000)；
-        // 生产加载 step1_config.serverHost / DEFAULT_SERVER_HOST。
+        // 直连形态（gateway 未启用）dev 与生产同源：加载 step1_config.serverHost /
+        // DEFAULT_SERVER_HOST——不再例外指本地 vite（localhost:3000）；前端本地
+        // 联调时用 NUWAX_WEBVIEW_ORIGIN 显式覆盖（优先级最高，不受本解析影响）。
         const rawHost = override?.origin
           ? override.origin
-          : import.meta.env.DEV
-            ? loopback?.enabled && loopback.origin
-              ? loopback.origin
-              : NUWAX_DEV_HOST
-            : loopback?.enabled && loopback.origin
-              ? loopback.origin
-              : step1?.serverHost || DEFAULT_SERVER_HOST;
+          : loopback?.enabled && loopback.origin
+            ? loopback.origin
+            : step1?.serverHost || DEFAULT_SERVER_HOST;
         const domain = normalizeServerHost(rawHost);
         const finalUrl = buildHomeUrl(domain);
         logger.info(
@@ -192,6 +195,8 @@ const NuwaxHostWebview = forwardRef<
   }, [url === ""]);
 
   // 绑定 webview 导航事件，上报 canGoBack/canGoForward（供工具栏按钮启用态）
+  // 与加载阶段（did-start/did-stop-loading 为整载周期，覆盖子资源；did-fail-load
+  // 视同停止，让覆盖层在失败时也能掀开）。
   useEffect(() => {
     const wv = webviewRef.current as any;
     if (!wv?.addEventListener) return;
@@ -201,17 +206,25 @@ const NuwaxHostWebview = forwardRef<
         canGoForward: !!wv.canGoForward?.(),
       });
     const clearTitlebarRegions = () => onNavigationStart?.();
+    const notifyLoading = () => onGuestLoadStateChange?.("loading");
+    const notifyStopped = () => onGuestLoadStateChange?.("stopped");
     wv.addEventListener("dom-ready", sync);
     wv.addEventListener("did-start-navigation", clearTitlebarRegions);
     wv.addEventListener("did-navigate", sync);
     wv.addEventListener("did-navigate-in-page", sync);
+    wv.addEventListener("did-start-loading", notifyLoading);
+    wv.addEventListener("did-stop-loading", notifyStopped);
+    wv.addEventListener("did-fail-load", notifyStopped);
     return () => {
       wv.removeEventListener?.("dom-ready", sync);
       wv.removeEventListener?.("did-start-navigation", clearTitlebarRegions);
       wv.removeEventListener?.("did-navigate", sync);
       wv.removeEventListener?.("did-navigate-in-page", sync);
+      wv.removeEventListener?.("did-start-loading", notifyLoading);
+      wv.removeEventListener?.("did-stop-loading", notifyStopped);
+      wv.removeEventListener?.("did-fail-load", notifyStopped);
     };
-  }, [url, onNavStateChange, onNavigationStart]);
+  }, [url, onNavStateChange, onNavigationStart, onGuestLoadStateChange]);
 
   // 外部 reloadKey 变化时重载 webview（兼容旧刷新入口）
   useEffect(() => {
@@ -244,13 +257,8 @@ const NuwaxHostWebview = forwardRef<
       }}
     >
       {/* URL 重解析期（启动/企业切换域名瞬间）webview 尚无 src——以应用图标
-          居中兜底，避免空白闪烁。 */}
-      {!url && (
-        <div className="app-loading">
-          <img src="./icon.png" alt="" className="app-loading-icon" />
-          <Spin size="large" />
-        </div>
-      )}
+          扫光动效兜底，与全局加载视觉统一。 */}
+      {!url && <AppIconLoading />}
       <webview
         ref={webviewRef as any}
         src={url}

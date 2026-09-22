@@ -53,7 +53,11 @@ import {
   MIN_SPLASH_MS,
   normalizeAgentEngine,
 } from "@shared/constants";
-import { useSplashFloor } from "./bootTiming";
+import {
+  useSplashFloor,
+  useLoadingCover,
+  type GuestLoadPhase,
+} from "./bootTiming";
 import type { QuickInitConfig } from "@shared/types/quickInit";
 import type { UpdateState } from "@shared/types/updateTypes";
 import type { TitlebarDragRegion } from "@shared/types/webview";
@@ -66,6 +70,7 @@ import {
 import { getNuwaxAccessTokenKey } from "@shared/utils/domain";
 import { TITLEBAR_EMPTY_GRACE_MS } from "@shared/utils/titlebarDragRegions";
 import SetupDependencies from "./components/setup/SetupDependencies";
+import { AppIconLoading } from "./components/AppIconLoading";
 import ClientPage from "./components/pages/ClientPage";
 import SettingsPage from "./components/pages/SettingsPage";
 import DependenciesPage from "./components/pages/DependenciesPage";
@@ -443,6 +448,22 @@ function App() {
   >(null);
   /** 主进程初始化依赖同步是否仍在进行（客户端升级后后台安装新版本依赖） */
   const [depsSyncInProgress, setDepsSyncInProgress] = useState<boolean>(false);
+
+  // webview 首载覆盖层：图标动效盖住 guest 白屏/页内 loading，加载停止后再盖
+  // WEBVIEW_COVER_GRACE_MS 宽限（尽量盖住前端 authWithLoading 尾段），超
+  // MAX_LOADING_OVERLAY_MS 硬上限兜底掀开。
+  const [guestLoadPhase, setGuestLoadPhase] =
+    useState<GuestLoadPhase>("resolving");
+  // 主界面成立条件与下方各早退分支互补——仅主界面期间计时，避免启动 splash
+  // 阶段吃掉上限额度。
+  const mainUiActive =
+    !bootError &&
+    splashFloorMet &&
+    isSetupComplete !== null &&
+    (!isSetupComplete || needsRequiredDepsReinstall !== null) &&
+    needsRequiredDepsReinstall !== true &&
+    servicesGate?.ok === true;
+  const loadingCovered = useLoadingCover(mainUiActive, guestLoadPhase);
 
   // 启动日志：便于快速确认渲染进程 feature flags 是否生效
   useEffect(() => {
@@ -1762,16 +1783,8 @@ function App() {
     return (
       <I18nContext.Provider value={i18nContextValue}>
         <ConfigProvider theme={currentTheme}>
-          <div className="app-loading">
-            <img
-              src="./icon.png"
-              alt=""
-              className="app-loading-icon app-loading-icon--pulse"
-            />
-            <div className="app-loading-body">
-              <div className="app-loading-text">{t("Claw.App.Loading")}</div>
-            </div>
-          </div>
+          {/* 等待态不出文案：加载语义由图标扫光动效表达 */}
+          <AppIconLoading />
         </ConfigProvider>
       </I18nContext.Provider>
     );
@@ -1812,48 +1825,36 @@ function App() {
     return (
       <I18nContext.Provider value={i18nContextValue}>
         <ConfigProvider theme={currentTheme}>
-          <div className="app-loading">
-            <img
-              src="./icon.png"
-              alt=""
-              className={
-                servicesGate && !servicesGate.ok
-                  ? "app-loading-icon"
-                  : "app-loading-icon app-loading-icon--pulse"
-              }
-            />
-            <div className="app-loading-body">
-              {servicesGate && !servicesGate.ok ? (
-                <>
-                  <div
-                    className="app-loading-text"
-                    style={{ fontSize: 16, fontWeight: 600 }}
-                  >
-                    本地服务启动失败
-                  </div>
-                  <div
-                    className="app-loading-text"
-                    style={{ maxWidth: 420, textAlign: "center", marginTop: 8 }}
-                  >
-                    未就绪：{(servicesGate.detail ?? []).join("、")}
-                  </div>
-                  <Button
-                    type="primary"
-                    style={{ marginTop: 16 }}
-                    onClick={() => {
-                      setServicesGate(null);
-                      void window.electronAPI?.services?.waitForReady();
-                    }}
-                  >
-                    重试
-                  </Button>
-                </>
-              ) : // 等待态不出文案：加载语义由图标自身的呼吸动效
-              //（app-loading-icon--pulse）表达，启动瞬间只见品牌图标。
-              // 失败态仍保留标题/未就绪明细/重试按钮。
-              null}
-            </div>
-          </div>
+          {/* 等待态不出文案：加载语义由图标扫光动效表达，启动瞬间只见品牌图标。
+              失败态静止图标 + 标题/未就绪明细/重试按钮。 */}
+          <AppIconLoading animated={!servicesGateFailed}>
+            {servicesGateFailed ? (
+              <>
+                <div
+                  className="app-loading-text"
+                  style={{ fontSize: 16, fontWeight: 600 }}
+                >
+                  本地服务启动失败
+                </div>
+                <div
+                  className="app-loading-text"
+                  style={{ maxWidth: 420, textAlign: "center", marginTop: 8 }}
+                >
+                  未就绪：{(servicesGate.detail ?? []).join("、")}
+                </div>
+                <Button
+                  type="primary"
+                  style={{ marginTop: 16 }}
+                  onClick={() => {
+                    setServicesGate(null);
+                    void window.electronAPI?.services?.waitForReady();
+                  }}
+                >
+                  重试
+                </Button>
+              </>
+            ) : null}
+          </AppIconLoading>
         </ConfigProvider>
       </I18nContext.Provider>
     );
@@ -1869,6 +1870,9 @@ function App() {
           value={{ themeMode, isDarkMode, setThemeMode: handleSetThemeMode }}
         >
           <div className="app-container">
+            {/* webview 首载覆盖层：图标扫光动效盖住 guest 白屏/页内 loading，
+                加载停止 + 宽限（或硬上限）后掀开，见 useLoadingCover。 */}
+            {loadingCovered && <AppIconLoading overlay />}
             {/* 顶部栏：Logo + 模式切换 + 浏览器刷新 + 用户状态 + 升级提示 */}
             {/* 顶栏撤除：沉浸式 webview 顶到窗口上沿。原顶栏的 Segmented 模式切换与账号登录态
                 移除；新版本更新入口迁入工具栏 updateEntry（Agent 运行状态不再展示）；
@@ -2054,6 +2058,7 @@ function App() {
                     reloadKey={browserOpenKey}
                     onNavStateChange={handleNavStateChange}
                     onNavigationStart={handleGuestNavigationStart}
+                    onGuestLoadStateChange={setGuestLoadPhase}
                   />
                 </div>
               </div>

@@ -4,7 +4,7 @@
  * 流程:
  * 1. checking → 检测所有依赖
  * 2. 若 uv 不满足 → system-deps-missing → 提示手动安装 + 刷新
- * 3. 若 npm 包缺失 → installing → 自动安装 + 进度
+ * 3. 若 npm 包缺失 → installing → 自动安装（展示统一为应用图标扫光动效，不出进度文案）
  * 4. 所有依赖就绪 → completed → 自动进入下一步
  *
  * 与 Tauri 版的差异:
@@ -14,7 +14,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { Button, Progress, Alert, Spin } from "antd";
+import { Button, Alert } from "antd";
 import {
   CheckCircleOutlined,
   CloseCircleOutlined,
@@ -24,8 +24,8 @@ import {
   LinkOutlined,
 } from "@ant-design/icons";
 import type { LocalDependencyItem } from "@shared/types/electron";
-import { I18N_KEYS } from "@shared/constants";
 import { t } from "../../services/core/i18n";
+import { AppIconLoading } from "../AppIconLoading";
 
 export type InstallPhase =
   | "checking"
@@ -92,8 +92,6 @@ export default function SetupDependencies({
     DisplayDependencyItem[]
   >([]);
   const [installPhase, setInstallPhase] = useState<InstallPhase>("checking");
-  const [installProgress, setInstallProgress] = useState(0);
-  const [currentInstalling, setCurrentInstalling] = useState<string>("");
   const [installError, setInstallError] = useState<string>("");
   const [showAll, setShowAll] = useState(true);
   /** 初始化安装检查时显式确认 uv 的结果，用于在界面展示「浏览器确认有 uv」 */
@@ -236,7 +234,6 @@ export default function SetupDependencies({
       return;
 
     projectInstallTriggered.current = true;
-    setInstallProgress(0);
     setInstallError("");
 
     const runInstall = async () => {
@@ -280,7 +277,6 @@ export default function SetupDependencies({
 
       const total = toInstall.length;
       if (total === 0) {
-        setInstallProgress(100);
         setInstallPhase("completed");
         setTimeout(() => onCompleteRef.current(), 1500);
         return;
@@ -288,9 +284,6 @@ export default function SetupDependencies({
 
       for (let i = 0; i < toInstall.length; i++) {
         const pkg = toInstall[i];
-        setCurrentInstalling(pkg.displayName);
-        setInstallProgress(Math.round((i / total) * 100));
-
         setAllDependencies((prev) =>
           prev.map((d) =>
             d.name === pkg.name ? { ...d, status: "installing" as const } : d,
@@ -361,7 +354,6 @@ export default function SetupDependencies({
         }
       }
 
-      setInstallProgress(100);
       setInstallPhase("completed");
       setTimeout(() => onCompleteRef.current(), 1500);
     };
@@ -580,61 +572,10 @@ export default function SetupDependencies({
   const isErrorPhase =
     installPhase === "system-deps-missing" || installPhase === "error";
 
-  // 正常自动流程：只显示 loading + 状态文字
+  // 正常自动流程（checking/installing/completed）：展示统一为应用图标扫光动效，
+  // 与启动 loading 保持同一视觉；不出状态文案/进度条，加载语义由动效表达。
   if (!isErrorPhase) {
-    const hasOutdated = allDependencies.some((d) => d.status === "outdated");
-    const installVerb = hasOutdated
-      ? t("Claw.Dependencies.installAndUpgrade")
-      : t("Claw.Dependencies.install");
-    const phaseText: Record<string, string> = {
-      checking: t("Claw.Dependencies.checkingEnv"),
-      installing: currentInstalling
-        ? t("Claw.Dependencies.installingDep", {
-            pkg: currentInstalling,
-            verb: installVerb,
-          })
-        : t("Claw.Dependencies.installingAllDep", { verb: installVerb }),
-      completed: t(I18N_KEYS.Components.Action.ALL_READY),
-    };
-
-    return (
-      <div>
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            gap: 16,
-            padding: "40px 16px",
-          }}
-        >
-          {installPhase === "completed" ? (
-            <CheckCircleOutlined
-              style={{ fontSize: 40, color: "var(--color-success)" }}
-            />
-          ) : (
-            <Spin size="large" />
-          )}
-          <div style={{ fontSize: 14, fontWeight: 500 }}>
-            {phaseText[installPhase] || t(I18N_KEYS.Components.Action.STARTING)}
-          </div>
-          {installPhase === "installing" && (
-            <div style={{ width: "100%", maxWidth: 300 }}>
-              <Progress
-                size="small"
-                percent={installProgress}
-                status="active"
-              />
-            </div>
-          )}
-          {installPhase === "completed" && (
-            <div style={{ fontSize: 12, color: "var(--color-text-tertiary)" }}>
-              {t("Claw.Dependencies.enteringNextStep")}
-            </div>
-          )}
-        </div>
-      </div>
-    );
+    return <AppIconLoading />;
   }
 
   // ========== 错误/需要用户介入的阶段 ==========
