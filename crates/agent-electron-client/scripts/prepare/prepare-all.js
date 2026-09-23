@@ -182,7 +182,6 @@ async function main() {
     'prepare:mcp-proxy',
     'prepare:sandboxed-mcp',
     'prepare:nuwaxcode',
-    'prepare:codex-acp',
     'prepare:codex-acp-ts',
     'prepare:sandbox-helper-win',
     'prepare:sandbox-runtime',
