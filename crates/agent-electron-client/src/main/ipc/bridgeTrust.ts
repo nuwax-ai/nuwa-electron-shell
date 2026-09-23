@@ -18,8 +18,10 @@ export function businessBridgeOrigins(): string[] {
   const step1 = readSetting("step1_config") as { serverHost?: string } | null;
   const loopback = readSetting("nuwax.loopback") as { enabled?: boolean; origin?: string } | null;
   const override = readSetting("nuwax.webviewOverride") as { origin?: string } | null;
+  const businessHost = step1?.serverHost || DEFAULT_SERVER_HOST;
   return [...new Set([
-    httpOrigin(step1?.serverHost || DEFAULT_SERVER_HOST),
+    // Settings accepts a hostname without a scheme and treats it as HTTPS.
+    httpOrigin(/^https?:\/\//i.test(businessHost) ? businessHost : `https://${businessHost}`),
     loopback?.enabled ? httpOrigin(loopback.origin) : null,
     httpOrigin(override?.origin),
   ].filter((origin): origin is string => origin !== null))];

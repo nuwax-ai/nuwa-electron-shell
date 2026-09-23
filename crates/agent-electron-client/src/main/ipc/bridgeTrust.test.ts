@@ -42,6 +42,12 @@ describe("business bridge origin policy", () => {
     expect(shouldInjectWebviewPerfBridge("file:///tmp/x", "nuwaclaw")).toBe(false);
   });
 
+  it("accepts a configured hostname with the same HTTPS default as the business session", () => {
+    settings.set("step1_config", { serverHost: "business.example" });
+    expect(businessBridgeOrigins()).toEqual([business, gateway]);
+    expect(shouldInjectWebviewPerfBridge(`${business}/home`, "nuwax")).toBe(true);
+  });
+
   it("checks current frame and top origin after navigation", () => {
     expect(isBusinessBridgeSender(event(gateway, gateway))).toBe(true);
     expect(isBusinessBridgeSender(event(gateway, external))).toBe(false);
