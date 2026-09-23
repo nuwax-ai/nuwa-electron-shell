@@ -39,7 +39,6 @@
     "prepare:sandboxed-mcp": "node scripts/prepare/prepare-sandboxed-mcp.js",
     "verify:sandboxed-mcp": "node scripts/verify-sandboxed-mcp-bundle.mjs",
     "prepare:nuwaxcode": "node scripts/prepare/prepare-nuwaxcode.js",
-    "prepare:codex-acp": "node scripts/prepare/prepare-codex-acp.js",
     "prepare:codex-acp-ts": "node scripts/prepare/prepare-codex-acp-ts.js",
     "prepare:sandbox-runtime": "node scripts/prepare/prepare-sandbox-runtime.js",
     "build:sandbox-helper": "node scripts/prepare/build-sandbox-helper.js",
@@ -320,15 +319,6 @@
         "filter": [
           "**/*",
           "!**/node_modules/.bin/**"
-        ]
-      },
-      {
-        "from": "resources/codex-acp",
-        "to": "codex-acp",
-        "filter": [
-          "**/*",
-          "!*.cache",
-          "!.cache/**"
         ]
       }
     ],
