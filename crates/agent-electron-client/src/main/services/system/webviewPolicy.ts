@@ -8,14 +8,18 @@
  */
 
 import { app, session as electronSession, BrowserWindow } from "electron";
-import type { HandlerDetails, BrowserWindowConstructorOptions } from "electron";
+import type { HandlerDetails, BrowserWindowConstructorOptions, WebContents } from "electron";
+import { randomUUID } from "crypto";
+import * as path from "path";
 import log from "electron-log";
 import {
+  APP_NAME_IDENTIFIER,
   WEBVIEW_POPUP_BASE_WIDTH,
   WEBVIEW_POPUP_BASE_HEIGHT,
   WEBVIEW_POPUP_MIN_WIDTH,
   WEBVIEW_POPUP_MIN_HEIGHT,
 } from "@shared/constants";
+import { businessBridgeOrigins } from "../../ipc/bridgeTrust";
 
 // ---------- 权限白名单 ----------
 
@@ -67,8 +71,13 @@ function setupSpellCheck(): void {
 
 // ---------- window.open ----------
 
-function isHttpUrl(url: string): boolean {
-  return url.startsWith("http:") || url.startsWith("https:");
+function parseHttpUrl(value: string | undefined): URL | null {
+  try {
+    const url = new URL(value || "");
+    return url.protocol === "http:" || url.protocol === "https:" ? url : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -113,38 +122,65 @@ function resolveWebviewPopupSize(features: string): {
 /** 应用内 http(s) 弹窗的 BrowserWindow 配置 */
 function buildPopupWindowOptions(
   features: string,
+  trustedBusiness: boolean,
 ): BrowserWindowConstructorOptions {
   const { width, height } = resolveWebviewPopupSize(features);
+  const webPreferences: NonNullable<BrowserWindowConstructorOptions["webPreferences"]> = {
+    contextIsolation: true,
+    nodeIntegration: false,
+    sandbox: true,
+    spellcheck: false,
+  };
+  if (APP_NAME_IDENTIFIER === "nuwax") {
+    if (trustedBusiness) {
+      webPreferences.session = electronSession.defaultSession;
+      webPreferences.preload = path.join(__dirname, "..", "preload", "webviewPerfBridge.js");
+      webPreferences.additionalArguments = [
+        `--nuwax-host-product=${APP_NAME_IDENTIFIER}`,
+        `--nuwax-trusted-origins=${encodeURIComponent(JSON.stringify(businessBridgeOrigins()))}`,
+      ];
+    } else {
+      // 子窗口不继承默认业务 cookie；每次打开均用新的内存会话。
+      webPreferences.partition = `temp:nuwax-popup-${randomUUID()}`;
+    }
+  }
   return {
     width,
     height,
     minWidth: WEBVIEW_POPUP_MIN_WIDTH,
     minHeight: WEBVIEW_POPUP_MIN_HEIGHT,
-    webPreferences: {
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-      spellcheck: false,
-    },
+    webPreferences,
     show: true,
     backgroundColor: "#ffffff",
   };
 }
 
-function handleHttpPopupOpen(details: HandlerDetails):
+function handleHttpPopupOpen(details: HandlerDetails, opener: WebContents):
   | {
       action: "allow";
       overrideBrowserWindowOptions: BrowserWindowConstructorOptions;
     }
   | { action: "deny" } {
   const { url, features } = details;
-  if (!url || !isHttpUrl(url)) {
+  const target = parseHttpUrl(url);
+  if (!target) {
     return { action: "deny" };
   }
 
-  const options = buildPopupWindowOptions(features ?? "");
+  const openerUrl = parseHttpUrl(opener.getURL());
+  const referrerUrl = parseHttpUrl(details.referrer?.url);
+  const allowed = APP_NAME_IDENTIFIER === "nuwax" ? businessBridgeOrigins() : [];
+  const trustedBusiness = APP_NAME_IDENTIFIER === "nuwax" &&
+    opener.session === electronSession.defaultSession &&
+    !!openerUrl && !!referrerUrl &&
+    !openerUrl.username && !openerUrl.password &&
+    !referrerUrl.username && !referrerUrl.password &&
+    !target.username && !target.password &&
+    openerUrl.origin === referrerUrl.origin &&
+    allowed.includes(openerUrl.origin) && allowed.includes(target.origin);
+  const options = buildPopupWindowOptions(features ?? "", trustedBusiness);
   log.debug(
-    `[WebviewPolicy] Opening in-app popup: ${url} (${options.width}x${options.height})`,
+    `[WebviewPolicy] Opening in-app popup: ${target.origin} (${options.width}x${options.height})`,
   );
   return { action: "allow", overrideBrowserWindowOptions: options };
 }
@@ -154,7 +190,7 @@ function setupWindowOpen(): void {
     // <webview> tag 内部的 window.open
     contents.on("did-attach-webview", (_event, webContents) => {
       webContents.setWindowOpenHandler((details) =>
-        handleHttpPopupOpen(details),
+        handleHttpPopupOpen(details, webContents),
       );
 
       // Webview captures keyboard events — they don't bubble to the host page.
@@ -188,7 +224,7 @@ function setupWindowOpen(): void {
 
     // BrowserWindow 内部的 window.open（独立 webview 窗口等）
     if (contents.getType() === "window") {
-      contents.setWindowOpenHandler((details) => handleHttpPopupOpen(details));
+      contents.setWindowOpenHandler((details) => handleHttpPopupOpen(details, contents));
     }
   });
 }
