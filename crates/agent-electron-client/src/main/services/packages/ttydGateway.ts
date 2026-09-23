@@ -13,20 +13,39 @@ import { agentService } from "../engines/unifiedAgent";
 import {
   findProjectWorkspaceByProjectId,
   resolveComputerProjectWorkspaceDir,
+  findNormalProjectWorkspaceByProjectId,
+  resolveNormalProjectWorkspaceDir,
 } from "../workspacePaths";
 import { getTtydInitialCwd } from "./ttydHelper";
+import {
+  parseTtydRouteParams,
+  normalizeTtydAbsoluteDir,
+  type TtydRouteParamErrorCode,
+  type TtydServiceType,
+} from "./ttydRouteParams";
 
 type GatewayStartOptions = {
   listenPort: number;
   targetPort: number;
 };
 
-type ParsedTtydRoute = {
-  userId: string;
-  projectId: string;
-  targetPath: string;
-  cwd: string;
-};
+/**
+ * 路由解析三态：
+ * - ok：正常路由（cwd 已按契约求解完毕）
+ * - invalid：query 契约参数非法（→ HTTP/WS 400，带 code/message）
+ * - not-found：路径不匹配（→ 404，现 null 语义）
+ */
+export type TtydRouteResolution =
+  | {
+      kind: "ok";
+      userId: string;
+      projectId: string;
+      targetPath: string;
+      cwd: string;
+      serviceType: TtydServiceType;
+    }
+  | { kind: "invalid"; code: TtydRouteParamErrorCode; message: string }
+  | { kind: "not-found" };
 
 let server: http.Server | null = null;
 let listenPort: number | null = null;
@@ -38,10 +57,12 @@ function sendPlain(
   res: http.ServerResponse,
   statusCode: number,
   message: string,
+  extraHeaders?: http.OutgoingHttpHeaders,
 ) {
   res.writeHead(statusCode, {
     "Content-Type": "text/plain; charset=utf-8",
     "Cache-Control": "no-cache",
+    ...extraHeaders,
   });
   res.end(message);
 }
@@ -97,10 +118,67 @@ export function isUsableWorkspaceDir(dir: string): boolean {
 }
 
 /**
- * 终端路由 cwd 推导（导出供测试）：拼接目录可用则用之，
- * 否则回退 getTtydInitialCwd()（最近活跃引擎工作区 → 配置工作区 → HOME；禅道 2526）。
+ * normalProject 层可用性判据：存在且是目录即用（不查非空）。
+ *
+ * 与 isUsableWorkspaceDir 的差异：平铺层的「非空」判据防空壳目录（禅道 2526，
+ * ensureProjectWorkspace 会为云端会话建空壳）；normalProject 层目录仅由本机
+ * chat（ensureNormalProjectWorkspace）在 normalProject 会话真实路由到本机时
+ * 创建，空目录是新项目的合法初始形态（引擎尚未写入内容）——对齐云端
+ * agent_runner ws_terminal 的 is_dir 语义，避免「刚建项目就开终端落回 workspace 根」。
  */
-export function resolveRouteCwd(userId: string, projectId: string): string {
+function isExistingDir(dir: string): boolean {
+  try {
+    return fs.statSync(dir).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 终端路由 cwd 推导（导出供测试）：
+ * 1. service_type=computer-normal-project → normalProject 镜像目录
+ *    {base}/computer-project-workspace/{userId}/normalProject/{projectId}（chat 侧
+ *    ensureNormalProjectWorkspace 预建，存在即用——空目录是新项目合法初始态，
+ *    对齐云端 is_dir 语义；userId 轨道不可信时按 projectId 反查 normalProject 层，
+ *    多命中不猜）——镜像云端 /home/user/normalProject/{pid} 布局。镜像层 miss 时
+ *    **不走平铺层**（拼接与平铺反查）：常规项目 id 与 conversationId 同为数字
+ *    单段名，跨轨道命中会把终端落进同数字普通会话（甚至他人 userId 下）的工作区
+ *    ——直接回落三级兜底。
+ * 2. 默认业务：拼接目录 computer-project-workspace/<userId>/<projectId> 存在且
+ *    非空 → 用之；userId 轨道不可信时按 projectId 反查平铺层。
+ * 3. 兜底 getTtydInitialCwd()（最近活跃引擎工作区 → 配置工作区 → HOME；禅道 2526）。
+ */
+export function resolveRouteCwd(
+  userId: string,
+  projectId: string,
+  options?: { serviceType?: TtydServiceType },
+): string {
+  if (options?.serviceType === "computer-normal-project") {
+    const np = resolveNormalProjectWorkspaceDir(
+      getBaseWorkspaceDir(),
+      userId,
+      projectId,
+    );
+    if (isExistingDir(np)) {
+      return np;
+    }
+    const npByPid = findNormalProjectWorkspaceByProjectId(
+      getBaseWorkspaceDir(),
+      projectId,
+      isExistingDir,
+    );
+    if (npByPid) {
+      log.info(
+        `[ttydGateway] normalProject cwd by projectId: '${np}' unusable, matched '${npByPid}'`,
+      );
+      return npByPid;
+    }
+    const npFallback = getTtydInitialCwd();
+    log.info(
+      `[ttydGateway] normalProject cwd miss ('${np}' missing), fallback to '${npFallback}' (flat layer skipped to avoid cross-track hit)`,
+    );
+    return npFallback;
+  }
   const resolved = resolveComputerProjectWorkspaceDir(
     getBaseWorkspaceDir(),
     userId,
@@ -131,7 +209,20 @@ export function resolveRouteCwd(userId: string, projectId: string): string {
   return fallback;
 }
 
-function parseTtydRoute(rawUrl: string | undefined): ParsedTtydRoute | null {
+/**
+ * 路由解析（导出供测试）。流程：
+ * 1. 路径段解析（/computer/ttyd/{userId}/{projectId}/{rest}）失败 → not-found。
+ * 2. query 契约参数校验（ttydRouteParams，与服务端对齐）失败 → invalid（400）。
+ * 3. cwd query 与存量 arg=--cwd 通道值不同 → invalid（TTYD_CWD_CONFLICT，fail-fast
+ *    暴露集成问题）；等值放行。
+ * 4. cwd 求解优先级：cwd query（目录存在即用，缺失 warn 回落）> arg=--cwd（存量
+ *    IPC 显式通道）> resolveRouteCwd（service_type 推导 + 现有四级链）。
+ * 5. /ws 且无显式 arg=--cwd 时注入 arg=--cwd&arg=<cwd>；已消费的 service_type/cwd
+ *    从转发 query 剥离（内部 ttyd 只认 arg 参数）。
+ */
+export function parseTtydRoute(
+  rawUrl: string | undefined,
+): TtydRouteResolution {
   const url = new URL(rawUrl || "/", `http://${LOCALHOST_IP}`);
   const segments = url.pathname.split("/").filter(Boolean);
   if (
@@ -139,30 +230,98 @@ function parseTtydRoute(rawUrl: string | undefined): ParsedTtydRoute | null {
     segments[0] !== "computer" ||
     segments[1] !== "ttyd"
   ) {
-    return null;
+    return { kind: "not-found" };
   }
 
   const userId = decodeSafePathSegment(segments[2]);
   const projectId = decodeSafePathSegment(segments[3]);
-  if (!userId || !projectId) return null;
+  if (!userId || !projectId) return { kind: "not-found" };
 
   const rest = segments.slice(4).join("/");
   const targetPathname = `/${rest || ""}`;
   const params = url.searchParams;
-  const cwd = resolveRouteCwd(userId, projectId);
+
+  const parsedParams = parseTtydRouteParams(params);
+  if (!parsedParams.ok) {
+    return {
+      kind: "invalid",
+      code: parsedParams.code,
+      message: parsedParams.message,
+    };
+  }
+  const { serviceType, cwd: cwdQuery } = parsedParams;
+
+  const argCwd = extractArgCwdValue(params);
+  // 冲突检测：cwd query 与存量 arg=--cwd 通道值不同 → invalid（fail-fast 暴露
+  // 集成问题）；等值放行。argCwd 同过归一化后再比较（cwdQuery 是归一化值，
+  // 同一目录的两种写法如 C:\x 与 C:/x 不应误报冲突）；argCwd 本身不可归一化
+  // （非绝对路径形态）时退回字面比较。
+  const argCwdComparable = (() => {
+    if (argCwd === null) return null;
+    const normalized = normalizeTtydAbsoluteDir(argCwd);
+    return normalized.ok ? normalized.value : argCwd;
+  })();
+  if (
+    cwdQuery !== null &&
+    argCwdComparable !== null &&
+    cwdQuery !== argCwdComparable
+  ) {
+    return {
+      kind: "invalid",
+      code: "TTYD_CWD_CONFLICT",
+      message: `cwd query '${cwdQuery}' conflicts with arg=--cwd '${argCwd}'`,
+    };
+  }
+
+  let cwd: string;
+  if (cwdQuery !== null && isUsableExplicitCwdDir(cwdQuery)) {
+    cwd = cwdQuery;
+  } else {
+    if (cwdQuery !== null) {
+      log.warn(
+        `[ttydGateway] Explicit cwd unusable (missing/not a directory), fall back: '${cwdQuery}'`,
+      );
+    }
+    cwd = argCwd ?? resolveRouteCwd(userId, projectId, { serviceType });
+  }
 
   if (targetPathname === "/ws" && !hasExplicitCwdArg(params)) {
     params.append("arg", "--cwd");
     params.append("arg", cwd);
   }
+  params.delete("service_type");
+  params.delete("cwd");
 
   const query = params.toString();
   return {
+    kind: "ok",
     userId,
     projectId,
     targetPath: query ? `${targetPathname}?${query}` : targetPathname,
     cwd,
+    serviceType,
   };
+}
+
+/** getAll("arg") 中 --cwd 的后随值；无则 null（存量 IPC 显式通道，ttyd:getWsUrl 在用） */
+function extractArgCwdValue(params: URLSearchParams): string | null {
+  const args = params.getAll("arg");
+  const index = args.indexOf("--cwd");
+  return index >= 0 && index + 1 < args.length ? args[index + 1] : null;
+}
+
+/**
+ * 显式 cwd 可用性判据：存在且是目录即用。与 isUsableWorkspaceDir 的区别：
+ * 后者的「非空」判据用于防空壳 computer-project-workspace 目录（禅道 2526，
+ * ensureProjectWorkspace 只建目录不落内容）；显式 cwd 是调用方的明确意图，
+ * 空目录也是合法落点（对齐服务端 agent_runner resolve_explicit_cwd 语义）。
+ */
+function isUsableExplicitCwdDir(dir: string): boolean {
+  try {
+    return fs.statSync(dir).isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 function buildProxyHeaders(
@@ -190,7 +349,7 @@ function formatResponseHeaders(headers: http.IncomingHttpHeaders): string {
 function proxyHttpRequest(
   req: http.IncomingMessage,
   res: http.ServerResponse,
-  route: ParsedTtydRoute,
+  route: Extract<TtydRouteResolution, { kind: "ok" }>,
   port: number,
 ) {
   const proxyReq = http.request(
@@ -223,7 +382,7 @@ function proxyWebSocketUpgrade(
   req: http.IncomingMessage,
   clientSocket: Duplex,
   head: Buffer,
-  route: ParsedTtydRoute,
+  route: Extract<TtydRouteResolution, { kind: "ok" }>,
   port: number,
 ) {
   const proxyReq = http.request({
@@ -406,8 +565,17 @@ export async function startTtydGateway(
   return new Promise((resolve) => {
     const nextServer = http.createServer((req, res) => {
       const route = parseTtydRoute(req.url);
-      if (!route) {
+      if (route.kind === "not-found") {
         sendPlain(res, 404, "ttyd gateway route not found");
+        return;
+      }
+      if (route.kind === "invalid") {
+        log.warn(
+          `[ttydGateway] Rejected route query: ${route.code}: ${route.message}`,
+        );
+        sendPlain(res, 400, `[ttyd-gateway] ${route.code}: ${route.message}`, {
+          "X-Ttyd-Error-Code": route.code,
+        });
         return;
       }
       proxyHttpRequest(req, res, route, options.targetPort);
@@ -421,13 +589,29 @@ export async function startTtydGateway(
 
     nextServer.on("upgrade", (req, socket, head) => {
       const route = parseTtydRoute(req.url);
-      if (!route) {
+      if (route.kind === "not-found") {
         socket.write("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n");
         socket.destroy();
         return;
       }
+      if (route.kind === "invalid") {
+        log.warn(
+          `[ttydGateway] Rejected WS upgrade: ${route.code}: ${route.message}`,
+        );
+        // 浏览器侧表现为 "Unexpected response code: 400"；X-Ttyd-Error-Code
+        // 头供前端/联调定位（对齐现有 404 裸写风格）
+        socket.write(
+          `HTTP/1.1 400 Bad Request\r\n` +
+            `Content-Type: text/plain; charset=utf-8\r\n` +
+            `X-Ttyd-Error-Code: ${route.code}\r\n` +
+            `Connection: close\r\n\r\n` +
+            `[ttyd-gateway] ${route.code}: ${route.message}`,
+        );
+        socket.destroy();
+        return;
+      }
       log.info(
-        `[ttydGateway] WS ${route.userId}/${route.projectId} -> ${route.targetPath} (cwd=${route.cwd})`,
+        `[ttydGateway] WS ${route.userId}/${route.projectId} -> ${route.targetPath} (cwd=${route.cwd}, serviceType=${route.serviceType})`,
       );
       proxyWebSocketUpgrade(req, socket, head, route, options.targetPort);
     });

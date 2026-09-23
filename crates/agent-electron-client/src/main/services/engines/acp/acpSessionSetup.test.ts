@@ -107,7 +107,7 @@ describe("isSessionIdCompatibleWithEngine", () => {
   });
 });
 
-describe("buildWorkDirAndProjectDir（双轨）", () => {
+describe("buildWorkDirAndProjectDir（三轨）", () => {
   it("标识符轨道：维持 workspace 拼接，workDirId 兼作 title", () => {
     const { workDirId, projectDir } = buildWorkDirAndProjectDir(makeDeps(), {
       user_id: "u1",
@@ -140,6 +140,81 @@ describe("buildWorkDirAndProjectDir（双轨）", () => {
       prompt: "hi",
     });
     expect(projectDir).toBe("/Users/me/fallback-dir");
+  });
+
+  it("normalProject 轨道：service_type=computer-normal-project 时目录多一层 normalProject/", () => {
+    const { workDirId, projectDir } = buildWorkDirAndProjectDir(makeDeps(), {
+      user_id: "u1",
+      project_id: "p1",
+      agent_work_dir: "np-9",
+      service_type: "computer-normal-project",
+      prompt: "hi",
+    });
+    expect(workDirId).toBe("np-9");
+    expect(projectDir).toBe(
+      path.join(
+        "/workspace",
+        "computer-project-workspace",
+        "u1",
+        "normalProject",
+        "np-9",
+      ),
+    );
+  });
+
+  it("normalProject 轨道：camelCase service_type 旧词同样命中", () => {
+    const { projectDir } = buildWorkDirAndProjectDir(makeDeps(), {
+      user_id: "u1",
+      project_id: "p1",
+      agent_work_dir: "np-9",
+      service_type: "normalProject",
+      prompt: "hi",
+    });
+    expect(projectDir).toContain("normalProject");
+  });
+
+  it("normalProject 轨道：容器物化形态归一为 pid（防御绕过 router 校验的调用方）", () => {
+    const { workDirId, projectDir } = buildWorkDirAndProjectDir(makeDeps(), {
+      user_id: "u1",
+      project_id: "p1",
+      agent_work_dir: "/home/user/normalProject/np-9",
+      prompt: "hi",
+    });
+    expect(workDirId).toBe("np-9");
+    expect(projectDir).toBe(
+      path.join(
+        "/workspace",
+        "computer-project-workspace",
+        "u1",
+        "normalProject",
+        "np-9",
+      ),
+    );
+  });
+
+  it("normalProject + 本机自选绝对目录：维持绝对路径轨道（agentWorkspacePath 覆盖场景）", () => {
+    const abs = "/Users/me/picked-dir";
+    const { workDirId, projectDir } = buildWorkDirAndProjectDir(makeDeps(), {
+      user_id: "u1",
+      project_id: "p1",
+      agent_work_dir: abs,
+      service_type: "computer-normal-project",
+      prompt: "hi",
+    });
+    expect(workDirId).toBe("picked-dir");
+    expect(projectDir).toBe(abs);
+  });
+
+  it("无 service_type 的存量请求维持标识符轨道（回归锁）", () => {
+    const { projectDir } = buildWorkDirAndProjectDir(makeDeps(), {
+      user_id: "u1",
+      project_id: "p1",
+      agent_work_dir: "plain-proj",
+      prompt: "hi",
+    });
+    expect(projectDir).toBe(
+      path.join("/workspace", "computer-project-workspace", "u1", "plain-proj"),
+    );
   });
 });
 

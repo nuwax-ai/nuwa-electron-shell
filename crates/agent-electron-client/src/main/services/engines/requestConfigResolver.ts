@@ -22,7 +22,11 @@ import type {
 import type { McpServerEntry } from "../packages/mcp";
 import { APP_DATA_DIR_NAME } from "../constants";
 import { normalizeLogDirInEnv } from "./utils/normalizeLogDir";
-import { resolveComputerProjectWorkspaceDir } from "../workspacePaths";
+import {
+  resolveAgentProjectDir,
+  resolveComputerProjectWorkspaceDir,
+} from "../workspacePaths";
+import { extractNormalProjectContainerPid } from "../computer/agentWorkDir";
 import { perfEmitter } from "./perf/perfEmitter";
 import { mapAgentCommand, resolveAgentEnv } from "./agentHelpers";
 import { resolveOpenAICompatModel } from "./acp/openAICompatRouting";
@@ -344,15 +348,24 @@ export function buildEffectiveConfig(args: {
   // 定到 project workspace，确保 codex 工作目录正确
   const workDirId = request.agent_work_dir || request.project_id;
   if (requiredEngine === "codex-cli" && workDirId && request.user_id) {
-    if (path.isAbsolute(workDirId)) {
+    if (
+      path.isAbsolute(workDirId) &&
+      // 容器物化形态（/home/user/normalProject/{pid}）不是本机目录，须经
+      // resolveAgentProjectDir 归一映射（与 acpSessionSetup 同源，防绕过入口
+      // 校验的调用方在此分叉）
+      extractNormalProjectContainerPid(workDirId) === null
+    ) {
       // 绝对路径轨道（web 端工作空间选择）：入口已校验存在/可写并归一化，
       // 直接作为 codex 工作目录，不走 workspace 拼接、不 mkdir。
       effectiveConfig.workspaceDir = workDirId;
     } else {
-      effectiveConfig.workspaceDir = resolveComputerProjectWorkspaceDir(
+      // 三轨目录推导与 acpSessionSetup 同源（normalProject 业务加 normalProject/
+      // 层，镜像云端布局；见 resolveAgentProjectDir 单一事实源）
+      effectiveConfig.workspaceDir = resolveAgentProjectDir(
         effectiveConfig.workspaceDir,
         request.user_id,
         workDirId,
+        request.service_type,
       );
       if (!ensuredDirs.has(effectiveConfig.workspaceDir)) {
         fs.mkdirSync(effectiveConfig.workspaceDir, { recursive: true });

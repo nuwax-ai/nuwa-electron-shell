@@ -1,5 +1,9 @@
 import * as fs from "fs";
 import * as path from "path";
+import {
+  extractNormalProjectContainerPid,
+  isNormalProjectServiceType,
+} from "./computer/agentWorkDir";
 
 const COMPUTER_PROJECT_WORKSPACE_SEGMENT = "computer-project-workspace";
 
@@ -21,18 +25,115 @@ export function resolveComputerProjectWorkspaceDir(
   userId: string,
   projectId: string,
 ): string {
-  const normalizedBase = path.normalize(baseWorkspaceDir);
-  const suffixSegments = [
+  return resolveWorkspaceDirWithSuffix(baseWorkspaceDir, [
     COMPUTER_PROJECT_WORKSPACE_SEGMENT,
     userId,
     projectId,
-  ];
+  ]);
+}
+
+const NORMAL_PROJECT_SEGMENT = "normalProject";
+
+/**
+ * 常规项目（normalProject）工作区目录：
+ * {base}/computer-project-workspace/{userId}/normalProject/{projectId}。
+ *
+ * 本机镜像云端容器布局 /home/user/normalProject/{project_id}（rcoder 侧
+ * chat 物化与 agent-runner 终端推导同根）——chat 建目录与 ttyd 终端 cwd
+ * 推导共用本函数作为单一事实源，保证两层目录对得上。
+ */
+export function resolveNormalProjectWorkspaceDir(
+  baseWorkspaceDir: string,
+  userId: string,
+  projectId: string,
+): string {
+  return resolveWorkspaceDirWithSuffix(baseWorkspaceDir, [
+    COMPUTER_PROJECT_WORKSPACE_SEGMENT,
+    userId,
+    NORMAL_PROJECT_SEGMENT,
+    projectId,
+  ]);
+}
+
+function resolveWorkspaceDirWithSuffix(
+  baseWorkspaceDir: string,
+  suffixSegments: string[],
+): string {
+  const normalizedBase = path.normalize(baseWorkspaceDir);
 
   if (pathEndsWithSegments(normalizedBase, suffixSegments)) {
     return normalizedBase;
   }
 
   return path.join(normalizedBase, ...suffixSegments);
+}
+
+/**
+ * 在 computer-project-workspace/<userId>/normalProject/<projectId> 层按
+ * projectId 反查唯一可用工作区（userId 层任意）。
+ *
+ * 与 findProjectWorkspaceByProjectId 同款保护：userId 轨道不可信（开发代理
+ * 写死 local / 跨端 userId 不一致）时精确拼接目录不存在，按 projectId 扫描
+ * normalProject 层；命中恰好一个非空目录则返回，0 个或多个返回 null。
+ * 两个 id 空间不同（conversationId vs 常规项目 id），不与 agent-runner 层
+ * 跨层反查。
+ */
+export function findNormalProjectWorkspaceByProjectId(
+  baseWorkspaceDir: string,
+  projectId: string,
+  isUsable: (dir: string) => boolean,
+): string | null {
+  if (!projectId) return null;
+  const root = path.join(
+    path.normalize(baseWorkspaceDir),
+    COMPUTER_PROJECT_WORKSPACE_SEGMENT,
+  );
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(root);
+  } catch {
+    return null;
+  }
+  const hits = entries
+    .map((name) => path.join(root, name, NORMAL_PROJECT_SEGMENT, projectId))
+    .filter((dir) => isUsable(dir));
+  return hits.length === 1 ? hits[0] : null;
+}
+
+/**
+ * 会话项目目录三轨推导的单一事实源（chat 引擎 cwd / codex workspaceDir 覆盖 /
+ * devcomputer reload 会话归档共用，防三处实现漂移）。输入 workDirId 为入口
+ * （router/IPC）归一化后的 agent_work_dir 或 project_id：
+ * - normalProject 业务（service_type 判定；容器物化形态归一为 pid 防御绕过
+ *   入口校验的调用方）→ {base}/computer-project-workspace/{userId}/normalProject/{pid}
+ * - 本机绝对路径（web 目录弹窗自选）→ 原值直通
+ * - 标识符 → {base}/computer-project-workspace/{userId}/{id}（平铺层）
+ */
+export function resolveAgentProjectDir(
+  baseWorkspaceDir: string,
+  userId: string,
+  workDirId: string,
+  serviceType?: string,
+): string {
+  const containerPid = extractNormalProjectContainerPid(workDirId);
+  if (
+    containerPid !== null ||
+    (isNormalProjectServiceType(serviceType) && !path.isAbsolute(workDirId))
+  ) {
+    return resolveNormalProjectWorkspaceDir(
+      baseWorkspaceDir,
+      userId,
+      containerPid ?? workDirId,
+    );
+  }
+  if (path.isAbsolute(workDirId)) {
+    return workDirId;
+  }
+  return resolveComputerProjectWorkspaceDir(
+    baseWorkspaceDir,
+    userId,
+    workDirId,
+  );
 }
 
 /**
