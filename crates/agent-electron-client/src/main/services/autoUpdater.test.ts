@@ -755,12 +755,14 @@ describe("后台复检调度器（initAutoUpdater）", () => {
     delete process.env.NUWAX_UPDATE_CHECK_INTERVAL_MS;
   });
 
-  it("启动 10s 首查 + 间隔后复检 + before-quit 停摆", async () => {
+  it("启动 1s 首查 + 间隔后复检 + before-quit 停摆", async () => {
     const mod = await importFreshWithUpdaterMock();
     mod.initAutoUpdater(() => null);
     expect(mockNetRequest).not.toHaveBeenCalled();
 
-    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.advanceTimersByTimeAsync(999);
+    expect(mockNetRequest).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
     expect(mockNetRequest).toHaveBeenCalledTimes(1);
     expect(
       mod.getBackgroundCheckDebugInfo().lastBackgroundCheckAt,

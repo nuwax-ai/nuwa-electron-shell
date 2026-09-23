@@ -724,8 +724,8 @@ export function initAutoUpdater(
 
 // ==================== 后台定时复检调度器 ====================
 
-/** 启动后首查延迟（沿用原一次性启动检查的 10s 语义） */
-const STARTUP_CHECK_DELAY_MS = 10_000;
+/** 启动后首查延迟：留 1s 给应用初始化，同时尽早更新版本状态。 */
+const STARTUP_CHECK_DELAY_MS = 1_000;
 /** 默认复检间隔 1h */
 const DEFAULT_RECHECK_INTERVAL_MS = 60 * 60 * 1000;
 /** 复检间隔下限：env 误配成极小值时防打爆 OSS */
