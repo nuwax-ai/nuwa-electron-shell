@@ -118,14 +118,32 @@ export function isUsableWorkspaceDir(dir: string): boolean {
 }
 
 /**
+ * normalProject 层可用性判据：存在且是目录即用（不查非空）。
+ *
+ * 与 isUsableWorkspaceDir 的差异：平铺层的「非空」判据防空壳目录（禅道 2526，
+ * ensureProjectWorkspace 会为云端会话建空壳）；normalProject 层目录仅由本机
+ * chat（ensureNormalProjectWorkspace）在 normalProject 会话真实路由到本机时
+ * 创建，空目录是新项目的合法初始形态（引擎尚未写入内容）——对齐云端
+ * agent_runner ws_terminal 的 is_dir 语义，避免「刚建项目就开终端落回 workspace 根」。
+ */
+function isExistingDir(dir: string): boolean {
+  try {
+    return fs.statSync(dir).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/**
  * 终端路由 cwd 推导（导出供测试）：
  * 1. service_type=computer-normal-project → normalProject 镜像目录
  *    {base}/computer-project-workspace/{userId}/normalProject/{projectId}（chat 侧
- *    ensureNormalProjectWorkspace 预建，存在且非空则用；userId 轨道不可信时按
- *    projectId 反查 normalProject 层，多命中不猜）——镜像云端
- *    /home/user/normalProject/{pid} 布局。镜像层 miss 时**不走平铺层**（拼接与
- *    平铺反查）：常规项目 id 与 conversationId 同为数字单段名，跨轨道命中会把
- *    终端落进同数字普通会话（甚至他人 userId 下）的工作区——直接回落三级兜底。
+ *    ensureNormalProjectWorkspace 预建，存在即用——空目录是新项目合法初始态，
+ *    对齐云端 is_dir 语义；userId 轨道不可信时按 projectId 反查 normalProject 层，
+ *    多命中不猜）——镜像云端 /home/user/normalProject/{pid} 布局。镜像层 miss 时
+ *    **不走平铺层**（拼接与平铺反查）：常规项目 id 与 conversationId 同为数字
+ *    单段名，跨轨道命中会把终端落进同数字普通会话（甚至他人 userId 下）的工作区
+ *    ——直接回落三级兜底。
  * 2. 默认业务：拼接目录 computer-project-workspace/<userId>/<projectId> 存在且
  *    非空 → 用之；userId 轨道不可信时按 projectId 反查平铺层。
  * 3. 兜底 getTtydInitialCwd()（最近活跃引擎工作区 → 配置工作区 → HOME；禅道 2526）。
@@ -141,13 +159,13 @@ export function resolveRouteCwd(
       userId,
       projectId,
     );
-    if (isUsableWorkspaceDir(np)) {
+    if (isExistingDir(np)) {
       return np;
     }
     const npByPid = findNormalProjectWorkspaceByProjectId(
       getBaseWorkspaceDir(),
       projectId,
-      isUsableWorkspaceDir,
+      isExistingDir,
     );
     if (npByPid) {
       log.info(
@@ -157,7 +175,7 @@ export function resolveRouteCwd(
     }
     const npFallback = getTtydInitialCwd();
     log.info(
-      `[ttydGateway] normalProject cwd miss ('${np}' missing/empty), fallback to '${npFallback}' (flat layer skipped to avoid cross-track hit)`,
+      `[ttydGateway] normalProject cwd miss ('${np}' missing), fallback to '${npFallback}' (flat layer skipped to avoid cross-track hit)`,
     );
     return npFallback;
   }
