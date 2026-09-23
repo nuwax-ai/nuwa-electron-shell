@@ -885,8 +885,7 @@ body {
   -webkit-user-drag: none;
 }
 
-/* 扫光动效：光条自左向右斜扫过图标（单次约 0.9s，周期 2.6s 含停顿），
- * 仅在 logo 白色字形区显形（见 .app-loading-icon-sheen 的亮度 mask）；
+/* 扫光动效：白色高光带自左向右斜扫过整个图标（单次约 0.9s，周期 2.6s 含停顿），
  * 替代旧呼吸缩放（app-loading-breathe）。 */
 @keyframes app-loading-sheen {
   0% {
@@ -903,18 +902,14 @@ body {
 .app-loading-icon-sheen {
   position: absolute;
   inset: 0;
-  /* 光条加宽 30%→70%（对比初版 42%→58% 约 2.5 倍）；灰色在白字形上形成
-     光泽扫过，mask（行内按 icon 亮度）保证只作用于 logo 白色区。 */
+  /* 第一版扫光：白色高光带扫过整个图标；光条加宽（42%→58% 加宽为 34%→66%，
+     约 2 倍宽）。 */
   background: linear-gradient(
     105deg,
-    transparent 30%,
-    rgba(0, 0, 0, 0.22) 50%,
-    transparent 70%
+    transparent 34%,
+    rgba(255, 255, 255, 0.35) 50%,
+    transparent 66%
   );
-  mask-size: 100% 100%;
-  -webkit-mask-size: 100% 100%;
-  mask-repeat: no-repeat;
-  -webkit-mask-repeat: no-repeat;
   transform: translateX(-120%);
   animation: app-loading-sheen 2.6s ease-in-out infinite;
   pointer-events: none;
