@@ -79,8 +79,13 @@ export default function AboutPage({ webMeta }: AboutPageProps = {}) {
   // 监听主进程推送的更新状态
   // 注意：preload 的 on() 已剥离 IPC event，callback 直接收到 (...args)
   useEffect(() => {
+    let active = true;
+    let statusEventRevision = 0;
     const handler = (state: UpdateState) => {
-      if (state) setUpdateState(state);
+      if (state) {
+        statusEventRevision += 1;
+        setUpdateState(state);
+      }
     };
     window.electronAPI?.on("update:status", handler as any);
     // 获取运行时版本号
@@ -91,10 +96,24 @@ export default function AboutPage({ webMeta }: AboutPageProps = {}) {
     window.electronAPI?.app?.getSystemInfo?.()?.then((info) => {
       if (info) setSystemInfo(info);
     });
-    // 初始化时获取一次当前更新状态
-    window.electronAPI?.app?.getUpdateState?.()?.then((state) => {
-      if (state) setUpdateState(state);
-    });
+    // 先读取主进程当前状态，再静默检查一次，避免进入关于页时展示过期版本信息。
+    const syncUpdateState = async () => {
+      const eventRevisionAtRequest = statusEventRevision;
+      const state = await window.electronAPI?.app?.getUpdateState?.();
+      if (active && state && eventRevisionAtRequest === statusEventRevision) {
+        setUpdateState(state);
+      }
+    };
+    void (async () => {
+      try {
+        await syncUpdateState();
+        if (!active) return;
+        await window.electronAPI?.app?.checkUpdate({ background: true });
+        if (active) await syncUpdateState();
+      } catch {
+        // 进入关于页触发的是静默刷新，失败时保留当前显示状态。
+      }
+    })();
     // 读取更新通道；旧版本默认按 stable 处理，避免影响已安装用户行为
     window.electronAPI?.settings
       .get(UPDATE_CHANNEL_SETTING_KEY)
@@ -105,6 +124,7 @@ export default function AboutPage({ webMeta }: AboutPageProps = {}) {
         setUpdateChannel("stable");
       });
     return () => {
+      active = false;
       window.electronAPI?.off("update:status", handler as any);
     };
   }, []);

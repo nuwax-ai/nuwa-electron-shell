@@ -24,6 +24,11 @@ export interface UpdateInfo {
   alreadyChecking?: boolean;
 }
 
+export interface UpdateCheckOptions {
+  /** 后台检查不进入可见的 checking/error 状态，只在完成后同步结果。 */
+  background?: boolean;
+}
+
 export interface UpdateState {
   status: UpdateStatus;
   version?: string;

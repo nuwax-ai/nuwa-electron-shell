@@ -21,6 +21,7 @@ import type {
   UpdateState,
   UpdateInfo,
   UpdateProgress,
+  UpdateCheckOptions,
 } from "@shared/types/updateTypes";
 import { readSetting } from "../db";
 import { compareVersions } from "./system/dependencyUtils";
@@ -387,6 +388,8 @@ function isNumericSemver(version: string): boolean {
 let currentState: UpdateState = { status: "idle" };
 let getMainWindow: (() => BrowserWindow | null) | null = null;
 let cleanupBeforeInstall: (() => void | Promise<void>) | null = null;
+/** 后台检查时屏蔽 electron-updater 的瞬时状态，结束后由检查逻辑一次性发布结果。 */
+let suppressUpdaterStatusEvents = false;
 /** 安装前清理的等待上限：quitAndInstall 紧随其后，清理被卡死时不能拖死安装流程。 */
 const INSTALL_CLEANUP_TIMEOUT_MS = 10_000;
 /**
@@ -426,10 +429,7 @@ function setState(patch: Partial<UpdateState>): void {
 
 let checkInProgress = false;
 
-/** 检查选项：background=true 为后台定时复检——静默失败（不置 error 态、不进 checking 态），网络抖动不打扰 UI */
-export interface CheckOptions {
-  background?: boolean;
-}
+export type CheckOptions = UpdateCheckOptions;
 
 /**
  * 通过 OSS latest.json 检查更新
@@ -450,11 +450,13 @@ async function checkForUpdatesViaLatestJson(
     return { hasUpdate: false, alreadyChecking: true };
   }
   checkInProgress = true;
+  suppressUpdaterStatusEvents = options.background === true;
 
   try {
     return await doCheckViaLatestJson(options);
   } finally {
     checkInProgress = false;
+    suppressUpdaterStatusEvents = false;
   }
 }
 
@@ -649,6 +651,7 @@ export function initAutoUpdater(
 
   autoUpdater.on("checking-for-update", () => {
     log.info("[AutoUpdater] Checking for update...");
+    if (suppressUpdaterStatusEvents) return;
     setState({
       status: "checking",
       isReadOnlyVolumeError: undefined,
@@ -658,6 +661,7 @@ export function initAutoUpdater(
 
   autoUpdater.on("update-available", (info: any) => {
     log.info("[AutoUpdater] Update available:", info.version);
+    if (suppressUpdaterStatusEvents) return;
     setState({
       status: "available",
       version: info.version,
@@ -668,6 +672,7 @@ export function initAutoUpdater(
 
   autoUpdater.on("update-not-available", (_info: any) => {
     log.info("[AutoUpdater] Already up to date");
+    if (suppressUpdaterStatusEvents) return;
     setState({
       status: "not-available",
       isReadOnlyVolumeError: undefined,
@@ -698,6 +703,7 @@ export function initAutoUpdater(
 
   autoUpdater.on("error", (err: Error) => {
     log.error("[AutoUpdater] Error:", err.message);
+    if (suppressUpdaterStatusEvents) return;
     setState({
       status: "error",
       error: err.message,
@@ -918,21 +924,48 @@ export async function showUpdateDialogFlow(): Promise<void> {
 export async function checkForUpdates(
   options: CheckOptions = {},
 ): Promise<UpdateInfo> {
+  if (options.background && shouldSkipBackgroundCheck(currentState.status)) {
+    log.info(
+      "[AutoUpdater] Background check skipped (status=%s)",
+      currentState.status,
+    );
+    return {
+      hasUpdate: false,
+      alreadyChecking: currentState.status === "checking",
+    };
+  }
+
   // 自定义更新源（本地测试用）直接走 electron-updater，适用于 stable 通道
   // beta 通道始终走 doCheckViaLatestJson，确保 feedURL 指向 beta-build 路径
   if (process.env.NUWAX_UPDATE_SERVER && getUpdateChannel() === "stable") {
+    if (options.background) suppressUpdaterStatusEvents = true;
     try {
       const { autoUpdater } = loadAutoUpdaterModule();
-      setState({
-        status: "checking",
-        error: undefined,
-        isReadOnlyVolumeError: undefined,
-        canAutoUpdate: canAutoUpdate(),
-      });
+      if (!options.background) {
+        setState({
+          status: "checking",
+          error: undefined,
+          isReadOnlyVolumeError: undefined,
+          canAutoUpdate: canAutoUpdate(),
+        });
+      }
       const result = await autoUpdater.checkForUpdates();
       if (result?.updateInfo) {
         const hasUpdate =
           compareVersions(result.updateInfo.version, app.getVersion()) > 0;
+        if (options.background) {
+          setState({
+            status: hasUpdate ? "available" : "not-available",
+            version: hasUpdate ? result.updateInfo.version : undefined,
+            releaseDate: hasUpdate ? result.updateInfo.releaseDate : undefined,
+            releaseNotes:
+              hasUpdate && typeof result.updateInfo.releaseNotes === "string"
+                ? result.updateInfo.releaseNotes
+                : undefined,
+            error: undefined,
+            canAutoUpdate: canAutoUpdate(),
+          });
+        }
         return {
           hasUpdate,
           version: result.updateInfo.version,
@@ -943,15 +976,29 @@ export async function checkForUpdates(
               : undefined,
         };
       }
+      if (options.background) {
+        setState({
+          status: "not-available",
+          version: undefined,
+          releaseDate: undefined,
+          releaseNotes: undefined,
+          error: undefined,
+          canAutoUpdate: canAutoUpdate(),
+        });
+      }
       return { hasUpdate: false };
     } catch (err: any) {
       log.error("[AutoUpdater] checkForUpdates error:", err.message);
-      setState({
-        status: "error",
-        error: err.message,
-        canAutoUpdate: canAutoUpdate(),
-      });
+      if (!options.background) {
+        setState({
+          status: "error",
+          error: err.message,
+          canAutoUpdate: canAutoUpdate(),
+        });
+      }
       return { hasUpdate: false, error: err.message };
+    } finally {
+      if (options.background) suppressUpdaterStatusEvents = false;
     }
   }
 

@@ -12,6 +12,7 @@ import * as os from "os";
 import { execSync } from "child_process";
 import log from "electron-log";
 import type { HandlerContext } from "@shared/types/ipc";
+import type { UpdateCheckOptions } from "@shared/types/updateTypes";
 import { LATEST_LOG_BASENAME } from "../bootstrap/logConfig";
 import {
   checkForUpdates,
@@ -273,14 +274,19 @@ export function registerAppHandlers(ctx: HandlerContext): void {
     return os.hostname();
   });
 
-  ipcMain.handle("app:checkUpdate", async () => {
-    try {
-      return await checkForUpdates();
-    } catch (error) {
-      log.error("[IPC] app:checkUpdate failed:", error);
-      return { hasUpdate: false, error: String(error) };
-    }
-  });
+  ipcMain.handle(
+    "app:checkUpdate",
+    async (_event, options?: UpdateCheckOptions) => {
+      try {
+        return await checkForUpdates({
+          background: options?.background === true,
+        });
+      } catch (error) {
+        log.error("[IPC] app:checkUpdate failed:", error);
+        return { hasUpdate: false, error: String(error) };
+      }
+    },
+  );
 
   ipcMain.handle("app:downloadUpdate", async () => {
     try {
