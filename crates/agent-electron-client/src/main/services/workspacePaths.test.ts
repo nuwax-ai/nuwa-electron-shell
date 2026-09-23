@@ -4,6 +4,9 @@ import * as os from "os";
 import * as path from "path";
 import {
   resolveComputerProjectWorkspaceDir,
+  resolveNormalProjectWorkspaceDir,
+  findNormalProjectWorkspaceByProjectId,
+  resolveAgentProjectDir,
   resolveWorkspacePrefix,
   resolveAgentServerPaths,
   findProjectWorkspaceByProjectId,
@@ -81,6 +84,169 @@ describe("findProjectWorkspaceByProjectId", () => {
     expect(findProjectWorkspaceByProjectId(base, "p1", isUsableDir)).toBeNull();
     expect(findProjectWorkspaceByProjectId(base, "missing", isUsableDir)).toBe(
       null,
+    );
+  });
+});
+
+describe("resolveNormalProjectWorkspaceDir", () => {
+  it("base workspace 下追加 normalProject 层（镜像云端布局）", () => {
+    expect(resolveNormalProjectWorkspaceDir("/tmp/base", "u1", "p1")).toBe(
+      path.join(
+        "/tmp/base",
+        "computer-project-workspace",
+        "u1",
+        "normalProject",
+        "p1",
+      ),
+    );
+  });
+
+  it("已是 normalProject workspace 时不重复追加", () => {
+    const projectDir = path.join(
+      "/tmp/base",
+      "computer-project-workspace",
+      "u1",
+      "normalProject",
+      "p1",
+    );
+
+    expect(resolveNormalProjectWorkspaceDir(projectDir, "u1", "p1")).toBe(
+      projectDir,
+    );
+  });
+
+  it("与 agent-runner 布局互不混层", () => {
+    const base = "/tmp/base";
+    expect(resolveNormalProjectWorkspaceDir(base, "u1", "p1")).not.toBe(
+      resolveComputerProjectWorkspaceDir(base, "u1", "p1"),
+    );
+  });
+});
+
+describe("findNormalProjectWorkspaceByProjectId", () => {
+  it("userId 轨道不对时按 projectId 唯一命中 normalProject 层", () => {
+    const base = makeTempBase();
+    const real = path.join(
+      base,
+      "computer-project-workspace",
+      "6",
+      "normalProject",
+      "p9",
+    );
+    fs.mkdirSync(real, { recursive: true });
+    fs.writeFileSync(path.join(real, "a.txt"), "x");
+
+    expect(findNormalProjectWorkspaceByProjectId(base, "p9", isUsableDir)).toBe(
+      real,
+    );
+  });
+
+  it("不跨层命中 agent-runner 布局的同 projectId 目录", () => {
+    const base = makeTempBase();
+    const agentRunner = path.join(
+      base,
+      "computer-project-workspace",
+      "6",
+      "p9",
+    );
+    fs.mkdirSync(agentRunner, { recursive: true });
+    fs.writeFileSync(path.join(agentRunner, "a.txt"), "x");
+
+    // 只有 agent-runner 层有 p9，normalProject 层没有 → null（不跨层反查）
+    expect(
+      findNormalProjectWorkspaceByProjectId(base, "p9", isUsableDir),
+    ).toBeNull();
+  });
+
+  it("多命中不猜返回 null", () => {
+    const base = makeTempBase();
+    for (const uid of ["6", "7"]) {
+      const d = path.join(
+        base,
+        "computer-project-workspace",
+        uid,
+        "normalProject",
+        "p1",
+      );
+      fs.mkdirSync(d, { recursive: true });
+      fs.writeFileSync(path.join(d, "a.txt"), "x");
+    }
+    expect(
+      findNormalProjectWorkspaceByProjectId(base, "p1", isUsableDir),
+    ).toBeNull();
+  });
+
+  it("空目录/无命中返回 null", () => {
+    const base = makeTempBase();
+    const empty = path.join(
+      base,
+      "computer-project-workspace",
+      "6",
+      "normalProject",
+      "p1",
+    );
+    fs.mkdirSync(empty, { recursive: true });
+    expect(
+      findNormalProjectWorkspaceByProjectId(base, "p1", isUsableDir),
+    ).toBeNull();
+    expect(
+      findNormalProjectWorkspaceByProjectId(base, "missing", isUsableDir),
+    ).toBe(null);
+  });
+});
+
+describe("resolveAgentProjectDir（三轨目录推导单一事实源）", () => {
+  it("normalProject 业务 → normalProject 层", () => {
+    expect(
+      resolveAgentProjectDir(
+        "/tmp/base",
+        "u1",
+        "42",
+        "computer-normal-project",
+      ),
+    ).toBe(
+      path.join(
+        "/tmp/base",
+        "computer-project-workspace",
+        "u1",
+        "normalProject",
+        "42",
+      ),
+    );
+  });
+
+  it("容器物化形态归一为 pid（service_type 缺失也命中 normalProject 层）", () => {
+    expect(
+      resolveAgentProjectDir(
+        "/tmp/base",
+        "u1",
+        "/home/user/normalProject/np-9",
+      ),
+    ).toBe(
+      path.join(
+        "/tmp/base",
+        "computer-project-workspace",
+        "u1",
+        "normalProject",
+        "np-9",
+      ),
+    );
+  });
+
+  it("normalProject + 本机自选绝对目录 → 原值直通（agentWorkspacePath 覆盖场景）", () => {
+    expect(
+      resolveAgentProjectDir(
+        "/tmp/base",
+        "u1",
+        "/Users/me/x",
+        "computer-normal-project",
+      ),
+    ).toBe("/Users/me/x");
+  });
+
+  it("无 service_type 的标识符 → 平铺层（存量行为）", () => {
+    expect(resolveAgentProjectDir("/tmp/base", "u1", "c-1")).toBe(
+      path.join("/tmp/base", "computer-project-workspace", "u1", "c-1"),
     );
   });
 });

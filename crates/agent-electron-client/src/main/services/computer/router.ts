@@ -21,7 +21,9 @@ import { getConfiguredPorts } from "../startupPorts";
 import {
   validateAgentWorkDirInput,
   isAbsoluteAgentWorkDir,
+  isNormalProjectServiceType,
 } from "./agentWorkDir";
+import { resolveNormalProjectWorkspaceDir } from "../workspacePaths";
 import type {
   ComputerChatRequest,
   HttpResult,
@@ -208,6 +210,41 @@ async function ensureProjectWorkspace(
   }
 }
 
+/**
+ * normalProject 轨道工作区预建：{workspace}/computer-project-workspace/{userId}/
+ * normalProject/{projectId}（镜像云端 /home/user/normalProject/{pid} 布局）。
+ *
+ * 与 ensureProjectWorkspace 的差异：目录多一层 normalProject/，file-server
+ * create-workspace 契约只建平铺层（userId/{cId}），嵌套层直接 mkdir——终端
+ * cwd 推导（ttydGateway.resolveRouteCwd）与引擎工作区共用该目录。
+ * 目录已存在时为 no-op（recursive mkdir 天然幂等）。
+ */
+function ensureNormalProjectWorkspace(userId: string, projectId: string): void {
+  const agentConfig = agentService.getAgentConfig();
+  if (!agentConfig?.workspaceDir) {
+    log.debug(
+      "[ensureNormalProjectWorkspace] workspaceDir not configured, skipping",
+    );
+    return;
+  }
+  const projectDir = resolveNormalProjectWorkspaceDir(
+    agentConfig.workspaceDir,
+    userId,
+    projectId,
+  );
+  try {
+    fs.mkdirSync(projectDir, { recursive: true });
+    log.info(
+      `[ensureNormalProjectWorkspace] Workspace directory ready: ${projectDir}`,
+    );
+  } catch (e: any) {
+    log.warn(
+      `[ensureNormalProjectWorkspace] mkdir failed: ${projectDir}:`,
+      e.message,
+    );
+  }
+}
+
 export function parseBody(req: http.IncomingMessage): Promise<any> {
   return parseHttpJsonBody(req, { maxBodySize: MAX_BODY_SIZE }) as Promise<any>;
 }
@@ -324,11 +361,14 @@ export async function handleComputerChat(
     body.agent_work_dir = body.project_id;
   }
 
-  // 双轨校验：标识符（[a-zA-Z0-9_-]{1,64}）或本机绝对路径（须存在/是目录/可写）。
+  // 三轨校验：标识符（[a-zA-Z0-9_-]{1,64}）、本机绝对路径（须存在/是目录/可写）、
+  // normalProject（service_type=computer-normal-project，容器物化形态归一为 pid）。
   // 绝对路径 realpathSync 归一化后回写——下游把它当 key 的位置（引擎复用/会话
   // 注册表/派发串行化/SSE 清理）拿到唯一形态字符串。
   if (body.agent_work_dir) {
-    const resolved = validateAgentWorkDirInput(body.agent_work_dir);
+    const resolved = validateAgentWorkDirInput(body.agent_work_dir, {
+      serviceType: body.service_type,
+    });
     if (!resolved.ok) {
       log.warn("❌ [HTTP] agent_work_dir rejected:", {
         code: resolved.code,
@@ -338,6 +378,15 @@ export async function handleComputerChat(
       return;
     }
     body.agent_work_dir = resolved.value;
+    // 容错形态（rcoder 物化路径）命中 normal-project 轨道但 service_type 缺失时，
+    // 物化 service_type——下游（mkdir 预建 / acpSessionSetup 目录推导 / 引擎与
+    // 派发 key 作用域）均按 service_type 判定，单点补齐保证三处一致。
+    if (
+      resolved.kind === "normal-project" &&
+      !isNormalProjectServiceType(body.service_type)
+    ) {
+      body.service_type = "computer-normal-project";
+    }
   }
 
   const dispatchKey = resolveChatDispatchKey(body);
@@ -363,15 +412,21 @@ export async function handleComputerChat(
   getPerfLogger().info(`[PERF] /chat.validate: ${t2 - t1}ms`);
 
   // ensureProjectWorkspace 仅服务标识符轨道（在 workspace 下建目录）；绝对路径
-  // 轨道目录已在双轨校验中确认存在/可写，无需（也不应）经 file-server 建目录。
+  // 轨道目录已在三轨校验中确认存在/可写，无需（也不应）经 file-server 建目录；
+  // normalProject 轨道目录多一层 normalProject/（file-server create-workspace
+  // 契约只建平铺层 computer-project-workspace/{userId}/{cId}），直接 mkdir。
   if (body.agent_work_dir && !isAbsoluteAgentWorkDir(body.agent_work_dir)) {
     try {
-      const { fileServer: fileServerPort } = getConfiguredPorts();
-      await ensureProjectWorkspace(
-        body.user_id,
-        body.agent_work_dir,
-        fileServerPort,
-      );
+      if (isNormalProjectServiceType(body.service_type)) {
+        ensureNormalProjectWorkspace(body.user_id, body.agent_work_dir);
+      } else {
+        const { fileServer: fileServerPort } = getConfiguredPorts();
+        await ensureProjectWorkspace(
+          body.user_id,
+          body.agent_work_dir,
+          fileServerPort,
+        );
+      }
     } catch (wsErr: any) {
       log.warn(
         "[HTTP] ensureProjectWorkspace failed (non-blocking):",
