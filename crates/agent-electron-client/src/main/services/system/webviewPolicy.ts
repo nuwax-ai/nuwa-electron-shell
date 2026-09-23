@@ -19,7 +19,7 @@ import {
   WEBVIEW_POPUP_MIN_WIDTH,
   WEBVIEW_POPUP_MIN_HEIGHT,
 } from "@shared/constants";
-import { businessBridgeOrigins } from "../../ipc/bridgeTrust";
+import { businessBridgeOrigins } from "../auth/businessOrigins";
 
 // ---------- 权限白名单 ----------
 

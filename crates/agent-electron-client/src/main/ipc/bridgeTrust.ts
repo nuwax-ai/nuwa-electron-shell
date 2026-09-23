@@ -1,31 +1,6 @@
 import type { IpcMainInvokeEvent, WebContents } from "electron";
-import { readSetting } from "../db";
-import { DEFAULT_SERVER_HOST } from "@shared/constants";
-
-function httpOrigin(value: unknown): string | null {
-  if (typeof value !== "string" || !value) return null;
-  try {
-    const url = new URL(value);
-    return (url.protocol === "http:" || url.protocol === "https:") &&
-      !url.username && !url.password ? url.origin : null;
-  } catch {
-    return null;
-  }
-}
-
-/** 商业宿主当前明确配置的业务页、回环页和开发覆盖页。 */
-export function businessBridgeOrigins(): string[] {
-  const step1 = readSetting("step1_config") as { serverHost?: string } | null;
-  const loopback = readSetting("nuwax.loopback") as { enabled?: boolean; origin?: string } | null;
-  const override = readSetting("nuwax.webviewOverride") as { origin?: string } | null;
-  const businessHost = step1?.serverHost || DEFAULT_SERVER_HOST;
-  return [...new Set([
-    // Settings accepts a hostname without a scheme and treats it as HTTPS.
-    httpOrigin(/^https?:\/\//i.test(businessHost) ? businessHost : `https://${businessHost}`),
-    loopback?.enabled ? httpOrigin(loopback.origin) : null,
-    httpOrigin(override?.origin),
-  ].filter((origin): origin is string => origin !== null))];
-}
+import { businessBridgeOrigins, httpOrigin } from "../services/auth/businessOrigins";
+export { businessBridgeOrigins } from "../services/auth/businessOrigins";
 
 /** 社区版维持原有 HTTP(S) 桥；商业版仅在受信 origin 初次挂载。 */
 export function shouldInjectWebviewPerfBridge(url: string, product: string): boolean {
