@@ -7,7 +7,8 @@
 import * as path from "path";
 import log from "electron-log";
 import type { ComputerChatRequest } from "@shared/types/computerTypes";
-import { resolveComputerProjectWorkspaceDir } from "../../workspacePaths";
+import { resolveAgentProjectDir } from "../../workspacePaths";
+import { extractNormalProjectContainerPid } from "../../computer/agentWorkDir";
 import type { NewSessionOpts } from "./acpNewSessionParams";
 import { supportsLoadSession } from "./acpAgentCapabilities";
 
@@ -128,11 +129,16 @@ export interface SessionSetupResult {
 }
 
 /**
- * workDirId/projectDir 推导（双轨）：
+ * workDirId/projectDir 推导（三轨）：
  * - 标识符轨道：projectDir = {workspace}/computer-project-workspace/{userId}/{id}，
  *   workDirId 兼作会话 title。
  * - 绝对路径轨道（web 端工作空间选择）：projectDir = 入口归一化后的路径原值
  *   （不拼接 workspace）；title 用 basename（全路径作 title 过长）。
+ * - normalProject 轨道（service_type=computer-normal-project）：projectDir =
+ *   {workspace}/computer-project-workspace/{userId}/normalProject/{pid}（本机
+ *   镜像云端 /home/user/normalProject/{pid} 布局）；容器物化形态归一为 pid
+ *   （防御绕过 router 校验的调用方）。同一常规项目多会话 agent_work_dir 相同
+ *   （devTargetId）→ 共享引擎与工作区，对齐云端 per-project 语义。
  * 会话归属 projectId 的回写不在本函数（resolveSessionForChat 用
  * request.agent_work_dir 原值作引擎索引 key，保持全路径）。
  */
@@ -140,17 +146,25 @@ export function buildWorkDirAndProjectDir(
   deps: SessionSetupDeps,
   request: ComputerChatRequest,
 ): { workDirId: string; projectDir: string } {
-  const workDirId =
+  const rawWorkDirId =
     request.agent_work_dir || request.project_id || `proj-${Date.now()}`;
-  if (path.isAbsolute(workDirId)) {
-    return { workDirId: path.basename(workDirId), projectDir: workDirId };
-  }
-  const projectDir = resolveComputerProjectWorkspaceDir(
+  // 三轨目录推导收敛到 resolveAgentProjectDir 单一事实源（与 codex workspaceDir
+  // 覆盖、devcomputer reload 归档同源，防实现漂移）
+  const projectDir = resolveAgentProjectDir(
     deps.workspaceDir,
     request.user_id,
-    workDirId,
+    rawWorkDirId,
+    request.service_type,
   );
-  return { workDirId, projectDir };
+  // title：绝对路径用 basename；normalProject 容器物化形态归一为 pid；标识符原值
+  const containerPid = extractNormalProjectContainerPid(rawWorkDirId);
+  const workDirId = containerPid ?? rawWorkDirId;
+  return {
+    workDirId: path.isAbsolute(workDirId)
+      ? path.basename(workDirId)
+      : workDirId,
+    projectDir,
+  };
 }
 
 function findSessionInMemory(

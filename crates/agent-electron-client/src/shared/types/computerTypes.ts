@@ -121,6 +121,14 @@ export interface ComputerChatRequest {
    * 有值时替代 project_id；无值时由入口处用 project_id 赋值（同样过校验）。
    */
   agent_work_dir?: string;
+  /**
+   * 业务场景类型（对齐 rcoder shared_types::ServiceType，Java 后端全类型携带下发）：
+   * - computer-agent-runner：默认智能体会话（agent_work_dir=conversationId）
+   * - computer-normal-project：常规项目会话（agent_work_dir=常规项目 id devTargetId，
+   *   本机目录映射见 computer/agentWorkDir.ts 三轨制；兼容 camelCase 旧词 normalProject）
+   * - user-app / user-app-builder：userApp 族（本机 computer 链路不消费，仅透传校验）
+   */
+  service_type?: string;
   prompt: string;
   session_id?: string;
   model_provider?: ModelProviderConfig;

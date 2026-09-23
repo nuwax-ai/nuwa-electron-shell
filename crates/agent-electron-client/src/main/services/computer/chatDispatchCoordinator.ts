@@ -1,19 +1,18 @@
 import log from "electron-log";
 import type { ComputerChatRequest } from "@shared/types/computerTypes";
+import { resolveChatEngineRegistryKey } from "./chatEngineKey";
 
 export interface ChatDispatchContext {
   dispatchKey: string;
   turnGeneration: number;
 }
 
-/** Per-project chat dispatch key (aligned with chatEngineKey). */
+/**
+ * Per-project chat dispatch key（与 chatEngineKey 同源：normalProject 业务同样
+ * 加作用域前缀，避免与同 id 的普通会话互相串行化/顶替）。
+ */
 export function resolveChatDispatchKey(request: ComputerChatRequest): string {
-  return (
-    request.agent_work_dir ||
-    request.project_id ||
-    request.session_id ||
-    "default"
-  );
+  return resolveChatEngineRegistryKey(request);
 }
 
 /**

@@ -14,7 +14,7 @@ import type { AcpEngine } from "../engines/acp/acpEngine";
 import { clearSseEventBuffer } from "./sseManager";
 import { captureSessionsForProject } from "./projectSessionRegistry";
 import { archiveFlowagentsSessions } from "./flowagentsSessionPersistence";
-import { resolveComputerProjectWorkspaceDir } from "../workspacePaths";
+import { resolveAgentProjectDir } from "../workspacePaths";
 import { getAppDataDir } from "../system/appPaths";
 import {
   resolveChatEngineKey,
@@ -123,15 +123,18 @@ export async function reloadEngineForRequest(
       captureSessionsForProject(projectKey, sessionIds, request.session_id);
     }
     const isolatedHome = engine.getIsolatedHome();
-    const workDirId = projectKey;
+    // 目录推导用原始 agent_work_dir/project_id（projectKey 是引擎注册维度，
+    // normalProject 业务带 normalProject: 作用域前缀，不能作路径段）
+    const workDirId = request.agent_work_dir || request.project_id;
     if (isolatedHome && workDirId && request.user_id) {
       const baseConfig = agentService.getAgentConfig();
       const baseWorkspaceDir =
         baseConfig?.workspaceDir || path.join(getAppDataDir(), "workspace");
-      const projectDir = resolveComputerProjectWorkspaceDir(
+      const projectDir = resolveAgentProjectDir(
         baseWorkspaceDir,
         request.user_id,
         workDirId,
+        request.service_type,
       );
       archiveFlowagentsSessions(isolatedHome, projectDir);
     }

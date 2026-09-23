@@ -5,6 +5,8 @@ import * as path from "path";
 import {
   validateAgentWorkDirInput,
   isAbsoluteAgentWorkDir,
+  isNormalProjectServiceType,
+  extractNormalProjectContainerPid,
 } from "./agentWorkDir";
 
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "agent-work-dir-"));
@@ -127,5 +129,114 @@ describe("isAbsoluteAgentWorkDir", () => {
     expect(isAbsoluteAgentWorkDir("/Users/x/proj")).toBe(true);
     expect(isAbsoluteAgentWorkDir("proj-1")).toBe(false);
     expect(isAbsoluteAgentWorkDir("../etc")).toBe(false);
+  });
+});
+
+describe("validateAgentWorkDirInput · normalProject 轨道（三轨制）", () => {
+  it("service_type=computer-normal-project + 单段名 → normal-project 轨道，value 不变", () => {
+    expect(
+      validateAgentWorkDirInput("np-9", {
+        serviceType: "computer-normal-project",
+      }),
+    ).toEqual({ ok: true, kind: "normal-project", value: "np-9" });
+  });
+
+  it("camelCase 旧词 normalProject 同样命中（对齐 rcoder FromStr 兼容词）", () => {
+    expect(
+      validateAgentWorkDirInput("np-9", { serviceType: "normalProject" }),
+    ).toEqual({ ok: true, kind: "normal-project", value: "np-9" });
+  });
+
+  it("service_type=computer-agent-runner + 单段名 → 维持标识符轨道（存量行为）", () => {
+    expect(
+      validateAgentWorkDirInput("c-1", {
+        serviceType: "computer-agent-runner",
+      }),
+    ).toEqual({ ok: true, kind: "id", value: "c-1" });
+  });
+
+  it("容器物化形态 /home/user/normalProject/{pid} → 提取 pid，service_type 缺失也命中", () => {
+    // 双轨制下该形态会因目录不存在被 NOT_FOUND 误拒（mac/win 上必然）
+    for (const serviceType of [undefined, "computer-normal-project"]) {
+      expect(
+        validateAgentWorkDirInput("/home/user/normalProject/np-9", {
+          serviceType,
+        }),
+      ).toEqual({ ok: true, kind: "normal-project", value: "np-9" });
+    }
+  });
+
+  it("容器前缀但 pid 非法（嵌套段/非法字符/超长）→ 落绝对路径轨道 NOT_FOUND", () => {
+    for (const bad of [
+      "/home/user/normalProject/a/b",
+      "/home/user/normalProject/a b",
+      `/home/user/normalProject/${"a".repeat(65)}`,
+    ]) {
+      const result = validateAgentWorkDirInput(bad);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.code).toBe("AGENT_WORK_DIR_NOT_FOUND");
+    }
+  });
+
+  it("normalProject + 本机自选绝对目录 → 维持绝对路径轨道（agentWorkspacePath 覆盖场景）", () => {
+    const dir = path.join(tmpRoot, "np-picked");
+    fs.mkdirSync(dir, { recursive: true });
+    const result = validateAgentWorkDirInput(dir, {
+      serviceType: "computer-normal-project",
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.kind).toBe("abs");
+      expect(result.value).toBe(fs.realpathSync(dir));
+    }
+  });
+
+  it("无 options 的存量调用：标识符/绝对路径两轨行为完全不变（回归锁）", () => {
+    expect(validateAgentWorkDirInput("proj-1")).toEqual({
+      ok: true,
+      kind: "id",
+      value: "proj-1",
+    });
+    const dir = path.join(tmpRoot, "regression-dir");
+    fs.mkdirSync(dir, { recursive: true });
+    const result = validateAgentWorkDirInput(dir);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.kind).toBe("abs");
+  });
+});
+
+describe("isNormalProjectServiceType", () => {
+  it("接受 kebab/camel/Pascal 形态，拒绝空值与其余值", () => {
+    expect(isNormalProjectServiceType("computer-normal-project")).toBe(true);
+    expect(isNormalProjectServiceType("normalProject")).toBe(true);
+    expect(isNormalProjectServiceType("ComputerNormalProject")).toBe(true);
+    expect(isNormalProjectServiceType(undefined)).toBe(false);
+    expect(isNormalProjectServiceType("")).toBe(false);
+    expect(isNormalProjectServiceType("computer-agent-runner")).toBe(false);
+    expect(isNormalProjectServiceType("web-agent-runner")).toBe(false);
+  });
+});
+
+describe("extractNormalProjectContainerPid", () => {
+  it("合法物化形态提取 pid", () => {
+    expect(
+      extractNormalProjectContainerPid("/home/user/normalProject/42"),
+    ).toBe("42");
+    expect(
+      extractNormalProjectContainerPid("/home/user/normalProject/np_9-a"),
+    ).toBe("np_9-a");
+  });
+
+  it("非物化形态返回 null", () => {
+    for (const bad of [
+      "/home/user/42",
+      "/home/user/normalProject/",
+      "/home/user/normalProject/a/b",
+      "/home/user/normalProject/a b",
+      "normalProject/42",
+      "/home/other/normalProject/42",
+    ]) {
+      expect(extractNormalProjectContainerPid(bad)).toBeNull();
+    }
   });
 });

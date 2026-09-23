@@ -1,5 +1,6 @@
 import log from "electron-log";
 import type { ComputerChatRequest } from "@shared/types/computerTypes";
+import { projectRegistryKeyCandidates } from "./chatEngineKey";
 import { resolveProjectSession } from "./projectSessionRegistry";
 import {
   closeSseClientsForSession,
@@ -11,11 +12,13 @@ export interface ChatSseSessionLookup {
   listSessionsDetailed?: () => Array<{ id: string; projectId?: string }>;
 }
 
+/**
+ * key 集合用前缀+原始双形态候选（registry 写入侧对 normalProject 业务带
+ * normalProject: 前缀；引擎内 session.projectId 为原始 pid，靠原始形态命中，
+ * 两类用途在同一集合下各自正确）。
+ */
 function projectKeysForBody(body: ComputerChatRequest): Set<string> {
-  const keys = new Set<string>();
-  if (body.agent_work_dir) keys.add(body.agent_work_dir);
-  if (body.project_id) keys.add(body.project_id);
-  return keys;
+  return new Set(projectRegistryKeyCandidates(body));
 }
 
 /** Collect session_ids that may still have an open progress SSE for this chat request. */

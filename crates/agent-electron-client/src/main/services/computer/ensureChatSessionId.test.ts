@@ -43,4 +43,25 @@ describe("ensureSessionIdFromRegistry", () => {
     });
     expect(ensureSessionIdFromRegistry(req)).toBe("sess-from-workdir");
   });
+
+  it("normalProject 会话 reload 后按带前缀 key 恢复（写入侧带前缀，读取侧双形态探测）", () => {
+    // 模拟 chat 成功回写 / devcomputer reload capture：写入侧经
+    // resolveChatProjectRegistryKey 对 normalProject 业务带 normalProject: 前缀
+    rememberProjectSession("normalProject:42", "sess-np-42");
+
+    // 读取侧请求带 service_type（Java 全类型下发）：前缀形态命中
+    const withType = chatRequest({
+      agent_work_dir: "42",
+      project_id: "1553935",
+      service_type: "computer-normal-project",
+    });
+    expect(ensureSessionIdFromRegistry(withType)).toBe("sess-np-42");
+
+    // 读取侧请求缺 service_type（透传不全）：原始形态查不到带前缀条目，不误命中
+    const withoutType = chatRequest({
+      agent_work_dir: "42",
+      project_id: "1553935",
+    });
+    expect(ensureSessionIdFromRegistry(withoutType)).toBeUndefined();
+  });
 });
