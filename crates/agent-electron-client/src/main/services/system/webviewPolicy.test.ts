@@ -226,7 +226,9 @@ describe("business top-level navigation boundary", () => {
   });
 
   it("blocks an initial trusted page's 302 to an external origin before commit", async () => {
-    const guest = attachedWebview(await setup(), "");
+    const created = await setup();
+    const guest = fakeContents("webview", "");
+    created({}, guest);
     const onRedirect = guest.on.mock.calls.find(([name]) => name === "will-redirect")?.[1];
     const event = { url: `${external}/checkout`, isMainFrame: true, preventDefault: vi.fn() };
     onRedirect(event);

@@ -280,6 +280,9 @@ function guardBusinessNavigation(contents: WebContents): void {
 
 function setupWindowOpen(): void {
   app.on("web-contents-created", (_event, contents) => {
+    // A guest can start loading its initial src before did-attach-webview.
+    // Install the redirect guard at creation, then let attach be a fallback.
+    if (contents.getType() === "webview") guardBusinessNavigation(contents);
     // <webview> tag 内部的 window.open
     contents.on("did-attach-webview", (_event, webContents) => {
       guardBusinessNavigation(webContents);
