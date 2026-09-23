@@ -6,7 +6,8 @@ function httpOrigin(value: unknown): string | null {
   if (typeof value !== "string" || !value) return null;
   try {
     const url = new URL(value);
-    return url.protocol === "http:" || url.protocol === "https:" ? url.origin : null;
+    return (url.protocol === "http:" || url.protocol === "https:") &&
+      !url.username && !url.password ? url.origin : null;
   } catch {
     return null;
   }

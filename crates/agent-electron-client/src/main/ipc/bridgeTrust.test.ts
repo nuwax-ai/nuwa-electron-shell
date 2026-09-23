@@ -36,6 +36,8 @@ describe("business bridge origin policy", () => {
     expect(shouldInjectWebviewPerfBridge(`${business}/home`, "nuwax")).toBe(true);
     expect(shouldInjectWebviewPerfBridge(`${gateway}/home`, "nuwax")).toBe(true);
     expect(shouldInjectWebviewPerfBridge(`${external}/docs`, "nuwax")).toBe(false);
+    expect(shouldInjectWebviewPerfBridge("https://user:pass@business.example/home", "nuwax"))
+      .toBe(false);
     expect(shouldInjectWebviewPerfBridge(`${external}/docs`, "nuwaclaw")).toBe(true);
     expect(shouldInjectWebviewPerfBridge("file:///tmp/x", "nuwaclaw")).toBe(false);
   });
@@ -44,6 +46,8 @@ describe("business bridge origin policy", () => {
     expect(isBusinessBridgeSender(event(gateway, gateway))).toBe(true);
     expect(isBusinessBridgeSender(event(gateway, external))).toBe(false);
     expect(isBusinessBridgeSender(event(external, gateway))).toBe(false);
+    expect(isBusinessBridgeSender(event("https://user:pass@business.example", business)))
+      .toBe(false);
     settings.set("nuwax.loopback", { enabled: false, origin: gateway });
     expect(isBusinessBridgeSender(event(gateway, gateway))).toBe(false);
   });

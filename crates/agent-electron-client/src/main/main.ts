@@ -56,7 +56,7 @@ import { openLogDirectory } from "./ipc/appHandlers";
 import { shouldInjectWebviewPerfBridge } from "./ipc/bridgeTrust";
 import { migrateDataDir, migrateSettingsPaths } from "./bootstrap/migrate";
 import { getDeviceId, logSystemInfo } from "./services/system/deviceId";
-import { initWebviewPolicy } from "./services/system/webviewPolicy";
+import { initWebviewPolicy, isolateUntrustedInitialWebview } from "./services/system/webviewPolicy";
 import { stopAllEngines } from "./services/engines/engineManager";
 import { processRegistry } from "./services/system/processRegistry";
 import { APP_DATA_DIR_NAME } from "@shared/constants";
@@ -258,6 +258,9 @@ function createWindow() {
     (_event, webPreferences, params) => {
       const targetUrl = String(params.src || "");
       if (!shouldInjectWebviewPerfBridge(targetUrl, APP_NAME_IDENTIFIER)) {
+        // Initial <webview src> is a programmatic load and does not emit
+        // will-frame-navigate. Isolate an external target before its first request.
+        isolateUntrustedInitialWebview(webPreferences, params);
         return;
       }
       webPreferences.preload = WEBVIEW_PERF_BRIDGE_PRELOAD;

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
+  const popupWindows: Array<{ options: unknown; loadURL: ReturnType<typeof vi.fn>; focus: ReturnType<typeof vi.fn> }> = [];
   const defaultSession = {
     setPermissionRequestHandler: vi.fn(),
     setPermissionCheckHandler: vi.fn(),
@@ -21,14 +22,20 @@ const mocks = vi.hoisted(() => {
     partitionSessions.set(partition, ses);
     return ses;
   });
-  return { appOn: vi.fn(), defaultSession, partitionSessions, fromPartition };
+  return { appOn: vi.fn(), defaultSession, partitionSessions, fromPartition, popupWindows };
 });
 const settings = new Map<string, unknown>();
 
 vi.mock("electron", () => ({
   app: { on: mocks.appOn },
   session: { defaultSession: mocks.defaultSession, fromPartition: mocks.fromPartition },
-  BrowserWindow: class {},
+  BrowserWindow: class {
+    loadURL = vi.fn();
+    focus = vi.fn();
+    constructor(options: unknown) {
+      mocks.popupWindows.push({ options, loadURL: this.loadURL, focus: this.focus });
+    }
+  },
 }));
 vi.mock("electron-log", () => ({
   default: { info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
@@ -46,6 +53,7 @@ function fakeContents(type: "window" | "webview", url: string, session: unknown 
     getType: () => type,
     getURL: () => url,
     session,
+    isDestroyed: () => false,
     on: vi.fn(),
     setWindowOpenHandler: vi.fn(),
     send: vi.fn(),
@@ -71,13 +79,18 @@ async function setup(product = "nuwax") {
   return created as (_event: unknown, contents: ReturnType<typeof fakeContents>) => void;
 }
 
-function webviewPopupHandler(created: Awaited<ReturnType<typeof setup>>, source: string) {
+function attachedWebview(created: Awaited<ReturnType<typeof setup>>, source: string) {
   const host = fakeContents("window", "file:///app/index.html");
   const guest = fakeContents("webview", source);
   created({}, host);
   const attach = host.on.mock.calls.find(([name]) => name === "did-attach-webview")?.[1];
   expect(attach).toBeTypeOf("function");
   attach({}, guest);
+  return guest;
+}
+
+function webviewPopupHandler(created: Awaited<ReturnType<typeof setup>>, source: string) {
+  const guest = attachedWebview(created, source);
   return guest.setWindowOpenHandler.mock.lastCall?.[0] as (details: unknown) => {
     action: string;
     overrideBrowserWindowOptions?: { webPreferences: Record<string, unknown>; width: number; height: number };
@@ -90,6 +103,7 @@ beforeEach(() => {
   mocks.appOn.mockClear();
   mocks.fromPartition.mockClear();
   mocks.partitionSessions.clear();
+  mocks.popupWindows.length = 0;
 });
 afterEach(() => {
   if (originalProduct === undefined) delete process.env.NUWAX_APP_IDENTIFIER;
@@ -188,5 +202,84 @@ describe("window.open session boundary", () => {
     const result = handler(popup(`${business}/agent`, `${external}/home`));
     expect(result.overrideBrowserWindowOptions?.webPreferences.partition).toBeUndefined();
     expect(result.overrideBrowserWindowOptions?.webPreferences.preload).toBeUndefined();
+  });
+});
+
+describe("business top-level navigation boundary", () => {
+  it("moves _self cross-origin navigation into an isolated window", async () => {
+    const guest = attachedWebview(await setup(), `${business}/home`);
+    const onNavigate = guest.on.mock.calls.find(([name]) => name === "will-frame-navigate")?.[1];
+    const event = { url: `${external}/docs`, isMainFrame: true, preventDefault: vi.fn() };
+    onNavigate(event);
+    expect(event.preventDefault).toHaveBeenCalledOnce();
+    expect(mocks.popupWindows).toHaveLength(1);
+    expect(mocks.popupWindows[0].loadURL).toHaveBeenCalledWith(`${external}/docs`);
+    expect((mocks.popupWindows[0].options as any).webPreferences.partition)
+      .toMatch(/^temp:nuwax-popup-/);
+    expect((mocks.popupWindows[0].options as any).webPreferences.preload).toBeUndefined();
+    const sameOrigin = { url: `${business}/agent`, isMainFrame: true, preventDefault: vi.fn() };
+    onNavigate(sameOrigin);
+    expect(sameOrigin.preventDefault).not.toHaveBeenCalled();
+    const iframe = { url: `${external}/embed`, isMainFrame: false, preventDefault: vi.fn() };
+    onNavigate(iframe);
+    expect(iframe.preventDefault).not.toHaveBeenCalled();
+  });
+
+  it("blocks an initial trusted page's 302 to an external origin before commit", async () => {
+    const guest = attachedWebview(await setup(), "");
+    const onRedirect = guest.on.mock.calls.find(([name]) => name === "will-redirect")?.[1];
+    const event = { url: `${external}/checkout`, isMainFrame: true, preventDefault: vi.fn() };
+    onRedirect(event);
+    expect(event.preventDefault).toHaveBeenCalledOnce();
+    expect((mocks.popupWindows[0].options as any).webPreferences.partition)
+      .toMatch(/^temp:nuwax-popup-/);
+    expect(mocks.popupWindows[0].loadURL).toHaveBeenCalledWith(`${external}/checkout`);
+  });
+
+  it("places an external initial webview src in a fresh memory session", async () => {
+    process.env.NUWAX_APP_IDENTIFIER = "nuwax";
+    vi.resetModules();
+    const { isolateUntrustedInitialWebview } = await import("./webviewPolicy");
+    const preferences = { preload: "/sensitive/preload.js", session: mocks.defaultSession } as any;
+    const params = { src: `${external}/docs` };
+    expect(isolateUntrustedInitialWebview(preferences, params)).toBe(true);
+    expect(preferences.partition).toMatch(/^temp:nuwax-webview-/);
+    expect(preferences.session).toBeUndefined();
+    expect(preferences.preload).toBeUndefined();
+    expect((params as any).partition).toBe(preferences.partition);
+    expect(mocks.partitionSessions.get(preferences.partition)?.setPermissionRequestHandler)
+      .toHaveBeenCalledOnce();
+    expect(isolateUntrustedInitialWebview({}, { src: `${business}/home` })).toBe(false);
+  });
+});
+
+describe("defaultSession permission origin boundary", () => {
+  it("requires the top document and actual requesting frame to be current business origins", async () => {
+    await setup();
+    const request = mocks.defaultSession.setPermissionRequestHandler.mock.lastCall?.[0] as (
+      contents: unknown, permission: string, callback: (allowed: boolean) => void,
+      details: { requestingUrl: string },
+    ) => void;
+    const check = mocks.defaultSession.setPermissionCheckHandler.mock.lastCall?.[0] as (
+      contents: unknown, permission: string, requestingOrigin: string,
+      details: { isMainFrame: boolean; requestingUrl?: string; embeddingOrigin?: string },
+    ) => boolean;
+    const top = fakeContents("webview", `${business}/home`);
+    const answer = vi.fn();
+    request(top, "media", answer, { requestingUrl: `${business}/camera` });
+    expect(answer).toHaveBeenLastCalledWith(true);
+    request(top, "media", answer, { requestingUrl: `${external}/iframe` });
+    expect(answer).toHaveBeenLastCalledWith(false);
+    expect(check(top, "clipboard-read", business,
+      { isMainFrame: true, requestingUrl: `${business}/home` })).toBe(true);
+    expect(check(top, "clipboard-read", external,
+      { isMainFrame: false, embeddingOrigin: business })).toBe(false);
+    expect(check(top, "notifications", business,
+      { isMainFrame: false, embeddingOrigin: external })).toBe(false);
+    expect(check(fakeContents("webview", `${external}/docs`), "media", business,
+      { isMainFrame: true })).toBe(false);
+    expect(check(null, "media", business, { isMainFrame: true })).toBe(false);
+    settings.set("step1_config", { serverHost: "https://new-business.example" });
+    expect(check(top, "media", business, { isMainFrame: true })).toBe(false);
   });
 });

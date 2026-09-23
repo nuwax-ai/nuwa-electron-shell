@@ -8,7 +8,7 @@
  */
 
 import { app, session as electronSession, BrowserWindow } from "electron";
-import type { HandlerDetails, BrowserWindowConstructorOptions, Session, WebContents } from "electron";
+import type { HandlerDetails, BrowserWindowConstructorOptions, Session, WebContents, WebPreferences } from "electron";
 import { randomUUID } from "crypto";
 import * as path from "path";
 import log from "electron-log";
@@ -39,14 +39,18 @@ const ALLOWED_ISOLATED_PERMISSIONS = new Set([
   "fullscreen",
 ]);
 const configuredPermissionSessions = new WeakSet<Session>();
+const guardedBusinessContents = new WeakSet<WebContents>();
 
 // ---------- 权限 ----------
 
 function configurePermissionHandlers(ses: Session, allowed: ReadonlySet<string>): void {
   if (configuredPermissionSessions.has(ses)) return;
   ses.setPermissionRequestHandler(
-    (_webContents, permission, callback) => {
-      if (allowed.has(permission)) {
+    (contents, permission, callback, details) => {
+      const trusted = ses !== electronSession.defaultSession ||
+        APP_NAME_IDENTIFIER !== "nuwax" ||
+        isTrustedPermissionSource(contents, details?.requestingUrl);
+      if (allowed.has(permission) && trusted) {
         callback(true);
       } else {
         log.warn(`[WebviewPolicy] Denied permission request: ${permission}`);
@@ -56,8 +60,13 @@ function configurePermissionHandlers(ses: Session, allowed: ReadonlySet<string>)
   );
 
   ses.setPermissionCheckHandler(
-    (_webContents, permission) => {
-      return allowed.has(permission);
+    (contents, permission, requestingOrigin, details) => {
+      if (!allowed.has(permission)) return false;
+      if (ses !== electronSession.defaultSession || APP_NAME_IDENTIFIER !== "nuwax") return true;
+      return isTrustedPermissionSource(contents, requestingOrigin) &&
+        (!details?.requestingUrl || isTrustedBusinessUrl(details.requestingUrl)) &&
+        (!details?.embeddingOrigin || isTrustedBusinessUrl(details.embeddingOrigin)) &&
+        (!details?.securityOrigin || isTrustedBusinessUrl(details.securityOrigin));
     },
   );
   configuredPermissionSessions.add(ses);
@@ -100,6 +109,34 @@ function parseHttpUrl(value: string | undefined): URL | null {
   } catch {
     return null;
   }
+}
+
+function isTrustedBusinessUrl(value: string | undefined): boolean {
+  const parsed = parseHttpUrl(value);
+  return !!parsed && !parsed.username && !parsed.password &&
+    businessBridgeOrigins().includes(parsed.origin);
+}
+
+function isTrustedPermissionSource(contents: WebContents | null, frameUrl: string | undefined): boolean {
+  return !!contents && !contents.isDestroyed() &&
+    contents.session === electronSession.defaultSession &&
+    isTrustedBusinessUrl(contents.getURL()) && isTrustedBusinessUrl(frameUrl);
+}
+
+/** Keep a non-business initial <webview src> out of the shared session before its first request. */
+export function isolateUntrustedInitialWebview(
+  webPreferences: WebPreferences,
+  params: Record<string, string>,
+): boolean {
+  if (APP_NAME_IDENTIFIER !== "nuwax" || !params.src || isTrustedBusinessUrl(params.src))
+    return false;
+  const partition = `temp:nuwax-webview-${randomUUID()}`;
+  configureIsolatedWebSession(partition);
+  delete webPreferences.session;
+  delete webPreferences.preload;
+  webPreferences.partition = partition;
+  params.partition = partition;
+  return true;
 }
 
 /**
@@ -208,10 +245,44 @@ function handleHttpPopupOpen(details: HandlerDetails, opener: WebContents):
   return { action: "allow", overrideBrowserWindowOptions: options };
 }
 
+/** A business document must not carry its defaultSession into an external top-level page. */
+function guardBusinessNavigation(contents: WebContents): void {
+  if (APP_NAME_IDENTIFIER !== "nuwax" ||
+      contents.session !== electronSession.defaultSession ||
+      guardedBusinessContents.has(contents)) return;
+  guardedBusinessContents.add(contents);
+
+  const handleTarget = (event: Electron.Event, targetUrl: string, isMainFrame: boolean) => {
+    if (!isMainFrame || isTrustedBusinessUrl(targetUrl)) return;
+    event.preventDefault();
+    const target = parseHttpUrl(targetUrl);
+    if (!target) {
+      log.warn(`[WebviewPolicy] Blocked non-HTTP top-level navigation: ${targetUrl}`);
+      return;
+    }
+    try {
+      const win = new BrowserWindow(buildPopupWindowOptions("", false));
+      void win.loadURL(target.href);
+      win.focus();
+      log.info(`[WebviewPolicy] Isolated external navigation: ${target.origin}`);
+    } catch (error) {
+      log.warn("[WebviewPolicy] Failed to open isolated external navigation", error);
+    }
+  };
+  // will-frame-navigate covers _self / location changes, including named-frame
+  // targeting the top frame. will-redirect covers server redirects from loadURL
+  // and initial <webview src>, which do not emit will-frame-navigate.
+  contents.on("will-frame-navigate", (event) =>
+    handleTarget(event, event.url, event.isMainFrame));
+  contents.on("will-redirect", (event) =>
+    handleTarget(event, event.url, event.isMainFrame));
+}
+
 function setupWindowOpen(): void {
   app.on("web-contents-created", (_event, contents) => {
     // <webview> tag 内部的 window.open
     contents.on("did-attach-webview", (_event, webContents) => {
+      guardBusinessNavigation(webContents);
       webContents.setWindowOpenHandler((details) =>
         handleHttpPopupOpen(details, webContents),
       );
@@ -248,6 +319,7 @@ function setupWindowOpen(): void {
     // BrowserWindow 内部的 window.open（独立 webview 窗口等）
     if (contents.getType() === "window") {
       contents.setWindowOpenHandler((details) => handleHttpPopupOpen(details, contents));
+      guardBusinessNavigation(contents);
     }
   });
 }
