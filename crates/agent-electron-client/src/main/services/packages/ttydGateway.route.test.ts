@@ -231,7 +231,23 @@ describe("resolveRouteCwd · normalProject 分支", () => {
     ).toBe(dir);
   });
 
-  it("镜像目录空/不存在 → 不走平铺层，直接回落 getTtydInitialCwd（防跨轨道撞号污染）", () => {
+  it("镜像目录为空（新项目初始态，chat mkdir 后引擎尚未写入）→ 仍命中（对齐云端 is_dir 语义）", () => {
+    const dir = path.join(
+      baseWorkspace,
+      "computer-project-workspace",
+      "6",
+      "normalProject",
+      "p-empty",
+    );
+    fs.mkdirSync(dir, { recursive: true }); // 只建目录，不放内容
+    expect(
+      resolveRouteCwd("6", "p-empty", {
+        serviceType: "computer-normal-project",
+      }),
+    ).toBe(dir);
+  });
+
+  it("镜像目录不存在 → 不走平铺层，直接回落 getTtydInitialCwd（防跨轨道撞号污染）", () => {
     // 同数字 id 的普通会话平铺工作区存在且非空——normalProject miss 也不得落进去
     const flatDir = makeNonEmptyDir("computer-project-workspace", "6", "p10");
     expect(
