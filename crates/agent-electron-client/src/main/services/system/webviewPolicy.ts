@@ -8,7 +8,7 @@
  */
 
 import { app, session as electronSession, BrowserWindow } from "electron";
-import type { HandlerDetails, BrowserWindowConstructorOptions, WebContents } from "electron";
+import type { HandlerDetails, BrowserWindowConstructorOptions, Session, WebContents } from "electron";
 import { randomUUID } from "crypto";
 import * as path from "path";
 import log from "electron-log";
@@ -33,13 +33,20 @@ const ALLOWED_PERMISSIONS = new Set([
   "pointerLock",
   "openExternal",
 ]);
+// 外部网站仍可使用普通复制/全屏；设备、通知、剪贴板读取等需留在业务会话。
+const ALLOWED_ISOLATED_PERMISSIONS = new Set([
+  "clipboard-sanitized-write",
+  "fullscreen",
+]);
+const configuredPermissionSessions = new WeakSet<Session>();
 
 // ---------- 权限 ----------
 
-function setupPermissions(): void {
-  electronSession.defaultSession.setPermissionRequestHandler(
+function configurePermissionHandlers(ses: Session, allowed: ReadonlySet<string>): void {
+  if (configuredPermissionSessions.has(ses)) return;
+  ses.setPermissionRequestHandler(
     (_webContents, permission, callback) => {
-      if (ALLOWED_PERMISSIONS.has(permission)) {
+      if (allowed.has(permission)) {
         callback(true);
       } else {
         log.warn(`[WebviewPolicy] Denied permission request: ${permission}`);
@@ -48,11 +55,26 @@ function setupPermissions(): void {
     },
   );
 
-  electronSession.defaultSession.setPermissionCheckHandler(
+  ses.setPermissionCheckHandler(
     (_webContents, permission) => {
-      return ALLOWED_PERMISSIONS.has(permission);
+      return allowed.has(permission);
     },
   );
+  configuredPermissionSessions.add(ses);
+}
+
+function setupPermissions(): void {
+  configurePermissionHandlers(electronSession.defaultSession, ALLOWED_PERMISSIONS);
+}
+
+/** 必须在创建外链窗口之前设置其独立会话权限；Electron 不从 defaultSession 继承。 */
+export function configureIsolatedWebSession(partition: string): Session {
+  if (!partition.startsWith("temp:nuwax-") || partition.startsWith("persist:"))
+    throw new Error("Invalid isolated web partition");
+  const ses = electronSession.fromPartition(partition);
+  configurePermissionHandlers(ses, ALLOWED_ISOLATED_PERMISSIONS);
+  ses.setSpellCheckerEnabled(false);
+  return ses;
 }
 
 // ---------- 拼写检查 ----------
@@ -142,6 +164,7 @@ function buildPopupWindowOptions(
     } else {
       // 子窗口不继承默认业务 cookie；每次打开均用新的内存会话。
       webPreferences.partition = `temp:nuwax-popup-${randomUUID()}`;
+      configureIsolatedWebSession(webPreferences.partition);
     }
   }
   return {

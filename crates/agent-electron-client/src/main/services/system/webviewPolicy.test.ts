@@ -7,13 +7,27 @@ const mocks = vi.hoisted(() => {
     setSpellCheckerEnabled: vi.fn(),
     on: vi.fn(),
   };
-  return { appOn: vi.fn(), defaultSession };
+  const partitionSessions = new Map<string, {
+    setPermissionRequestHandler: ReturnType<typeof vi.fn>;
+    setPermissionCheckHandler: ReturnType<typeof vi.fn>;
+    setSpellCheckerEnabled: ReturnType<typeof vi.fn>;
+  }>();
+  const fromPartition = vi.fn((partition: string) => {
+    const ses = {
+      setPermissionRequestHandler: vi.fn(),
+      setPermissionCheckHandler: vi.fn(),
+      setSpellCheckerEnabled: vi.fn(),
+    };
+    partitionSessions.set(partition, ses);
+    return ses;
+  });
+  return { appOn: vi.fn(), defaultSession, partitionSessions, fromPartition };
 });
 const settings = new Map<string, unknown>();
 
 vi.mock("electron", () => ({
   app: { on: mocks.appOn },
-  session: { defaultSession: mocks.defaultSession },
+  session: { defaultSession: mocks.defaultSession, fromPartition: mocks.fromPartition },
   BrowserWindow: class {},
 }));
 vi.mock("electron-log", () => ({
@@ -74,6 +88,8 @@ beforeEach(() => {
   settings.clear();
   settings.set("step1_config", { serverHost: business });
   mocks.appOn.mockClear();
+  mocks.fromPartition.mockClear();
+  mocks.partitionSessions.clear();
 });
 afterEach(() => {
   if (originalProduct === undefined) delete process.env.NUWAX_APP_IDENTIFIER;
@@ -104,6 +120,22 @@ describe("window.open session boundary", () => {
     expect(first.webPreferences.session).toBeUndefined();
     expect(first.webPreferences.partition).toMatch(/^temp:nuwax-popup-/);
     expect(second.webPreferences.partition).not.toBe(first.webPreferences.partition);
+    const isolated = mocks.partitionSessions.get(first.webPreferences.partition as string);
+    expect(isolated).toBeDefined();
+    expect(isolated?.setPermissionRequestHandler).toHaveBeenCalledTimes(1);
+    expect(isolated?.setPermissionCheckHandler).toHaveBeenCalledTimes(1);
+    expect(isolated?.setSpellCheckerEnabled).toHaveBeenCalledWith(false);
+    const request = isolated?.setPermissionRequestHandler.mock.lastCall?.[0] as (
+      contents: unknown, permission: string, callback: (allowed: boolean) => void,
+    ) => void;
+    const check = isolated?.setPermissionCheckHandler.mock.lastCall?.[0] as (
+      contents: unknown, permission: string,
+    ) => boolean;
+    const answer = vi.fn();
+    request(null, "media", answer);
+    expect(answer).toHaveBeenCalledWith(false);
+    expect(check(null, "notifications")).toBe(false);
+    expect(check(null, "fullscreen")).toBe(true);
   });
 
   it("external webview, external iframe and credentialed URL cannot inherit business session", async () => {
