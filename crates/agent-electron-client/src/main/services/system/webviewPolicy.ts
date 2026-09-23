@@ -40,6 +40,15 @@ const ALLOWED_ISOLATED_PERMISSIONS = new Set([
 ]);
 const configuredPermissionSessions = new WeakSet<Session>();
 const guardedBusinessContents = new WeakSet<WebContents>();
+const trustedBusinessPopups = new Set<BrowserWindow>();
+
+/** Close popups whose preload captured the previous business-origin allowlist. */
+export function destroyTrustedBusinessPopups(): void {
+  for (const win of [...trustedBusinessPopups]) {
+    if (!win.isDestroyed()) win.destroy();
+  }
+  trustedBusinessPopups.clear();
+}
 
 // ---------- 权限 ----------
 
@@ -283,6 +292,12 @@ function setupWindowOpen(): void {
     // A guest can start loading its initial src before did-attach-webview.
     // Install the redirect guard at creation, then let attach be a fallback.
     if (contents.getType() === "webview") guardBusinessNavigation(contents);
+    contents.on("did-create-window", (win) => {
+      if (APP_NAME_IDENTIFIER !== "nuwax" ||
+          win.webContents.session !== electronSession.defaultSession) return;
+      trustedBusinessPopups.add(win);
+      win.on("closed", () => trustedBusinessPopups.delete(win));
+    });
     // <webview> tag 内部的 window.open
     contents.on("did-attach-webview", (_event, webContents) => {
       guardBusinessNavigation(webContents);

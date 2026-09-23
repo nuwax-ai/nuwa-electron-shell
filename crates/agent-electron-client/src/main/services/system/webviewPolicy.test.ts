@@ -126,6 +126,27 @@ describe("window.open session boundary", () => {
     ]));
   });
 
+  it("destroys trusted window.open popups when the business domain changes", async () => {
+    const created = await setup();
+    const guest = fakeContents("webview", `${business}/home`);
+    created({}, guest);
+    const didCreate = guest.on.mock.calls.find(([name]) => name === "did-create-window")?.[1] as
+      ((win: unknown) => void) | undefined;
+    expect(didCreate).toBeTypeOf("function");
+    const businessDestroy = vi.fn();
+    const externalDestroy = vi.fn();
+    const fakeWindow = (session: unknown, destroy: ReturnType<typeof vi.fn>) => ({
+      webContents: { session }, isDestroyed: () => false, destroy, on: vi.fn(),
+    });
+    didCreate!(fakeWindow(mocks.defaultSession, businessDestroy));
+    didCreate!(fakeWindow({ isolated: true }, externalDestroy));
+
+    const { destroyTrustedBusinessPopups } = await import("./webviewPolicy");
+    destroyTrustedBusinessPopups();
+    expect(businessDestroy).toHaveBeenCalledTimes(1);
+    expect(externalDestroy).not.toHaveBeenCalled();
+  });
+
   it("business to external popup has no bridge and a fresh memory session", async () => {
     const handler = webviewPopupHandler(await setup(), `${business}/home`);
     const first = handler(popup(`${external}/docs`, `${business}/home`)).overrideBrowserWindowOptions!;
