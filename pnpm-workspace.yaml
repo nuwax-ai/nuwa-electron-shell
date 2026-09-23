@@ -12,6 +12,5 @@ allowBuilds:
   better-sqlite3: true
   electron: true
   esbuild: true
-  nuwax-codex: true
   protobufjs: true
   sharp: true

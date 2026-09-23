@@ -68,7 +68,7 @@ importers:
         specifier: 1.5.4
         version: 1.5.4(zod@3.25.76)
       '@nuwax-ai/nuwax-codex-acp-ts':
-        specifier: 1.2.8
+        specifier: ^1.2.8
         version: 1.2.8
       '@uiw/react-json-view':
         specifier: 2.0.0-alpha.42
@@ -1673,7 +1673,7 @@ packages:
     engines: {node: '>=20.3.0'}
     peerDependencies:
       '@agentclientprotocol/sdk': ^0.26.0 || ^1.2.1
-      '@nuwax-ai/nuwax-codex-acp-ts': ^1.2.4
+      '@nuwax-ai/nuwax-codex-acp-ts': ^1.2.8
 
   '@nuwax-ai/mcp-proxy-ts@1.5.4':
     resolution: {integrity: sha512-PLhwiqSvTVyimatt/Rt1nG/YGvuIBrBTvbb4IL1Ixj+2hsParhji5Te0Qfi9A3/l2HwQQj8GaYWBjI/ItJ1IHA==}

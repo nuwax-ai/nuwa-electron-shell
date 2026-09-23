@@ -5,7 +5,8 @@
     "build:agent-kit": "node scripts/build-agent-kit.js",
     "prepare": "husky",
     "test:electron": "cd crates/agent-electron-client && npm run test:run",
-    "test:electron:scripts": "cd crates/agent-electron-client && npm run test:scripts"
+    "test:electron:scripts": "cd crates/agent-electron-client && npm run test:scripts",
+    "update:codex-acp": "pnpm -C crates/agent-kit update @nuwax-ai/nuwax-codex-acp-ts --ignore-workspace && pnpm -r update @nuwax-ai/nuwax-codex-acp-ts"
   },
   "devDependencies": {
     "husky": "^9",
@@ -46,7 +47,6 @@
       "electron",
       "better-sqlite3",
       "esbuild",
-      "nuwax-codex",
       "protobufjs",
       "sharp"
     ]
