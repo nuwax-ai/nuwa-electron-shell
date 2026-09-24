@@ -6,6 +6,7 @@ import {
   systemPreferences,
   BrowserWindow,
 } from "electron";
+import type { IpcMainInvokeEvent } from "electron";
 import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
@@ -30,6 +31,8 @@ import { getBundledDistVersion } from "../services/frontendDistVersion";
 import { getTrayManager } from "../window/trayManager";
 import { getAutoLaunchManager } from "../window/autoLaunchManager";
 import { t } from "../services/i18n";
+import { APP_NAME_IDENTIFIER } from "@shared/constants";
+import { canUseUpdater as canUseUpdaterFrom } from "./bridgeTrust";
 
 function platformDisplayName(): string {
   switch (process.platform) {
@@ -81,6 +84,10 @@ export async function openLogDirectory(): Promise<{
 }
 
 export function registerAppHandlers(ctx: HandlerContext): void {
+  const canUseUpdater = (event: IpcMainInvokeEvent): boolean =>
+    canUseUpdaterFrom(
+      event, ctx.getMainWindow()?.webContents, app.isPackaged, APP_NAME_IDENTIFIER,
+    );
   // Autolaunch
   ipcMain.handle("autolaunch:get", async () => {
     try {
@@ -229,11 +236,13 @@ export function registerAppHandlers(ctx: HandlerContext): void {
 
   // ---- webview（nuwax 前端）触达的宿主更新能力：与壳关于页共用同一 autoUpdater
   // 单例（download 不会双跑），桥前端见 preload/webviewPerfBridge.ts updater 命名空间 ----
-  ipcMain.handle("updater:get-state", () => {
+  ipcMain.handle("updater:get-state", (event) => {
+    if (!canUseUpdater(event)) return null;
     return { ...getUpdateState(), hostVersion: app.getVersion() };
   });
 
-  ipcMain.handle("updater:check", async () => {
+  ipcMain.handle("updater:check", async (event) => {
+    if (!canUseUpdater(event)) return { hasUpdate: false, error: "untrusted sender" };
     try {
       return await checkForUpdates();
     } catch (error) {
@@ -242,7 +251,8 @@ export function registerAppHandlers(ctx: HandlerContext): void {
     }
   });
 
-  ipcMain.handle("updater:download", async () => {
+  ipcMain.handle("updater:download", async (event) => {
+    if (!canUseUpdater(event)) return { success: false, error: "untrusted sender" };
     try {
       const result = await downloadUpdate();
       log.info(
@@ -255,7 +265,8 @@ export function registerAppHandlers(ctx: HandlerContext): void {
     }
   });
 
-  ipcMain.handle("updater:install", () => {
+  ipcMain.handle("updater:install", (event) => {
+    if (!canUseUpdater(event)) return { success: false, error: "untrusted sender" };
     try {
       return installUpdate();
     } catch (error) {

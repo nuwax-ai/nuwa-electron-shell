@@ -53,9 +53,10 @@ import {
   type EditAction,
 } from "./ipc/windowHandlers";
 import { openLogDirectory } from "./ipc/appHandlers";
+import { shouldInjectWebviewPerfBridge } from "./ipc/bridgeTrust";
 import { migrateDataDir, migrateSettingsPaths } from "./bootstrap/migrate";
 import { getDeviceId, logSystemInfo } from "./services/system/deviceId";
-import { initWebviewPolicy } from "./services/system/webviewPolicy";
+import { initWebviewPolicy, isolateUntrustedInitialWebview } from "./services/system/webviewPolicy";
 import { stopAllEngines } from "./services/engines/engineManager";
 import { processRegistry } from "./services/system/processRegistry";
 import { APP_DATA_DIR_NAME } from "@shared/constants";
@@ -212,15 +213,6 @@ const WEBVIEW_PERF_BRIDGE_PRELOAD = path.join(
   "preload",
   "webviewPerfBridge.js",
 );
-function shouldInjectWebviewPerfBridge(url: string): boolean {
-  try {
-    const parsed = new URL(url);
-    return /^https?:$/.test(parsed.protocol);
-  } catch {
-    return false;
-  }
-}
-
 // Managed child processes
 const lanproxy = new ManagedProcess("lanproxy");
 const fileServer = new ManagedProcess("fileServer");
@@ -260,12 +252,15 @@ function createWindow() {
   });
 
   // 为 webview guest 注入轻量 Bridge（NuwaClawBridge）。
-  // 当前策略：对所有 http/https 页面注入；真正是否生效由 guest 侧路由+容器二次判断。
+  // 商业版仅对当前业务/回环/开发覆盖域注入，社区版维持已有 http(s) 行为。
   mainWindow.webContents.on(
     "will-attach-webview",
     (_event, webPreferences, params) => {
       const targetUrl = String(params.src || "");
-      if (!shouldInjectWebviewPerfBridge(targetUrl)) {
+      if (!shouldInjectWebviewPerfBridge(targetUrl, APP_NAME_IDENTIFIER)) {
+        // Initial <webview src> is a programmatic load and does not emit
+        // will-frame-navigate. Isolate an external target before its first request.
+        isolateUntrustedInitialWebview(webPreferences, params);
         return;
       }
       webPreferences.preload = WEBVIEW_PERF_BRIDGE_PRELOAD;

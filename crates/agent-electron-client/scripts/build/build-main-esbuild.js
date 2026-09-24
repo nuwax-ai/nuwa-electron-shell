@@ -106,6 +106,7 @@ esbuild
       'process.env.NUWAX_UPDATE_FEED_BASE': JSON.stringify(process.env.NUWAX_UPDATE_FEED_BASE ?? ''),
       'process.env.NUWAX_DOWNLOAD_PAGE_URL': JSON.stringify(process.env.NUWAX_DOWNLOAD_PAGE_URL ?? ''),
       'process.env.NUWAX_PORT_OFFSET': JSON.stringify(process.env.NUWAX_PORT_OFFSET ?? '0'),
+      'process.env.NUWAX_RELEASE_CHANNEL': JSON.stringify(process.env.NUWAX_RELEASE_CHANNEL ?? 'stable'),
     },
     plugins: [resolvePlugin],
   })

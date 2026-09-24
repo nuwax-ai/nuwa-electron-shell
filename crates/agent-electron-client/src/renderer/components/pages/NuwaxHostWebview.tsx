@@ -67,6 +67,7 @@ const NuwaxHostWebview = forwardRef<
 ) {
   const [url, setUrl] = useState("");
   const [ua, setUa] = useState<string | undefined>();
+  const [webviewEpoch, setWebviewEpoch] = useState(0);
   const webviewRef = useRef<HTMLElement | null>(null);
 
   // 自定义 UA：保留产品/<version> 标识，便于 nuwax 侧识别客户端环境。
@@ -110,7 +111,10 @@ const NuwaxHostWebview = forwardRef<
   // 解析 nuwax 根 URL（不依赖 nuwaclaw 登录态）；配置变更（形态/后端/域名切换）
   // 经 nuwax:loopback-changed 重解析——webview src 变更即加载新目标。
   useEffect(() => {
-    const onLoopbackChanged = () => setUrl("");
+    const onLoopbackChanged = () => {
+      setUrl("");
+      setWebviewEpoch((epoch) => epoch + 1);
+    };
     window.electronAPI?.on("nuwax:loopback-changed", onLoopbackChanged as any);
     return () => {
       window.electronAPI?.off(
@@ -124,7 +128,12 @@ const NuwaxHostWebview = forwardRef<
   // URL——生产直连形态即加载新域名的 /Login（gateway 形态网关已随域重指；
   // direct 场景 loopback-changed 不会触发，需独立监听本事件）。
   useEffect(() => {
-    const onServerHostChanged = () => setUrl("");
+    const onServerHostChanged = () => {
+      setUrl("");
+      // will-attach-webview captures the current trusted origins in preload
+      // arguments. A new domain needs a new guest, not a loadURL on the old one.
+      setWebviewEpoch((epoch) => epoch + 1);
+    };
     window.electronAPI?.on(
       "nuwax:serverHostChanged",
       onServerHostChanged as any,
@@ -192,7 +201,7 @@ const NuwaxHostWebview = forwardRef<
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [url === ""]);
+  }, [webviewEpoch]);
 
   // 绑定 webview 导航事件，上报 canGoBack/canGoForward（供工具栏按钮启用态）
   // 与加载阶段（did-start/did-stop-loading 为整载周期，覆盖子资源；did-fail-load
@@ -224,7 +233,7 @@ const NuwaxHostWebview = forwardRef<
       wv.removeEventListener?.("did-stop-loading", notifyStopped);
       wv.removeEventListener?.("did-fail-load", notifyStopped);
     };
-  }, [url, onNavStateChange, onNavigationStart, onGuestLoadStateChange]);
+  }, [url, webviewEpoch, onNavStateChange, onNavigationStart, onGuestLoadStateChange]);
 
   // 外部 reloadKey 变化时重载 webview（兼容旧刷新入口）
   useEffect(() => {
@@ -241,9 +250,20 @@ const NuwaxHostWebview = forwardRef<
       canGoForward: () => !!(webviewRef.current as any)?.canGoForward?.(),
       sendHostCommand: (payload: unknown) =>
         (webviewRef.current as any)?.send?.("nuwax:host-command", payload),
-      navigate: (url: string) => (webviewRef.current as any)?.loadURL?.(url),
+      navigate: (targetUrl: string) => {
+        try {
+          const target = new URL(targetUrl);
+          const current = new URL(url);
+          if ((target.protocol === "http:" || target.protocol === "https:") &&
+              !target.username && !target.password && target.origin === current.origin) {
+            (webviewRef.current as any)?.loadURL?.(target.href);
+          }
+        } catch {
+          // No programmatic navigation while the business URL is unresolved.
+        }
+      },
     }),
-    [],
+    [url],
   );
 
   return (
@@ -259,7 +279,8 @@ const NuwaxHostWebview = forwardRef<
       {/* URL 重解析期（启动/企业切换域名瞬间）webview 尚无 src——以应用图标
           扫光动效兜底，与全局加载视觉统一。 */}
       {!url && <AppIconLoading />}
-      <webview
+      {url && <webview
+        key={webviewEpoch}
         ref={webviewRef as any}
         src={url}
         useragent={ua}
@@ -271,7 +292,7 @@ const NuwaxHostWebview = forwardRef<
           height: "100%",
           border: "none",
         }}
-      />
+      />}
     </div>
   );
 });

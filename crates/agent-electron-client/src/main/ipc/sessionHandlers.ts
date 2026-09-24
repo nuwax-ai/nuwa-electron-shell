@@ -16,7 +16,7 @@ import {
 import * as path from "path";
 import log from "electron-log";
 import type { HandlerContext } from "@shared/types/ipc";
-import { APP_DISPLAY_NAME } from "@shared/constants";
+import { APP_DISPLAY_NAME, APP_NAME_IDENTIFIER } from "@shared/constants";
 import { readSetting, writeSetting } from "../db";
 import { getDomainTokenKey } from "@shared/utils/domain";
 import { t } from "../services/i18n";
@@ -269,6 +269,11 @@ export function registerSessionHandlers(ctx: HandlerContext): void {
       },
     ) => {
       try {
+        // This legacy window synchronizes a ticket cookie into defaultSession
+        // before loadURL. Commercial links use the isolated window policy instead.
+        if (APP_NAME_IDENTIFIER === "nuwax") {
+          return { success: false, error: "unsupportedCommercialWindow" };
+        }
         const { url, title } = params;
         const syncTicketCookie = async (): Promise<void> => {
           if (!/^https?:\/\//i.test(url)) return;
