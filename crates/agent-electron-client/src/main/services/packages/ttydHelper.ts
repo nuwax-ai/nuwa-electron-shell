@@ -348,9 +348,15 @@ fi
 # 导致无法命中应用内置工具；因此这里默认以“no-rc”方式启动交互 shell。
 _NUWAX_SHELL="\${SHELL:-/bin/bash}"
 _NUWAX_SHELL_NAME="\${_NUWAX_SHELL##*/}"
+# no-rc 交互 shell 不加载 rc 文件，无提示符定制（zsh -f 默认 PS1 仅“主机名%”），
+# 用户在终端里无法感知当前目录——而 per-connection cwd 恰是终端契约的正常态
+# （normalProject/工作区等业务目录）。exec 前显式给「主机名 目录尾段」形态的默认
+# PS1（不带用户名，内嵌终端里是噪音）；rc 不加载故不会被覆盖。
 if [ "\$_NUWAX_SHELL_NAME" = "zsh" ]; then
+    export PS1='%m %1~ %# '
     exec "\$_NUWAX_SHELL" -f
 elif [ "\$_NUWAX_SHELL_NAME" = "bash" ]; then
+    export PS1='\\h \\W \\$ '
     exec "\$_NUWAX_SHELL" --noprofile --norc -i
 else
     exec "\$_NUWAX_SHELL"
