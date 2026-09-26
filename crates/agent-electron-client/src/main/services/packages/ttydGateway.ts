@@ -146,7 +146,7 @@ function isExistingDir(dir: string): boolean {
  *    ——直接回落三级兜底。
  * 2. 默认业务：拼接目录 computer-project-workspace/<userId>/<projectId> 存在且
  *    非空 → 用之；userId 轨道不可信时按 projectId 反查平铺层。
- * 3. 兜底 getTtydInitialCwd()（最近活跃引擎工作区 → 配置工作区 → HOME；禅道 2526）。
+ * 3. 兜底配置工作区 → HOME；不借用最近其他会话目录（禅道 2526）。
  */
 export function resolveRouteCwd(
   userId: string,
@@ -173,12 +173,16 @@ export function resolveRouteCwd(
       );
       return npByPid;
     }
-    const npFallback = getTtydInitialCwd();
+    const npFallback = getTtydInitialCwd({ includeRecentSession: false });
     log.info(
       `[ttydGateway] normalProject cwd miss ('${np}' missing), fallback to '${npFallback}' (flat layer skipped to avoid cross-track hit)`,
     );
     return npFallback;
   }
+  // 默认轨道的 projectId 是会话标识，优先使用该会话 new/load 时的实际 cwd。
+  // normalProject 走独立镜像层，不能把同数字普通会话当成项目。
+  const exactWorkspace = agentService.getWorkspaceDirForProject(projectId);
+  if (exactWorkspace && isExistingDir(exactWorkspace)) return exactWorkspace;
   const resolved = resolveComputerProjectWorkspaceDir(
     getBaseWorkspaceDir(),
     userId,
@@ -200,7 +204,7 @@ export function resolveRouteCwd(
     );
     return byProjectId;
   }
-  const fallback = getTtydInitialCwd();
+  const fallback = getTtydInitialCwd({ includeRecentSession: false });
   if (fallback !== resolved) {
     log.info(
       `[ttydGateway] route cwd fallback: '${resolved}' unusable (missing/empty), using '${fallback}'`,

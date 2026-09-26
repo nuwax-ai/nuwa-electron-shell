@@ -11,6 +11,7 @@ import { resolveAgentProjectDir } from "../../workspacePaths";
 import { extractNormalProjectContainerPid } from "../../computer/agentWorkDir";
 import type { NewSessionOpts } from "./acpNewSessionParams";
 import { supportsLoadSession } from "./acpAgentCapabilities";
+import { rememberSessionRequestProject, type SessionWorkspaceRef } from "./acpSessionWorkspace";
 
 /**
  * loadSession 超时后走 newSession fallback，避免跨引擎/无效 sessionId 时长时间卡住。
@@ -94,12 +95,8 @@ function withLoadSessionTimeout<T>(
   });
 }
 
-export interface AcpSessionLike {
-  id: string;
-  acpSessionId?: string;
-  cwd?: string;
+export interface AcpSessionLike extends SessionWorkspaceRef {
   title?: string;
-  projectId?: string;
   createdAt: number;
   status: string;
 }
@@ -193,6 +190,7 @@ export async function resolveSessionForChat(
 ): Promise<SessionSetupResult> {
   const memorySession = findSessionInMemory(deps, request);
   if (memorySession) {
+    rememberSessionRequestProject(memorySession, request.project_id);
     log.debug(
       `${deps.logTag} [startup.diag] path=memory engine=${deps.engineName}`,
       {
@@ -254,6 +252,7 @@ export async function resolveSessionForChat(
           request.session_id,
         );
         loaded.projectId = request.agent_work_dir || request.project_id;
+        rememberSessionRequestProject(loaded, request.project_id);
         return {
           session: loaded,
           isNewSession: false,
@@ -295,6 +294,7 @@ export async function resolveSessionForChat(
   const created = await deps.createSession(sessionOpts);
   const session = deps.getSessionRecord(created.id);
   session.projectId = request.agent_work_dir || request.project_id;
+  rememberSessionRequestProject(session, request.project_id);
   return {
     session,
     isNewSession: true,
