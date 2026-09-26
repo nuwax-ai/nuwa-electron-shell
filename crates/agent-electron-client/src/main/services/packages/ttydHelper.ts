@@ -56,9 +56,11 @@ function writeWindowsPowerShellFile(filePath: string, content: string): void {
  *  2. 设置页配置的默认工作区目录（step1_config.workspaceDir）
  *  3. 用户 HOME 目录（兜底）
  */
-export function getTtydInitialCwd(): string {
+export function getTtydInitialCwd(options?: { includeRecentSession?: boolean }): string {
   // 1. 最近活跃会话工作区
-  const recentWorkspace = agentService.getRecentWorkspaceDir();
+  const recentWorkspace = options?.includeRecentSession === false
+    ? null
+    : agentService.getRecentWorkspaceDir();
   if (recentWorkspace && fs.existsSync(recentWorkspace)) {
     log.info(`[ttydHelper] cwd = recent session workspace: ${recentWorkspace}`);
     return recentWorkspace;
@@ -332,9 +334,12 @@ fi
 case "\${LC_ALL:-\${LC_CTYPE:-\${LANG:-}}}" in
     *UTF-8*|*utf8*|*utf-8*) ;;
     *)
-        _NUWAX_UTF8_LOCALE="\$(locale -a 2>/dev/null | grep -iE '^(en_US|zh_CN)\\.utf-?8\$' | head -n 1)"
-        [ -z "\$_NUWAX_UTF8_LOCALE" ] && _NUWAX_UTF8_LOCALE="\$(locale -a 2>/dev/null | grep -iE '\\.utf-?8\$' | head -n 1)"
+        _NUWAX_UTF8_LOCALE="$(locale -a 2>/dev/null | grep -iE '^(en_US|zh_CN)\\.utf-?8$' | head -n 1)"
+        [ -z "$_NUWAX_UTF8_LOCALE" ] && _NUWAX_UTF8_LOCALE="$(locale -a 2>/dev/null | grep -iE '\\.utf-?8$' | head -n 1)"
         export LANG="\${_NUWAX_UTF8_LOCALE:-en_US.UTF-8}"
+        # LC_ALL/LC_CTYPE 优先于 LANG；残留 C/POSIX 会继续让 zsh 逐字节编辑。
+        export LC_CTYPE="$LANG"
+        [ -n "\${LC_ALL:-}" ] && export LC_ALL="$LANG"
         unset _NUWAX_UTF8_LOCALE
         ;;
 esac
@@ -352,14 +357,14 @@ _NUWAX_SHELL_NAME="\${_NUWAX_SHELL##*/}"
 # 用户在终端里无法感知当前目录——而 per-connection cwd 恰是终端契约的正常态
 # （normalProject/工作区等业务目录）。exec 前显式给「主机名 目录尾段」形态的默认
 # PS1（不带用户名，内嵌终端里是噪音）；rc 不加载故不会被覆盖。
-if [ "\$_NUWAX_SHELL_NAME" = "zsh" ]; then
+if [ "$_NUWAX_SHELL_NAME" = "zsh" ]; then
     export PS1='%m %1~ %# '
-    exec "\$_NUWAX_SHELL" -f
-elif [ "\$_NUWAX_SHELL_NAME" = "bash" ]; then
+    exec "$_NUWAX_SHELL" -f
+elif [ "$_NUWAX_SHELL_NAME" = "bash" ]; then
     export PS1='\\h \\W \\$ '
-    exec "\$_NUWAX_SHELL" --noprofile --norc -i
+    exec "$_NUWAX_SHELL" --noprofile --norc -i
 else
-    exec "\$_NUWAX_SHELL"
+    exec "$_NUWAX_SHELL"
 fi
 `;
 

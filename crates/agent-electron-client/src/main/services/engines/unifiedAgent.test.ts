@@ -99,6 +99,7 @@ import {
   rawMcpServersEqual,
 } from "../packages/mcpHelpers";
 import type { McpServerEntry } from "../packages/mcp";
+import { collectSessionWorkspaceCandidates } from "./acp/acpSessionWorkspace";
 
 // ────────────────────────────────────────────────────────────────────────────
 // 辅助：构建 stdio MCP server entry
@@ -576,6 +577,53 @@ describe("UnifiedAgentService.listAllSessionsDetailed — 仅返回 ready 引擎
 
     const result = svc.listAllSessionsDetailed();
     expect(result).toEqual(readySessions);
+  });
+});
+
+describe("UnifiedAgentService.getWorkspaceDirForProject — 终端精确 cwd", () => {
+  it("conversationId 可经 session.projectId 反查所属引擎工作区", () => {
+    const svc = new UnifiedAgentService() as any;
+    svc.engines = new Map([
+      [
+        "/workspace/current-project",
+        {
+          isReady: true, getSessionWorkspaceCandidates: (id: string) =>
+            collectSessionWorkspaceCandidates(
+              [
+                {
+                  id: "ses_current",
+                  projectId: "1694106",
+                  cwd: "/workspace/current-project",
+                },
+              ],
+              id,
+            ),
+        },
+      ],
+    ]);
+    svc.engineConfigs = new Map([
+      ["/workspace/current-project", { workspaceDir: "/workspace" }],
+    ]);
+
+    expect(svc.getWorkspaceDirForProject("1694106")).toBe(
+      "/workspace/current-project",
+    );
+    expect(svc.getWorkspaceDirForProject("unknown")).toBeNull();
+  });
+
+  it("同标识在多个引擎对应不同 cwd 时不猜测；无会话的引擎 config 也不算精确命中", () => {
+    const svc = new UnifiedAgentService() as any;
+    svc.engines = new Map([
+      ["old", { isReady: true, getSessionWorkspaceCandidates: () => ["/old"] }],
+      ["new", { isReady: true, getSessionWorkspaceCandidates: () => ["/new"] }],
+    ]);
+    expect(svc.getWorkspaceDirForProject("1694106")).toBeNull();
+
+    svc.engines = new Map([
+      ["1694106", { isReady: true, getSessionWorkspaceCandidates: () => [] }],
+    ]);
+    svc.engineConfigs = new Map([["1694106", { workspaceDir: "/workspace" }]]);
+    expect(svc.getWorkspaceDirForProject("1694106")).toBeNull();
   });
 });
 
