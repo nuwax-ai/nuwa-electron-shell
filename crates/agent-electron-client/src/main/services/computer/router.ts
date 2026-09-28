@@ -59,6 +59,7 @@ import {
   clearSessionFirstTokenContext,
   closeSseClientsForSession,
   logSseWirePayloadForDebug,
+  writeSseHeartbeat,
 } from "./sseManager";
 import {
   resolveAgentServerPaths,
@@ -791,10 +792,17 @@ export async function handleRequest(
             },
             timestamp: new Date().toISOString(),
           };
-          log.debug(
-            `[SSE] Sending heartbeat: session_id=${sessionId}, time=${new Date().toISOString()}`,
-          );
-          res.write(`event: ping\ndata: ${JSON.stringify(hb)}\n\n`);
+          if (
+            writeSseHeartbeat(
+              sessionId,
+              res,
+              `event: ping\ndata: ${JSON.stringify(hb)}\n\n`,
+            )
+          ) {
+            log.debug(
+              `[SSE] Sending heartbeat: session_id=${sessionId}, time=${new Date().toISOString()}`,
+            );
+          }
         } catch {
           /* client disconnected */
         }

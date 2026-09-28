@@ -2,11 +2,11 @@
  * 主进程日志配置：按日分割、TTL 清理，开发/正式环境区分
  *
  * - 按日分割：每日一个日志文件 main.YYYY-MM-DD.log；单文件超 MAX_FILE_SIZE 时兜底轮转
- * - TTL：启动时删除 logs 目录下超过有效期的归档文件
+ * - TTL：启动及每小时清理过期归档，异步覆盖 MCP 各项目的日归档
  * - latest.log：符号链接（或 Windows 硬链接）指向当日活跃日志
  * - 开发：文件级别 debug、更长保留期；正式：info、更短保留期
  *
- * 注意：已解决 EPIPE 无限循环问题，日志不会无限增长，无需总量限制
+ * MCP 冷归档另有总预算；依赖当前没有活跃日志的大小轮转开关。
  */
 
 import log from "electron-log";
@@ -18,6 +18,7 @@ import {
   LOGS_DIR_NAME,
   PERF_LOG_FILENAME_PREFIX,
 } from "../services/constants";
+import { createMcpLogRetentionRunner } from "./logRetention";
 
 /** 开发环境：未打包或 NODE_ENV=development */
 function isDev(): boolean {
@@ -272,20 +273,26 @@ export function initLogging(): void {
   // 旧 main.log 一次性迁移（必须在 TTL 清理之前，避免旧文件被直接删除）
   migrateOldMainLog(logDir);
 
-  // 启动时按 TTL 清理过期归档
-  cleanupOldLogs(logDir, ttlMs);
+  const cleanupMcpLogs = createMcpLogRetentionRunner(logDir, {
+    maxAgeMs: ttlMs,
+    onError: (error, file) =>
+      log.warn("[LogConfig] MCP archive cleanup failed:", file, error),
+  });
+  const cleanupArchives = () => {
+    try {
+      cleanupOldLogs(logDir, ttlMs);
+    } catch (error) {
+      log.warn("[LogConfig] Archive cleanup failed:", error);
+    }
+    // 不等待递归扫描，不阻塞主进程启动/任务；小时调度共享同一个 runner。
+    void cleanupMcpLogs().catch((error) => {
+      log.warn("[LogConfig] MCP archive cleanup failed:", error);
+    });
+  };
+  cleanupArchives();
 
   // 运行时定期清理：每小时检查一次，删除超过 TTL 的日志文件
-  const runtimeCleanupInterval = setInterval(
-    () => {
-      try {
-        cleanupOldLogs(logDir, ttlMs);
-      } catch (e) {
-        // 清理失败不影响主进程
-      }
-    },
-    60 * 60 * 1000,
-  ); // 1 小时
+  const runtimeCleanupInterval = setInterval(cleanupArchives, 60 * 60 * 1000); // 1 小时
 
   // 应用退出时清理定时器
   app.on("will-quit", () => {

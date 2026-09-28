@@ -29,6 +29,103 @@ const activeSsePromptSessions = new Set<string>();
 
 export const sseClients: Map<string, http.ServerResponse[]> = new Map();
 
+export interface SseClientBackpressureSnapshot {
+  blocked: boolean;
+  blockedForMs: number;
+  /** Node 当前待写字节；非真实响应或不可观测时为 null。 */
+  writableBytes: number | null;
+  peakWritableBytes: number | null;
+  backpressureEpisodes: number;
+  skippedHeartbeats: number;
+}
+
+interface SseClientWriteState {
+  blockedAt: number | null;
+  peakWritableBytes: number | null;
+  backpressureEpisodes: number;
+  skippedHeartbeats: number;
+  onDrain: () => void;
+  onClose: () => void;
+}
+
+// 只持有当前响应的计数，不复制业务事件；注销时移除监听与状态。
+const sseClientWriteStates = new WeakMap<
+  http.ServerResponse,
+  SseClientWriteState
+>();
+
+function sampleWritableBytes(
+  res: http.ServerResponse,
+  state: SseClientWriteState,
+): number | null {
+  const bytes = res.writableLength;
+  if (typeof bytes !== "number" || !Number.isFinite(bytes)) return null;
+  state.peakWritableBytes = Math.max(state.peakWritableBytes ?? 0, bytes);
+  return bytes;
+}
+
+function forgetSseClientWriteState(res: http.ServerResponse): void {
+  const state = sseClientWriteStates.get(res);
+  if (!state) return;
+  res.off?.("drain", state.onDrain);
+  res.off?.("close", state.onClose);
+  res.off?.("error", state.onClose);
+  sseClientWriteStates.delete(res);
+}
+
+function writeSsePayload(
+  sessionId: string,
+  res: http.ServerResponse,
+  payload: string,
+): void {
+  const written = res.write(payload);
+  const state = sseClientWriteStates.get(res);
+  if (!state) return;
+  const writableBytes = sampleWritableBytes(res, state);
+  if (written === false && state.blockedAt === null) {
+    state.blockedAt = Date.now();
+    state.backpressureEpisodes += 1;
+    log.warn(
+      `[SSE] Backpressure started: sessionId=${sessionId}, writableBytes=${writableBytes ?? "unknown"}`,
+    );
+  }
+}
+
+/** 观测 Node 的真实待写字节，不推断未确认业务事件数量或声称存在硬上界。 */
+export function getSseClientBackpressure(
+  res: http.ServerResponse,
+): SseClientBackpressureSnapshot | null {
+  const state = sseClientWriteStates.get(res);
+  if (!state) return null;
+  const writableBytes = sampleWritableBytes(res, state);
+  return {
+    blocked: state.blockedAt !== null || res.writableNeedDrain === true,
+    blockedForMs:
+      state.blockedAt === null ? 0 : Math.max(0, Date.now() - state.blockedAt),
+    writableBytes,
+    peakWritableBytes: state.peakWritableBytes,
+    backpressureEpisodes: state.backpressureEpisodes,
+    skippedHeartbeats: state.skippedHeartbeats,
+  };
+}
+
+/** 积压期间已有业务数据保活，只抑制冗余 ping；业务事件仍完整、有序写入。 */
+export function writeSseHeartbeat(
+  sessionId: string,
+  res: http.ServerResponse,
+  payload: string,
+): boolean {
+  const state = sseClientWriteStates.get(res);
+  if (!state || res.destroyed || res.writableEnded) return false;
+  sampleWritableBytes(res, state);
+  if (state.blockedAt !== null || res.writableNeedDrain === true) {
+    state.skippedHeartbeats += 1;
+    return false;
+  }
+  writeSsePayload(sessionId, res, payload);
+  return true;
+}
+
 const sseEventBuffers = new Map<
   string,
   { events: string[]; createdAt: number }
@@ -134,6 +231,28 @@ export function registerSseClient(
     sseClients.set(sessionId, []);
   }
   sseClients.get(sessionId)!.push(res);
+  if (sseClientWriteStates.has(res)) return;
+  const state: SseClientWriteState = {
+    blockedAt: null,
+    peakWritableBytes: null,
+    backpressureEpisodes: 0,
+    skippedHeartbeats: 0,
+    onDrain: () => {
+      sampleWritableBytes(res, state);
+      if (state.blockedAt === null) return;
+      const blockedForMs = Math.max(0, Date.now() - state.blockedAt);
+      state.blockedAt = null;
+      log.info(
+        `[SSE] Backpressure drained: sessionId=${sessionId}, blockedForMs=${blockedForMs}, peakWritableBytes=${state.peakWritableBytes ?? "unknown"}, skippedHeartbeats=${state.skippedHeartbeats}`,
+      );
+    },
+    onClose: () => unregisterSseClient(sessionId, res),
+  };
+  sseClientWriteStates.set(res, state);
+  sampleWritableBytes(res, state);
+  res.on?.("drain", state.onDrain);
+  res.on?.("close", state.onClose);
+  res.on?.("error", state.onClose);
 }
 
 /** 注销 SSE 客户端连接（关闭时调用） */
@@ -141,6 +260,7 @@ export function unregisterSseClient(
   sessionId: string,
   res: http.ServerResponse,
 ): void {
+  forgetSseClientWriteState(res);
   const clients = sseClients.get(sessionId);
   if (clients) {
     const idx = clients.indexOf(res);
@@ -162,7 +282,7 @@ export function replayBufferedEvents(
   let replayed = 0;
   for (const eventPayload of buffered.events) {
     try {
-      res.write(eventPayload);
+      writeSsePayload(sessionId, res, eventPayload);
       replayed++;
     } catch {
       break;
@@ -228,7 +348,8 @@ export function clearAllSseEventBuffers(): void {
  */
 export function closeAndClearAllSseClients(): void {
   for (const [, clients] of sseClients) {
-    for (const client of clients) {
+    for (const client of [...clients]) {
+      forgetSseClientWriteState(client);
       try {
         client.end();
       } catch {
@@ -302,6 +423,7 @@ export function closeSseClientsForSession(sessionId: string): void {
       `[SSE] Closing ${clients.length} client(s): session_id=${sessionId}`,
     );
     for (const client of [...clients]) {
+      forgetSseClientWriteState(client);
       try {
         client.end();
       } catch {
@@ -423,12 +545,8 @@ export function pushSseEvent(
 
   for (const client of clients) {
     try {
-      const written = client.write(payload);
-      if (!written) {
-        log.warn(
-          `[ComputerServer] ⚠ SSE write returned false (buffer full): sessionId=${sessionId}`,
-        );
-      }
+      // 无逐事件可靠恢复协议，不能断开慢连接、丢弃消息或将积压挪入另一个队列。
+      writeSsePayload(sessionId, client, payload);
     } catch (e) {
       log.warn(`[ComputerServer] ⚠ SSE write failed:`, e);
     }
