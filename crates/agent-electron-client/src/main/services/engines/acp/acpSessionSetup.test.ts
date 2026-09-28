@@ -223,6 +223,30 @@ describe("resolveSessionForChat", () => {
     vi.clearAllMocks();
   });
 
+  it.each(["new", "load", "memory"])(
+    "%s 路径保留平台 project_id，绝对路径 agent_work_dir 不覆盖终端关联",
+    async (mode) => {
+      const existing = makeSession("ses_current", {
+        projectId: "/workspace/current",
+        cwd: "/workspace/current",
+      });
+      const deps = makeDeps({
+        ...(mode === "memory" ? { getSession: () => existing } : {}),
+      });
+      const result = await resolveSessionForChat(deps, {
+        user_id: "u1",
+        project_id: "1694106",
+        agent_work_dir: "/workspace/current",
+        ...(mode !== "new" ? { session_id: "ses_current" } : {}),
+        prompt: "hi",
+      });
+
+      expect(result.restoredVia).toBe(mode);
+      expect(result.session.projectId).toBe("/workspace/current");
+      expect(result.session).toHaveProperty("requestProjectIds", ["1694106"]);
+    },
+  );
+
   it("reuses session from memory by session_id", async () => {
     const existing = makeSession("sess-1");
     const deps = makeDeps({
@@ -341,7 +365,7 @@ describe("resolveSessionForChat", () => {
       const deps = makeDeps({
         agentCapabilities: { loadSession: true },
         // 永不 resolve，模拟同引擎 load 挂起
-        loadSession: vi.fn(() => new Promise(() => {})),
+        loadSession: vi.fn(() => new Promise<AcpSessionLike>(() => {})),
       });
 
       const pending = resolveSessionForChat(deps, {

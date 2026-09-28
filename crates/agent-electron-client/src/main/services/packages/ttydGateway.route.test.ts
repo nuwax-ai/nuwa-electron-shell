@@ -29,6 +29,7 @@ vi.mock("../engines/unifiedAgent", () => ({
   agentService: {
     getAgentConfig: vi.fn((): { workspaceDir: string } | null => null),
     getRecentWorkspaceDir: vi.fn(() => null),
+    getWorkspaceDirForProject: vi.fn(() => null),
   },
 }));
 

@@ -66,6 +66,10 @@ import {
   type SessionRestoredVia,
 } from "./acpSessionSetup";
 import {
+  collectSessionWorkspaceCandidates,
+  type SessionWorkspaceRef,
+} from "./acpSessionWorkspace";
+import {
   toErrorMessage,
   isPromptCancellation,
   createSessionCancelledError,
@@ -158,16 +162,11 @@ const NUWAX_MCP_INIT_POLICY_DEFAULT: NonNullable<
 > = "non_blocking";
 const NUWAX_MCP_INIT_TIMEOUT_MS_DEFAULT = 500;
 
-interface AcpSession {
-  id: string;
+interface AcpSession extends SessionWorkspaceRef {
   title?: string;
-  acpSessionId?: string;
-  /** Session working directory (ACP newSession cwd). */
-  cwd?: string;
   createdAt: number;
   status: AcpSessionStatus;
   mcpServerCount?: number;
-  projectId?: string;
   lastActivity?: number;
   openLongMemory?: boolean; // 记忆开关，用于事件处理器判断
   memoryModel?: string; // 记忆处理使用的模型名（来自 model_provider.default_model）
@@ -1753,6 +1752,11 @@ export class AcpEngine extends EventEmitter {
       }
     }
     return null;
+  }
+
+  /** 终端按平台请求标识读取实际 session/new|load cwd，不改变引擎复用索引。 */
+  getSessionWorkspaceCandidates(projectId: string): string[] {
+    return collectSessionWorkspaceCandidates(this.sessions.values(), projectId);
   }
 
   private shouldReinitForModelProvider(mp: ModelProviderConfig): boolean {

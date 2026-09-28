@@ -30,12 +30,13 @@ vi.mock("../engines/unifiedAgent", () => ({
   agentService: {
     getAgentConfig: vi.fn(() => null),
     getRecentWorkspaceDir: vi.fn(() => null),
+    getWorkspaceDirForProject: vi.fn(() => null),
   },
 }));
 
-const initialCwdMock = vi.fn(() => "/fallback/workspace");
+const initialCwdMock = vi.fn((_options?: unknown) => "/fallback/workspace");
 vi.mock("./ttydHelper", () => ({
-  getTtydInitialCwd: () => initialCwdMock(),
+  getTtydInitialCwd: (options?: unknown) => initialCwdMock(options),
 }));
 
 import { isUsableWorkspaceDir, resolveRouteCwd } from "./ttydGateway";
@@ -144,6 +145,18 @@ describe("resolveRouteCwd · 禅道 2526 回退链", () => {
     expect(cwd).toBe("/fallback/workspace");
     initialCwdMock.mockClear();
   });
+  it("selected session actual empty Chinese directory outranks stale project tree", () => {
+    const dir = path.join(tmpRoot, "当前项目 空目录");
+    fs.mkdirSync(dir);
+    vi.mocked(agentService.getWorkspaceDirForProject).mockReturnValueOnce(dir);
+    expect(resolveRouteCwdWithBase(baseWorkspace, "1", "1694106")).toBe(dir);
+    expect(agentService.getWorkspaceDirForProject).toHaveBeenCalledWith("1694106");
+  });
+  it("fallback opts out of another recent session", () => {
+    resolveRouteCwdWithBase(baseWorkspace, "1", "absent-project");
+    expect(initialCwdMock).toHaveBeenLastCalledWith({ includeRecentSession: false });
+  });
+
 });
 
 /**

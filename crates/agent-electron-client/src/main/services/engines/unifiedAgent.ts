@@ -978,6 +978,23 @@ export class UnifiedAgentService extends EventEmitter {
   }
 
   /**
+   * 按项目/会话标识返回已恢复 ACP 会话的实际 cwd。
+   * 引擎 workspaceDir 对 claude-code/nuwaxcode 是总工作区，不能替代 session.cwd。
+   * 未恢复会话或同一标识匹配多个目录时返回 null，由终端选择安全默认目录。
+   */
+  getWorkspaceDirForProject(projectId: string): string | null {
+    if (!projectId) return null;
+    const directories = new Set<string>();
+    for (const engine of this.engines.values()) {
+      if (!engine.isReady) continue;
+      for (const cwd of engine.getSessionWorkspaceCandidates(projectId)) {
+        directories.add(cwd);
+      }
+    }
+    return directories.size === 1 ? [...directories][0] : null;
+  }
+
+  /**
    * 定位 Map 中的引擎用于 stop/reload（不要求 isReady，初始化中的进程也可停）。
    */
   findEngineForStop(
