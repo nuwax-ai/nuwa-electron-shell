@@ -28,6 +28,11 @@ const ALLOWED = [
     relPath: 'src/main/bootstrap/migrate.ts',
     requiredGuard: 'APP_NAME_IDENTIFIER === "nuwaclaw"',
   },
+  {
+    // AppUserModelID（Windows 通知/任务栏标识），非数据目录字面量——正则误伤豁免
+    relPath: 'src/main/main.ts',
+    requiredGuard: 'setAppUserModelId',
+  },
 ];
 
 /**
