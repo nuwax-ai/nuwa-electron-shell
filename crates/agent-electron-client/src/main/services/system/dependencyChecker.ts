@@ -94,7 +94,6 @@ export function getSetupRequiredDependencies(): LocalDependencyConfig[] {
       // npm 兜底通道版本须与构建期 bundled 产物（prepare:nuwax-file-server）一致；
       // bundled 取自 sources/nuwax-file-server 的 package.json（当前 1.5.5）
       installVersion: "1.5.5",
-      npmFallback: { packageName: "nuwax-file-server", version: "1.5.5" },
     },
     {
       name: "nuwaxcode",
