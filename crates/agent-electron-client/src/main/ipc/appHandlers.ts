@@ -15,6 +15,7 @@ import log from "electron-log";
 import type { HandlerContext } from "@shared/types/ipc";
 import type { UpdateCheckOptions } from "@shared/types/updateTypes";
 import { LATEST_LOG_BASENAME } from "../bootstrap/logConfig";
+import { readLogTail } from "../services/utils/logTail";
 import {
   checkForUpdates,
   downloadUpdate,
@@ -86,7 +87,10 @@ export async function openLogDirectory(): Promise<{
 export function registerAppHandlers(ctx: HandlerContext): void {
   const canUseUpdater = (event: IpcMainInvokeEvent): boolean =>
     canUseUpdaterFrom(
-      event, ctx.getMainWindow()?.webContents, app.isPackaged, APP_NAME_IDENTIFIER,
+      event,
+      ctx.getMainWindow()?.webContents,
+      app.isPackaged,
+      APP_NAME_IDENTIFIER,
     );
   // Autolaunch
   ipcMain.handle("autolaunch:get", async () => {
@@ -165,52 +169,37 @@ export function registerAppHandlers(ctx: HandlerContext): void {
     return openLogDirectory();
   });
 
-  const DEFAULT_LOG_LIST = 2000;
-  const MAX_LOG_LIST = 10000;
-  ipcMain.handle(
-    "log:list",
-    async (_, count: number = DEFAULT_LOG_LIST, offset: number = 0) => {
-      try {
-        const currentPath = log.transports.file.getFile().path;
-        const logDir = currentPath
-          ? path.dirname(currentPath)
-          : app.getPath("logs");
-        const latestPath = path.join(logDir, LATEST_LOG_BASENAME);
-        const logPath =
-          (fs.existsSync(latestPath) ? latestPath : currentPath) || currentPath;
-        if (!logPath || !fs.existsSync(logPath)) {
-          return [];
-        }
-        const content = fs.readFileSync(logPath, "utf-8");
-        const lines = content.split("\n").filter(Boolean);
-        const limit = Math.min(
-          Math.max(1, count ?? DEFAULT_LOG_LIST),
-          MAX_LOG_LIST,
-        );
-        const safeOffset = Math.max(0, offset);
-        const slice =
-          safeOffset === 0
-            ? lines.slice(-limit)
-            : lines.slice(-(safeOffset + limit), -safeOffset);
-        return slice.map((line) => {
-          const match = line.match(
-            /^\[(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\.\d{3})\]\s\[(\w+)\]\s(.*)$/,
-          );
-          if (match) {
-            return {
-              timestamp: match[1],
-              level: match[2].toLowerCase(),
-              message: match[3],
-            };
-          }
-          return { timestamp: "", level: "info", message: line };
-        });
-      } catch (error) {
-        log.error("[IPC] log:list failed:", error);
+  ipcMain.handle("log:list", async (_, count?: number, offset?: number) => {
+    try {
+      const currentPath = log.transports.file.getFile().path;
+      const logDir = currentPath
+        ? path.dirname(currentPath)
+        : app.getPath("logs");
+      const latestPath = path.join(logDir, LATEST_LOG_BASENAME);
+      const logPath =
+        (fs.existsSync(latestPath) ? latestPath : currentPath) || currentPath;
+      if (!logPath || !fs.existsSync(logPath)) {
         return [];
       }
-    },
-  );
+      const lines = await readLogTail(logPath, count, offset);
+      return lines.map((line) => {
+        const match = line.match(
+          /^\[(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\.\d{3})\]\s\[(\w+)\]\s(.*)$/,
+        );
+        if (match) {
+          return {
+            timestamp: match[1],
+            level: match[2].toLowerCase(),
+            message: match[3],
+          };
+        }
+        return { timestamp: "", level: "info", message: line };
+      });
+    } catch (error) {
+      log.error("[IPC] log:list failed:", error);
+      return [];
+    }
+  });
 
   // App handlers
   ipcMain.handle("app:getVersion", () => {
@@ -242,7 +231,8 @@ export function registerAppHandlers(ctx: HandlerContext): void {
   });
 
   ipcMain.handle("updater:check", async (event) => {
-    if (!canUseUpdater(event)) return { hasUpdate: false, error: "untrusted sender" };
+    if (!canUseUpdater(event))
+      return { hasUpdate: false, error: "untrusted sender" };
     try {
       return await checkForUpdates();
     } catch (error) {
@@ -252,7 +242,8 @@ export function registerAppHandlers(ctx: HandlerContext): void {
   });
 
   ipcMain.handle("updater:download", async (event) => {
-    if (!canUseUpdater(event)) return { success: false, error: "untrusted sender" };
+    if (!canUseUpdater(event))
+      return { success: false, error: "untrusted sender" };
     try {
       const result = await downloadUpdate();
       log.info(
@@ -266,7 +257,8 @@ export function registerAppHandlers(ctx: HandlerContext): void {
   });
 
   ipcMain.handle("updater:install", (event) => {
-    if (!canUseUpdater(event)) return { success: false, error: "untrusted sender" };
+    if (!canUseUpdater(event))
+      return { success: false, error: "untrusted sender" };
     try {
       return installUpdate();
     } catch (error) {
