@@ -91,7 +91,7 @@ export function getSetupRequiredDependencies(): LocalDependencyConfig[] {
       description: t(I18N_KEYS.Pages.Dependencies.DESC_FILE_SERVER),
       required: true,
       binName: "nuwax-file-server",
-      installVersion: "1.5.4",
+      installVersion: "1.5.5",
     },
     {
       name: "nuwaxcode",
