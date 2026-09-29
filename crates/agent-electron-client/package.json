@@ -93,6 +93,7 @@
     "dotenv": "^17.3.1",
     "electron-log": "^5.2.4",
     "electron-updater": "^6.8.3",
+    "json-bigint": "1.0.0",
     "node-cron": "^4.2.1",
     "node-machine-id": "^1.1.12",
     "qrcode.react": "^4.2.0",
@@ -100,6 +101,7 @@
     "react-dom": "^18.3.1",
     "react-syntax-highlighter": "^16.1.1",
     "sqlite-vec": "^0.1.7-alpha.2",
+    "ws": "8.19.0",
     "zod": "^3.25.0"
   },
   "devDependencies": {
@@ -109,9 +111,11 @@
     "@eslint/js": "^9.39.2",
     "@types/adm-zip": "^0.5.7",
     "@types/better-sqlite3": "^7.6.12",
+    "@types/json-bigint": "1.0.4",
     "@types/node": "^22.19.15",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
+    "@types/ws": "8.18.1",
     "@vitejs/plugin-react": "^4.3.4",
     "@vitest/coverage-v8": "^2.1.8",
     "agent-gui-server": "workspace:*",
