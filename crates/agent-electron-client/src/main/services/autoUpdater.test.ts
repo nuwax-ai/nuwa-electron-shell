@@ -15,6 +15,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 const mockExistsSync = vi.fn((...args: unknown[]) => false);
 const mockReaddirSync = vi.fn((...args: unknown[]) => [] as string[]);
 const mockAppOnce = vi.fn();
+const mockAppVersion = vi.fn(() => "0.9.4");
+let lastFakeUpdater: any;
 const mockPowerMonitorOn = vi.fn();
 const mockNetRequest = vi.fn();
 const mockUpdaterOn = vi.fn();
@@ -46,7 +48,7 @@ vi.mock("electron", () => ({
       return "";
     },
     getAppPath: () => "/app",
-    getVersion: () => "0.9.4",
+    getVersion: () => mockAppVersion(),
     once: (...args: unknown[]) => mockAppOnce(...args),
   },
   BrowserWindow: class {},
@@ -63,7 +65,11 @@ vi.mock("electron", () => ({
 // electron-updater 走 require 直加载，vi.mock 拦不住（vitest 限制），
 // 测试经 _setAutoUpdaterModuleLoaderForTest 注入下面这份 fake 模块
 const fakeElectronUpdaterModule = () => ({
-  autoUpdater: {
+  autoUpdater: lastFakeUpdater = {
+    allowPrerelease: false,
+    allowDowngrade: false,
+    get channel() { return "latest"; },
+    set channel(_value: string) { this.allowDowngrade = true; },
     on: (...args: unknown[]) => mockUpdaterOn(...args),
     setFeedURL: (...args: unknown[]) => mockUpdaterSetFeedURL(...args),
     checkForUpdates: (...args: unknown[]) =>
@@ -675,6 +681,41 @@ describe("后台静默检查（checkForUpdates({background:true})）", () => {
       };
     }) as any);
   }
+
+  it.each([
+    ["3.0.10", "3.0.11-beta.1", "beta", true],
+    ["3.0.11-beta.1", "3.0.11-beta.2", "beta", true],
+    ["3.0.11-beta.2", "3.0.11-beta.10", "beta", true],
+    ["3.0.11-beta.10", "3.0.11", "beta", true],
+    ["3.0.11-beta.1", "3.0.10", "stable", false],
+    ["3.0.10", "3.0.11-beta.1", "stable", false],
+    ["3.0.11-beta.2", "3.0.11-beta.1", "beta", false],
+    ["0.9.4", "3.0.10", "stable", true],
+  ])("version %s → %s, subscription %s", async (current, target, subscription, available) => {
+    const { readSetting } = await import("../db");
+    vi.mocked(readSetting).mockReturnValue(subscription);
+    mockAppVersion.mockReturnValue(current as string);
+    respondLatestJson({ version: target, yml: { darwin: `https://example.invalid/v${target}/latest-mac.yml` } });
+    try {
+      const mod = await importFreshWithUpdaterMock();
+      expect((await mod.checkForUpdates({ background: true })).hasUpdate).toBe(available);
+      expect(lastFakeUpdater.allowPrerelease).toBe(subscription === "beta");
+      expect(lastFakeUpdater.allowDowngrade).toBe(false);
+      if (available) expect(mockUpdaterSetFeedURL).toHaveBeenCalledWith({ provider: "generic", url: `https://example.invalid/v${target}/` });
+      else expect(mockUpdaterCheckForUpdates).not.toHaveBeenCalled();
+    } finally {
+      vi.mocked(readSetting).mockReset();
+      mockAppVersion.mockReturnValue("0.9.4");
+    }
+  });
+
+  it("rejects invalid SemVer before using the tolerant comparator", async () => {
+    const { isValidUpdateVersion } = await importFresh();
+    for (const value of [undefined, "", "3.0", "03.0.11", "3.0.11-beta.01", "3.0.11-beta..1", "3.0.11\n"])
+      expect(isValidUpdateVersion(value)).toBe(false);
+    for (const value of ["3.0.11", "3.0.11-beta.1", "3.0.11-rc.1", "3.0.11+build.1"])
+      expect(isValidUpdateVersion(value)).toBe(true);
+  });
 
   it("失败不置 error 态：保持初始 idle", async () => {
     failNetRequest();

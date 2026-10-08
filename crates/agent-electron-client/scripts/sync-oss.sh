@@ -183,21 +183,23 @@ else
   CHANNEL="${2:-stable}"
 fi
 
-# 验证 tag 格式
-if [[ ! "$TAG" =~ ^electron-v ]] && [[ ! "$TAG" =~ ^prerelease-v ]]; then
-  echo "错误: tag 必须以 'electron-v' 或 'prerelease-v' 开头"
-  echo "当前: $TAG"
+# New product tags infer their channel; explicit contradictory input is rejected.
+if [[ "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-beta\.([1-9][0-9]*))?$ ]]; then
+  INFERRED_CHANNEL=stable
+  [[ "$TAG" != *-beta.* ]] || INFERRED_CHANNEL=beta
+  if [[ $# -ge 2 && "$CHANNEL" != "$INFERRED_CHANNEL" ]]; then
+    echo "错误: tag 与 channel 冲突"
+    exit 1
+  fi
+  CHANNEL="$INFERRED_CHANNEL"
+elif [[ "$TAG" =~ ^(electron|prerelease)-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+  if [[ "$TAG" == prerelease-v* ]]; then CHANNEL=beta; fi
+else
+  echo "错误: 无效发布 tag: $TAG"
   exit 1
 fi
-
-if [[ "$TAG" =~ ^prerelease-v ]] && [[ "$CHANNEL" != "beta" ]]; then
-  echo "提示: prerelease tag 请使用 channel=beta，例如: $0 $TAG beta"
-  CHANNEL="beta"
-fi
-
-if [[ "$CHANNEL" != "stable" && "$CHANNEL" != "beta" ]]; then
+if [[ "$CHANNEL" != stable && "$CHANNEL" != beta ]]; then
   echo "错误: channel 仅支持 stable 或 beta"
-  echo "当前: $CHANNEL"
   exit 1
 fi
 
@@ -224,6 +226,7 @@ ensure_windows_signed_for_stable() {
   fi
 
   local version="${TAG#electron-v}"
+  version="${version#v}"
   local signed_exe="${ARTIFACT_PREFIX}.Setup.${version}.exe"
   local release_msi="${ARTIFACT_PREFIX}.${version}.msi"
   local unsigned_exe="${ARTIFACT_PREFIX}-Setup-${version}-unsigned.exe"

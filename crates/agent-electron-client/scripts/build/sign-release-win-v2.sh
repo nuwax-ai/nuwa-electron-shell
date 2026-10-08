@@ -20,6 +20,7 @@
 #   ./sign-release-win-v2.sh 0.9.2 --no-bundle-download   # 强制与 v1 相同逐文件下载
 #
 # Environment (optional):
+#   SIGN_RELEASE_TAG         显式目标 tag（默认 electron-v<version>）
 #   SIGN_RELEASE_REPO        目标 GitHub 仓库（默认 nuwax-ai/nuwaclaw；nuwax-client 商业版传 nuwax-ai/nuwax-client）
 #   SIGN_WORK_DIR            本地工作目录（默认 /c/tmp/nuwaclaw-sign）
 #   SIGN_WIN_ARTIFACT_PREFIX 产物名前缀（默认 NuwaClaw；须与 CI 构建的 productName 前缀一致）
@@ -137,6 +138,14 @@ if [[ -z "$VERSION" ]]; then
     echo "npm:"
     echo "  npm run sign:win"
     echo "  npm run sign:win -- 0.12.6 --skip-upload"
+    exit 1
+fi
+
+# Explicit tag keeps product release naming out of the neutral signing tool.
+RELEASE_TAG="${SIGN_RELEASE_TAG:-electron-v$VERSION}"
+if [[ ! "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] ||
+   [[ "$RELEASE_TAG" != "v$VERSION" && "$RELEASE_TAG" != "electron-v$VERSION" ]]; then
+    echo "错误: 签名仅接受正式版本，SIGN_RELEASE_TAG 须与版本匹配"
     exit 1
 fi
 
@@ -273,7 +282,7 @@ gh_release() {
 
 # 下载失败时对照：Release 上实际资源名 vs 脚本期望的 CI 产物名（package.json nsis/msi artifactName）
 print_release_download_hint() {
-    local tag="electron-v$VERSION"
+    local tag="$RELEASE_TAG"
     echo ""
     echo "诊断: Release $tag（$REPO）当前资源名如下；若列表为空或没有下面文件名，说明 tag 不存在、Windows 构建未跑完或未上传。"
     if [[ "$GH_BIN" == __POWERSHELL_GH__:* ]]; then
@@ -466,7 +475,7 @@ UNSIGNED_EXE_PATH="$UNSIGNED_DIR/$UNSIGNED_EXE"
 UNSIGNED_BUNDLE_PATH="$WORK_DIR/$UNSIGNED_BUNDLE"
 
 if [[ "$SKIP_DOWNLOAD" == "false" ]]; then
-    TAG_R="electron-v$VERSION"
+    TAG_R="$RELEASE_TAG"
     USE_BUNDLE=false
     if [[ "$NO_BUNDLE_DOWNLOAD" == "false" ]] && release_has_asset "$TAG_R" "$UNSIGNED_BUNDLE"; then
         USE_BUNDLE=true
@@ -539,7 +548,7 @@ if [[ "$SKIP_DOWNLOAD" == "false" ]]; then
             CACHE_REMOTE_HASH=""
             CACHE_LOCAL_HASH=$(calculate_local_sha256 "$UNSIGNED_EXE_PATH")
             echo "  Local EXE SHA256:  $CACHE_LOCAL_HASH"
-            CACHE_REMOTE_HASH=$(get_remote_sha256 "electron-v$VERSION" "$UNSIGNED_EXE")
+            CACHE_REMOTE_HASH=$(get_remote_sha256 "$RELEASE_TAG" "$UNSIGNED_EXE")
             if [[ -n "$CACHE_REMOTE_HASH" ]]; then
                 echo "  Remote EXE SHA256: $CACHE_REMOTE_HASH"
                 if [[ "${CACHE_LOCAL_HASH,,}" == "${CACHE_REMOTE_HASH,,}" ]]; then
@@ -555,7 +564,7 @@ if [[ "$SKIP_DOWNLOAD" == "false" ]]; then
 
         if [[ "$NEED_DOWNLOAD_EXE" == "true" ]]; then
             echo ""
-            echo "==> Downloading unsigned EXE from release electron-v$VERSION"
+            echo "==> Downloading unsigned EXE from release $RELEASE_TAG"
             rm -f "$UNSIGNED_EXE_PATH"
 
             DOWNLOAD_OK=true
@@ -706,36 +715,36 @@ fi
 # Upload to GitHub（已签名安装包 + 差分更新 blockmap）
 if [[ "$SKIP_UPLOAD" == "false" ]]; then
     echo ""
-    echo "==> Uploading signed files to release electron-v$VERSION"
+    echo "==> Uploading signed files to release $RELEASE_TAG"
 
     # Delete unsigned EXE from release（MSI 由 CI 直出最终名，保留在 Release 上）
     if [[ "$GH_BIN" == __POWERSHELL_GH__:* ]]; then
-        gh_release "gh release delete-asset \"electron-v$VERSION\" \"$UNSIGNED_EXE\" --yes --repo \"$REPO\"" 2>/dev/null || true
-        gh_release "gh release delete-asset \"electron-v$VERSION\" \"$UNSIGNED_BLOCKMAP\" --yes --repo \"$REPO\"" 2>/dev/null || true
-        gh_release "gh release delete-asset \"electron-v$VERSION\" \"$LEGACY_UNSIGNED_MSI\" --yes --repo \"$REPO\"" 2>/dev/null || true
+        gh_release "gh release delete-asset \"$RELEASE_TAG\" \"$UNSIGNED_EXE\" --yes --repo \"$REPO\"" 2>/dev/null || true
+        gh_release "gh release delete-asset \"$RELEASE_TAG\" \"$UNSIGNED_BLOCKMAP\" --yes --repo \"$REPO\"" 2>/dev/null || true
+        gh_release "gh release delete-asset \"$RELEASE_TAG\" \"$LEGACY_UNSIGNED_MSI\" --yes --repo \"$REPO\"" 2>/dev/null || true
     else
-        gh_release "" release delete-asset "electron-v$VERSION" "$UNSIGNED_EXE" --yes --repo "$REPO" 2>/dev/null || true
-        gh_release "" release delete-asset "electron-v$VERSION" "$UNSIGNED_BLOCKMAP" --yes --repo "$REPO" 2>/dev/null || true
-        gh_release "" release delete-asset "electron-v$VERSION" "$LEGACY_UNSIGNED_MSI" --yes --repo "$REPO" 2>/dev/null || true
+        gh_release "" release delete-asset "$RELEASE_TAG" "$UNSIGNED_EXE" --yes --repo "$REPO" 2>/dev/null || true
+        gh_release "" release delete-asset "$RELEASE_TAG" "$UNSIGNED_BLOCKMAP" --yes --repo "$REPO" 2>/dev/null || true
+        gh_release "" release delete-asset "$RELEASE_TAG" "$LEGACY_UNSIGNED_MSI" --yes --repo "$REPO" 2>/dev/null || true
     fi
 
     if [[ "$GH_BIN" == __POWERSHELL_GH__:* ]]; then
         SIGNED_EXE_WIN="$(cygpath -w "$SIGNED_DIR/$SIGNED_EXE")"
         if [[ -f "$SIGNED_DIR/$SIGNED_BLOCKMAP" ]]; then
             SIGNED_BLOCKMAP_WIN="$(cygpath -w "$SIGNED_DIR/$SIGNED_BLOCKMAP")"
-            gh_release "gh release upload \"electron-v$VERSION\" \"$SIGNED_EXE_WIN\" \"$SIGNED_BLOCKMAP_WIN\" --clobber --repo \"$REPO\""
+            gh_release "gh release upload \"$RELEASE_TAG\" \"$SIGNED_EXE_WIN\" \"$SIGNED_BLOCKMAP_WIN\" --clobber --repo \"$REPO\""
         else
-            gh_release "gh release upload \"electron-v$VERSION\" \"$SIGNED_EXE_WIN\" --clobber --repo \"$REPO\""
+            gh_release "gh release upload \"$RELEASE_TAG\" \"$SIGNED_EXE_WIN\" --clobber --repo \"$REPO\""
         fi
     else
         if [[ -f "$SIGNED_DIR/$SIGNED_BLOCKMAP" ]]; then
-            gh_release "" release upload "electron-v$VERSION" \
+            gh_release "" release upload "$RELEASE_TAG" \
                 "$SIGNED_DIR/$SIGNED_EXE" \
                 "$SIGNED_DIR/$SIGNED_BLOCKMAP" \
                 --clobber \
                 --repo "$REPO"
         else
-            gh_release "" release upload "electron-v$VERSION" \
+            gh_release "" release upload "$RELEASE_TAG" \
                 "$SIGNED_DIR/$SIGNED_EXE" \
                 --clobber \
                 --repo "$REPO"
@@ -769,5 +778,5 @@ echo "（MSI 不签名，由 CI 产出 NuwaClaw.$VERSION.msi 并保留在 Releas
 
 if [[ "$SKIP_UPLOAD" == "false" ]]; then
     echo ""
-    echo "Release URL: https://github.com/$REPO/releases/tag/electron-v$VERSION"
+    echo "Release URL: https://github.com/$REPO/releases/tag/$RELEASE_TAG"
 fi

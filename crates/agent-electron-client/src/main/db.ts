@@ -23,6 +23,11 @@ export function initDatabase(): void {
       );
     `);
     log.info('Database tables created');
+    // Seed only a missing preference: upgrades and same-version promotion must
+    // keep the user's subscription, including a stable choice made on beta.
+    const channel = /-beta(?:\.|$)/.test(app.getVersion()) ? 'beta' : 'stable';
+    db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)')
+      .run('update_channel', JSON.stringify(channel));
   } catch (error) {
     log.error('Database initialization failed:', error);
   }

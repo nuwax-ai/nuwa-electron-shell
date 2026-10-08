@@ -378,11 +378,12 @@ export function _setAutoUpdaterModuleLoaderForTest(
     loader ?? (() => require("electron-updater"));
 }
 
-/**
- * MVP 仅支持 x.y.z 纯数字版本，避免 compareVersions 对 prerelease 得到 NaN
- */
-function isNumericSemver(version: string): boolean {
-  return /^\d+\.\d+\.\d+$/.test(version.trim());
+/** Validate update metadata before the tolerant dependency version comparator. */
+export function isValidUpdateVersion(version: unknown): version is string {
+  if (typeof version !== "string") return false;
+  const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(version);
+  return !!match && match[0] === version &&
+    (!match[4] || match[4].split(".").every((part) => !/^\d+$/.test(part) || part === "0" || !part.startsWith("0")));
 }
 
 let currentState: UpdateState = { status: "idle" };
@@ -465,6 +466,11 @@ async function doCheckViaLatestJson(
 ): Promise<UpdateInfo> {
   const { autoUpdater } = loadAutoUpdaterModule();
   const updateChannel = getUpdateChannel();
+  autoUpdater.allowPrerelease = updateChannel === "beta";
+  // Versioned generic feeds always expose latest-*.yml. Setting channel enables
+  // downgrades in electron-updater, so reset it explicitly after the setter.
+  autoUpdater.channel = "latest";
+  autoUpdater.allowDowngrade = false;
   const latestJsonUrl = getLatestJsonUrlByChannel(updateChannel);
   log.info(
     `[AutoUpdater] Check updates via channel=${updateChannel}, url=${latestJsonUrl}, background=${options.background === true}`,
@@ -506,7 +512,8 @@ async function doCheckViaLatestJson(
     };
   }
 
-  if (!isNumericSemver(latestJson.version)) {
+  if (!isValidUpdateVersion(latestJson.version) ||
+    (updateChannel === "stable" && latestJson.version.split("+")[0].includes("-"))) {
     const msg = t(
       "Claw.AutoUpdater.invalidMetadataVersion",
       latestJson.version,
