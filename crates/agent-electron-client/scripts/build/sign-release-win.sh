@@ -571,18 +571,6 @@ if [[ "$SKIP_UPLOAD" == "false" ]]; then
     echo ""
     echo "==> Uploading signed files to release $RELEASE_TAG"
 
-    # Delete unsigned EXE from release（MSI 由 CI 直出最终名，保留在 Release 上）
-    if [[ "$GH_BIN" == __POWERSHELL_GH__:* ]]; then
-        gh_release "gh release delete-asset \"$RELEASE_TAG\" \"$UNSIGNED_EXE\" --yes --repo \"$REPO\"" 2>/dev/null || true
-        gh_release "gh release delete-asset \"$RELEASE_TAG\" \"$UNSIGNED_BLOCKMAP\" --yes --repo \"$REPO\"" 2>/dev/null || true
-        gh_release "gh release delete-asset \"$RELEASE_TAG\" \"$LEGACY_UNSIGNED_MSI\" --yes --repo \"$REPO\"" 2>/dev/null || true
-    else
-        gh_release "" release delete-asset "$RELEASE_TAG" "$UNSIGNED_EXE" --yes --repo "$REPO" 2>/dev/null || true
-        gh_release "" release delete-asset "$RELEASE_TAG" "$UNSIGNED_BLOCKMAP" --yes --repo "$REPO" 2>/dev/null || true
-        gh_release "" release delete-asset "$RELEASE_TAG" "$LEGACY_UNSIGNED_MSI" --yes --repo "$REPO" 2>/dev/null || true
-    fi
-
-    # Upload signed EXE with original names
     if [[ "$GH_BIN" == __POWERSHELL_GH__:* ]]; then
         SIGNED_EXE_WIN="$(cygpath -w "$SIGNED_DIR/$SIGNED_EXE")"
         if [[ -f "$SIGNED_DIR/$SIGNED_BLOCKMAP" ]]; then
@@ -606,10 +594,24 @@ if [[ "$SKIP_UPLOAD" == "false" ]]; then
         fi
     fi
 
+    # Keep the CI original until signed upload succeeds, so failures can resume.
+    # Delete unsigned EXE from release（MSI 由 CI 直出最终名，保留在 Release 上）
+    if [[ "$GH_BIN" == __POWERSHELL_GH__:* ]]; then
+        gh_release "gh release delete-asset \"$RELEASE_TAG\" \"$UNSIGNED_EXE\" --yes --repo \"$REPO\"" 2>/dev/null || true
+        gh_release "gh release delete-asset \"$RELEASE_TAG\" \"$UNSIGNED_BLOCKMAP\" --yes --repo \"$REPO\"" 2>/dev/null || true
+        gh_release "gh release delete-asset \"$RELEASE_TAG\" \"$LEGACY_UNSIGNED_MSI\" --yes --repo \"$REPO\"" 2>/dev/null || true
+    else
+        gh_release "" release delete-asset "$RELEASE_TAG" "$UNSIGNED_EXE" --yes --repo "$REPO" 2>/dev/null || true
+        gh_release "" release delete-asset "$RELEASE_TAG" "$UNSIGNED_BLOCKMAP" --yes --repo "$REPO" 2>/dev/null || true
+        gh_release "" release delete-asset "$RELEASE_TAG" "$LEGACY_UNSIGNED_MSI" --yes --repo "$REPO" 2>/dev/null || true
+    fi
+
+    # Upload signed EXE with original names
     echo "  Uploaded successfully!"
 else
     echo ""
     echo "==> Skipping upload (files kept locally only)"
+
 fi
 
 # Summary
