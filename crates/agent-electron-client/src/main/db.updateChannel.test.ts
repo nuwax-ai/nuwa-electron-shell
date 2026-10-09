@@ -5,6 +5,7 @@ vi.mock("electron", () => ({ app: { getPath: () => "/tmp/channel-test", getVersi
 vi.mock("electron-log", () => ({ default: { info: vi.fn(), error: vi.fn() } }));
 vi.mock("better-sqlite3", () => ({ default: class {
   exec() {}
+  pragma() { return "ok"; }
   close() {}
   prepare(sql: string) {
     return {
