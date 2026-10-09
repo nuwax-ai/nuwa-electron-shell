@@ -37,17 +37,33 @@ function prepareDatabase(handle: Database.Database): void {
     .run('update_channel', JSON.stringify(channel));
 }
 
-/** 损坏文件连同日志旁路文件整体改名保留供排查，不删除用户数据；失败返回 null。 */
+/**
+ * 损坏文件连同日志旁路文件整体改名保留供排查，不删除用户数据。
+ * 旁路文件先于主文件移动；任一步失败都把已移动的文件改回原处并返回 null，
+ * 避免主文件已走、-wal 仍留在原路径，被之后新建的库当作自己的日志回放。
+ */
 function quarantineCorruptDatabase(): string | null {
   const backup = `${dbPath}.corrupt-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+  const moved: Array<[from: string, to: string]> = [];
+  const move = (from: string, to: string): void => {
+    fs.renameSync(from, to);
+    moved.push([from, to]);
+  };
   try {
-    fs.renameSync(dbPath, backup);
     for (const suffix of ['-wal', '-shm', '-journal']) {
-      if (fs.existsSync(dbPath + suffix)) fs.renameSync(dbPath + suffix, backup + suffix);
+      if (fs.existsSync(dbPath + suffix)) move(dbPath + suffix, backup + suffix);
     }
+    move(dbPath, backup);
     return backup;
   } catch (error) {
     log.error('Failed to move corrupt database aside:', error);
+    for (const [from, to] of moved.reverse()) {
+      try {
+        fs.renameSync(to, from);
+      } catch (restoreError) {
+        log.error(`Failed to restore ${from} after an incomplete quarantine:`, restoreError);
+      }
+    }
     return null;
   }
 }
@@ -76,6 +92,9 @@ export function initDatabase(): void {
     log.info('Database re-created at:', dbPath);
   } catch (error) {
     log.error('Database re-creation failed:', error);
+    // 全新文件上建表失败的句柄读不到任何内容，留着只会让启动期的 readSetting 抛 no such table
+    try { db?.close(); } catch { /* 句柄已不可用 */ }
+    db = null;
   }
 }
 

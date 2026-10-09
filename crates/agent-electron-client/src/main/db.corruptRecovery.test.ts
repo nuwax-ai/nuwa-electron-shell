@@ -5,8 +5,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { APP_DATA_DIR_NAME } from "./services/constants";
 import { APP_NAME_IDENTIFIER } from "@shared/constants";
 
-const env = vi.hoisted(() => ({ home: "", renameFails: false }));
-const sqlite = vi.hoisted(() => ({ opened: 0, openFailsFrom: 0, readonlyWrites: false }));
+const env = vi.hoisted(() => ({ home: "", renameFails: false, failRenameOf: "" }));
+const sqlite = vi.hoisted(() => ({ opened: 0, closed: 0, openFailsFrom: 0, execFailsFrom: 0, readonlyWrites: false }));
 
 vi.mock("electron", () => ({ app: { getPath: () => env.home, getVersion: () => "3.0.10" } }));
 vi.mock("electron-log", () => ({ default: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
@@ -15,7 +15,9 @@ vi.mock("fs", async (importOriginal) => {
   return {
     ...actual,
     renameSync: (from: string, to: string) => {
-      if (env.renameFails) throw Object.assign(new Error("EACCES"), { code: "EACCES" });
+      if (env.renameFails || (env.failRenameOf && from.endsWith(env.failRenameOf))) {
+        throw Object.assign(new Error("EACCES"), { code: "EACCES" });
+      }
       return actual.renameSync(from, to);
     },
   };
@@ -26,14 +28,19 @@ vi.mock("better-sqlite3", async () => {
   return {
     default: class FakeDatabase {
       private readonly rows = new Map<string, string>();
+      private readonly index: number;
       constructor(private readonly file: string) {
         sqlite.opened += 1;
+        this.index = sqlite.opened;
         if (sqlite.openFailsFrom && sqlite.opened >= sqlite.openFailsFrom) {
           throw Object.assign(new Error("unable to open database file"), { code: "SQLITE_CANTOPEN" });
         }
         if (!fsActual.existsSync(file)) fsActual.writeFileSync(file, "SQLite format 3\0");
       }
       exec() {
+        if (sqlite.execFailsFrom && this.index >= sqlite.execFailsFrom) {
+          throw Object.assign(new Error("database or disk is full"), { code: "SQLITE_FULL" });
+        }
         if (bytes(this.file).startsWith("GARBAGE")) {
           throw Object.assign(new Error("file is not a database"), { code: "SQLITE_NOTADB" });
         }
@@ -41,7 +48,9 @@ vi.mock("better-sqlite3", async () => {
       pragma() {
         return bytes(this.file).includes("DAMAGED") ? "row 1 missing from index sqlite_autoindex_settings_1" : "ok";
       }
-      close() {}
+      close() {
+        sqlite.closed += 1;
+      }
       prepare(sql: string) {
         return {
           run: (key: string, value: string) => {
@@ -72,8 +81,11 @@ async function load(files: Record<string, string> = {}) {
 describe("database corruption self-healing", () => {
   beforeEach(() => {
     env.renameFails = false;
+    env.failRenameOf = "";
     sqlite.opened = 0;
+    sqlite.closed = 0;
     sqlite.openFailsFrom = 0;
+    sqlite.execFailsFrom = 0;
     sqlite.readonlyWrites = false;
   });
 
@@ -139,5 +151,37 @@ describe("database corruption self-healing", () => {
     expect(() => mod.initDatabase()).not.toThrow();
     expect(mod.getDb()).toBeNull();
     expect(backups()).toHaveLength(1);
+  });
+
+  it("closes and drops the fresh handle when creating its schema fails, so startup reads see null", async () => {
+    sqlite.execFailsFrom = 2;
+    const { mod, backups } = await load({ "": "GARBAGE-bytes" });
+    expect(() => mod.initDatabase()).not.toThrow();
+    expect(mod.getDb()).toBeNull();
+    expect(mod.readSetting("update_channel")).toBeNull();
+    expect(sqlite.closed).toBe(2);
+    expect(backups()).toHaveLength(1);
+  });
+
+  it("restores sidecars already moved when a later sidecar cannot be moved", async () => {
+    env.failRenameOf = "-shm";
+    const { mod, file, backups } = await load({ "": "GARBAGE-bytes", "-wal": "wal", "-shm": "shm" });
+    expect(() => mod.initDatabase()).not.toThrow();
+    expect(mod.getDb()).toBeNull();
+    expect(backups()).toEqual([]);
+    expect(fs.readFileSync(file, "utf8")).toBe("GARBAGE-bytes");
+    expect(fs.readFileSync(`${file}-wal`, "utf8")).toBe("wal");
+    expect(fs.readFileSync(`${file}-shm`, "utf8")).toBe("shm");
+  });
+
+  it("restores the sidecars when the main file is the one that cannot be moved", async () => {
+    env.failRenameOf = ".db";
+    const { mod, file, backups } = await load({ "": "GARBAGE-bytes", "-wal": "wal", "-shm": "shm" });
+    expect(() => mod.initDatabase()).not.toThrow();
+    expect(mod.getDb()).toBeNull();
+    expect(backups()).toEqual([]);
+    expect(fs.readFileSync(file, "utf8")).toBe("GARBAGE-bytes");
+    expect(fs.readFileSync(`${file}-wal`, "utf8")).toBe("wal");
+    expect(fs.readFileSync(`${file}-shm`, "utf8")).toBe("shm");
   });
 });
