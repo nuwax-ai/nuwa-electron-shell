@@ -286,12 +286,42 @@ describe("autoUpdater - getInstallerType & canAutoUpdate", () => {
       expect(mod.getInstallerType()).toBe("nsis");
     });
 
-    it("候选键读不到 DisplayName（reg 超时 / 非 REG_SZ）时不得抛错，且不能当作非 MSI：保守判 'msi'、禁用自动更新", async () => {
+    it("DisplayName 确实不存在的残留键（只是数据里带产品名）不构成证据不全：兜底 'nsis' 并缓存", async () => {
       mockReaddirSync.mockReturnValue(["app.exe"]);
       const mod = await importFresh();
-      stubRegistry(mod, ["HKLM\\...\\Uninstall\\{NO_NAME}"], {
-        "HKLM\\...\\Uninstall\\{NO_NAME}": {
-          UninstallString: "MsiExec.exe /I{NO_NAME}",
+      stubRegistry(mod, ["HKLM\\...\\Uninstall\\{STALE}"], {
+        "HKLM\\...\\Uninstall\\{STALE}": {
+          InstallLocation: "C:\\Apps\\NuwaClaw",
+        },
+      });
+      expect(mod.getInstallerType()).toBe("nsis");
+      expect(mod.canAutoUpdate()).toBe(true);
+      // 已缓存：之后即便 reg 故障也不再探测
+      mod._setRegistryAdapterForTest({
+        searchUninstallKeysByDisplayName: () => {
+          throw new mod.RegistryProbeError("late failure");
+        },
+        queryValue: () => null,
+      });
+      expect(mod.getInstallerType()).toBe("nsis");
+    });
+
+    it("名称匹配但没有 UninstallString 的键不是 MSI，兜底 'nsis'", async () => {
+      mockReaddirSync.mockReturnValue(["app.exe"]);
+      const mod = await importFresh();
+      stubRegistry(mod, ["HKLM\\...\\Uninstall\\{K}"], {
+        "HKLM\\...\\Uninstall\\{K}": { DisplayName: "NuwaClaw" },
+      });
+      expect(mod.getInstallerType()).toBe("nsis");
+    });
+
+    it("读取键值时 reg 瞬时故障（超时 / 无法启动）：保守判 'msi'、禁用自动更新、不抛错", async () => {
+      mockReaddirSync.mockReturnValue(["app.exe"]);
+      const mod = await importFresh();
+      mod._setRegistryAdapterForTest({
+        searchUninstallKeysByDisplayName: () => ["HKLM\\...\\Uninstall\\{K}"],
+        queryValue: () => {
+          throw new mod.RegistryProbeError("reg query did not complete (ETIMEDOUT)");
         },
       });
       expect(() => mod.getInstallerType()).not.toThrow();
@@ -299,40 +329,56 @@ describe("autoUpdater - getInstallerType & canAutoUpdate", () => {
       expect(mod.canAutoUpdate()).toBe(false);
     });
 
-    it("名称匹配但 UninstallString 读不到同样属于证据不全：保守判 'msi'", async () => {
+    it("搜索阶段 reg 瞬时故障同样保守判 'msi'", async () => {
       mockReaddirSync.mockReturnValue(["app.exe"]);
       const mod = await importFresh();
-      stubRegistry(mod, ["HKLM\\...\\Uninstall\\{K}"], {
-        "HKLM\\...\\Uninstall\\{K}": { DisplayName: "NuwaClaw" },
+      mod._setRegistryAdapterForTest({
+        searchUninstallKeysByDisplayName: () => {
+          throw new mod.RegistryProbeError("reg query did not complete (ETIMEDOUT)");
+        },
+        queryValue: () => null,
       });
       expect(mod.getInstallerType()).toBe("msi");
       expect(mod.canAutoUpdate()).toBe(false);
     });
 
-    it("证据不全的判定不被缓存：注册表恢复可读后重新探测得到确定结果", async () => {
+    it("故障结果有退避：窗口内复用不重复同步探测，窗口后重新探测，注册表恢复即得确定结果", async () => {
       mockReaddirSync.mockReturnValue(["app.exe"]);
       const mod = await importFresh();
-      stubRegistry(mod, ["HKLM\\...\\Uninstall\\{NO_NAME}"], {});
-      expect(mod.getInstallerType()).toBe("msi");
-      stubRegistry(mod, [], {});
-      expect(mod.getInstallerType()).toBe("nsis");
-      stubRegistry(mod, ["HKLM\\...\\Uninstall\\{NO_NAME}"], {});
-      expect(mod.getInstallerType()).toBe("nsis");
+      vi.useFakeTimers();
+      try {
+        vi.setSystemTime(new Date("2026-10-09T00:00:00Z"));
+        let searches = 0;
+        let healthy = false;
+        mod._setRegistryAdapterForTest({
+          searchUninstallKeysByDisplayName: () => {
+            searches += 1;
+            if (!healthy) throw new mod.RegistryProbeError("timeout");
+            return [];
+          },
+          queryValue: () => null,
+        });
+        expect(mod.getInstallerType()).toBe("msi");
+        expect(mod.getInstallerType()).toBe("msi");
+        expect(mod.canAutoUpdate()).toBe(false);
+        expect(searches).toBe(1);
+
+        healthy = true;
+        vi.advanceTimersByTime(59_000);
+        expect(mod.getInstallerType()).toBe("msi");
+        expect(searches).toBe(1);
+
+        vi.advanceTimersByTime(1_001);
+        expect(mod.getInstallerType()).toBe("nsis");
+        expect(searches).toBe(2);
+        expect(mod.getInstallerType()).toBe("nsis");
+        expect(searches).toBe(2);
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
-    it("可读且名称不匹配的无关键不构成证据不全，仍按 'nsis' 兜底", async () => {
-      mockReaddirSync.mockReturnValue(["app.exe"]);
-      const mod = await importFresh();
-      stubRegistry(mod, ["HKLM\\...\\Uninstall\\{OTHER}"], {
-        "HKLM\\...\\Uninstall\\{OTHER}": {
-          DisplayName: "Some Other Product",
-          UninstallString: "MsiExec.exe /I{OTHER}",
-        },
-      });
-      expect(mod.getInstallerType()).toBe("nsis");
-    });
-
-    it("读不到 DisplayName 的候选键不阻断后续真 MSI 键的判定，且该确定结果会被缓存", async () => {
+    it("DisplayName 不存在的候选键不阻断后续真 MSI 键的判定，且确定结果会被缓存", async () => {
       mockReaddirSync.mockReturnValue(["app.exe"]);
       const mod = await importFresh();
       stubRegistry(
@@ -348,6 +394,42 @@ describe("autoUpdater - getInstallerType & canAutoUpdate", () => {
       expect(mod.getInstallerType()).toBe("msi");
       stubRegistry(mod, [], {});
       expect(mod.getInstallerType()).toBe("msi");
+    });
+
+    it("可读且名称不匹配的无关键不构成证据不全，仍按 'nsis' 兜底", async () => {
+      mockReaddirSync.mockReturnValue(["app.exe"]);
+      const mod = await importFresh();
+      stubRegistry(mod, ["HKLM\\...\\Uninstall\\{OTHER}"], {
+        "HKLM\\...\\Uninstall\\{OTHER}": {
+          DisplayName: "Some Other Product",
+          UninstallString: "MsiExec.exe /I{OTHER}",
+        },
+      });
+      expect(mod.getInstallerType()).toBe("nsis");
+    });
+
+    it("isTransientRegFailure：reg 的非零退出码是明确的查不到，超时 / 无法启动才是瞬时故障", async () => {
+      const { isTransientRegFailure } = await importFresh();
+      expect(
+        isTransientRegFailure(
+          Object.assign(new Error("Command failed"), { status: 1, signal: null }),
+        ),
+      ).toBe(false);
+      expect(
+        isTransientRegFailure(
+          Object.assign(new Error("spawnSync reg ETIMEDOUT"), {
+            code: "ETIMEDOUT",
+            status: null,
+            signal: "SIGTERM",
+          }),
+        ),
+      ).toBe(true);
+      expect(
+        isTransientRegFailure(
+          Object.assign(new Error("spawnSync reg ENOENT"), { code: "ENOENT" }),
+        ),
+      ).toBe(true);
+      expect(isTransientRegFailure(undefined)).toBe(true);
     });
 
     it("目录为空 + 注册表无证据应兜底 'nsis'", async () => {

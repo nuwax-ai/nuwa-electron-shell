@@ -150,9 +150,15 @@ type InstallerType = "nsis" | "msi" | "mac" | "linux" | "dev";
  * 区分「真 MSI」与「tar 解压/绿色目录部署」的唯一可靠证据。
  */
 interface WindowsRegistryAdapter {
-  /** 在 Uninstall 根键下按 DisplayName 数据搜索，返回命中的键路径列表 */
+  /**
+   * 在 Uninstall 根键下按 DisplayName 数据搜索，返回命中的键路径列表（无匹配返回空数组）。
+   * reg 超时 / 无法启动等瞬时故障抛 RegistryProbeError。
+   */
   searchUninstallKeysByDisplayName(displayName: string): string[];
-  /** 读取指定键的字符串值（REG_SZ），不存在返回 null */
+  /**
+   * 读取指定键的字符串值（REG_SZ），键或值不存在返回 null。
+   * reg 超时 / 无法启动等瞬时故障抛 RegistryProbeError。
+   */
   queryValue(key: string, valueName: string): string | null;
 }
 
@@ -162,6 +168,17 @@ const WINDOWS_UNINSTALL_REGISTRY_ROOTS = [
   "HKLM\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
 ];
 
+/** reg.exe 没能给出答案（超时 / 无法启动 / 被信号终止），区别于「值不存在」。 */
+export class RegistryProbeError extends Error {}
+
+/**
+ * reg 自己以退出码返回的（键或值不存在、无匹配、拒绝访问）是明确的「查不到」；
+ * 没有退出码的（execFileSync 超时、spawn 失败、被信号终止）才是无法下结论的瞬时故障。
+ */
+export function isTransientRegFailure(error: unknown): boolean {
+  return typeof (error as { status?: unknown } | null)?.status !== "number";
+}
+
 function runReg(args: string[]): string | null {
   try {
     return execFileSync("reg", args, {
@@ -170,8 +187,13 @@ function runReg(args: string[]): string | null {
       timeout: 5_000,
       windowsHide: true,
     });
-  } catch {
-    // 键不存在 / reg 退出码 1（无匹配）/ reg 不可用 —— 一律视为查不到
+  } catch (error) {
+    if (isTransientRegFailure(error)) {
+      const code = (error as { code?: unknown } | null)?.code;
+      throw new RegistryProbeError(
+        `reg ${args[0]} did not complete (${String(code ?? error)})`,
+      );
+    }
     return null;
   }
 }
@@ -214,40 +236,28 @@ export function _setRegistryAdapterForTest(
  * 在 Windows 注册表中寻找本产品的真 MSI 卸载项：
  * DisplayName 为 productName 或「productName + 空格 + 版本」（electron-builder
  * NSIS/MSI 的 uninstallDisplayName 模板带版本后缀，win-pc 真机实证
- * "Nuwax 1.0.24"）且 UninstallString 含 msiexec。
+ * "Nuwax 1.0.24"）且 UninstallString 含 msiexec。返回命中的键路径,无则 null。
  *
- * queryValue 在 reg 超时 / 非 REG_SZ / 值不存在时都返回 null，三者无法区分。
- * 读不到不能当作「不是 MSI」的反证，否则一次瞬时失败会把真 MSI 缓存成 NSIS 并放开
- * 自动更新；因此用 unreadable 单独标记「证据不全」，由调用方保守处理。
+ * 搜索按数据匹配，候选键里可能有 DisplayName 并不存在的残留键，读到 null 就是
+ * 「这个键不是」，直接跳过；reg 瞬时故障以 RegistryProbeError 抛出，由调用方处理。
  */
-interface MsiRegistryEvidence {
-  key: string | null;
-  unreadable: boolean;
-}
-
-function findMsiUninstallKey(productName: string): MsiRegistryEvidence {
+function findMsiUninstallKey(productName: string): string | null {
   const candidates =
     registryAdapter.searchUninstallKeysByDisplayName(productName);
-  let unreadable = false;
   for (const key of candidates) {
     const display = registryAdapter.queryValue(key, "DisplayName");
-    if (display === null) {
-      unreadable = true;
-      continue;
-    }
-    if (display !== productName && !display.startsWith(productName + " ")) {
+    if (
+      display === null ||
+      (display !== productName && !display.startsWith(productName + " "))
+    ) {
       continue;
     }
     const uninstall = registryAdapter.queryValue(key, "UninstallString");
-    if (uninstall === null) {
-      unreadable = true;
-      continue;
-    }
-    if (/msiexec/i.test(uninstall)) {
-      return { key, unreadable };
+    if (uninstall && /msiexec/i.test(uninstall)) {
+      return key;
     }
   }
-  return { key: null, unreadable };
+  return null;
 }
 
 /**
@@ -330,18 +340,21 @@ function detectInstallerType(): InstallerType | "inconclusive" {
 
     // 无卸载程序文件 ≠ MSI：按注册表证据判定真 MSI，否则按 NSIS 兜底
     // （解压/绿色部署形态，见函数头注）
-    const evidence = findMsiUninstallKey(productName);
-    if (evidence.key) {
-      log.info(
-        `[AutoUpdater] Windows installer type: MSI (registry uninstall key: ${evidence.key})`,
-      );
-      return "msi";
-    }
-    if (evidence.unreadable) {
+    let msiKey: string | null;
+    try {
+      msiKey = findMsiUninstallKey(productName);
+    } catch (error) {
+      if (!(error instanceof RegistryProbeError)) throw error;
       log.warn(
-        "[AutoUpdater] Windows installer type undetermined: a registry uninstall entry could not be read",
+        `[AutoUpdater] Windows installer type undetermined: ${error.message}`,
       );
       return "inconclusive";
+    }
+    if (msiKey) {
+      log.info(
+        `[AutoUpdater] Windows installer type: MSI (registry uninstall key: ${msiKey})`,
+      );
+      return "msi";
     }
     log.info(
       "[AutoUpdater] Windows installer type: NSIS assumed (no uninstaller file in app directory, no MSI registry evidence — unpacked/portable deploy tolerated)",
@@ -354,11 +367,17 @@ function detectInstallerType(): InstallerType | "inconclusive" {
 
 let cachedInstallerType: InstallerType | undefined;
 
+/** 证据不全（reg 瞬时故障）的保守结果在此期间内直接复用，避免每次查询都同步重跑 reg.exe */
+const INCONCLUSIVE_RETRY_MS = 60_000;
+let inconclusiveUntil = 0;
+
 export function getInstallerType(): InstallerType {
   if (cachedInstallerType) return cachedInstallerType;
+  if (Date.now() < inconclusiveUntil) return "msi";
   const detected = detectInstallerType();
   if (detected === "inconclusive") {
-    // 证据不全时保守按 MSI 处理（不自动更新），且不缓存，下次调用重新探测
+    // 保守按 MSI 处理（不自动更新），不永久缓存：退避期过后重新探测
+    inconclusiveUntil = Date.now() + INCONCLUSIVE_RETRY_MS;
     return "msi";
   }
   cachedInstallerType = detected;
