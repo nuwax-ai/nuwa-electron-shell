@@ -276,10 +276,9 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
 
   /** 供设置页判断是否可显示「启动」并提示不可用原因 */
   registerServiceHandler("lanproxy:isAvailable", async () => {
-    const { getLanproxyBinPath } =
+    const { getLanproxyEntryPath } =
       await import("../services/system/dependencies");
-    const binPath = getLanproxyBinPath();
-    return { available: fs.existsSync(binPath) };
+    return { available: fs.existsSync(getLanproxyEntryPath()) };
   });
 
   // Agent Runner handlers

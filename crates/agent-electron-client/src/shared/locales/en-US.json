@@ -331,7 +331,7 @@
   "Claw.Lanproxy.tunnelStopped": "Network tunnel stopped",
   "Claw.Lanproxy.tunnelStarted": "Network tunnel started",
   "Claw.Lanproxy.errorWithDetail": "Error: {0}",
-  "Claw.Lanproxy.platformNotSupported": "Network tunneling (Lanproxy) is not supported on this platform (lanproxy binary not detected). Please use an installation package with lanproxy or obtain the platform-specific binary from Tauri builds.",
+  "Claw.Lanproxy.platformNotSupported": "The network tunneling (Lanproxy) client component (lanproxy-client.js) was not found. Please reinstall using a complete installation package.",
   "Claw.Lanproxy.running": "● Running",
   "Claw.Lanproxy.stopped": "○ Stopped",
   "Claw.Lanproxy.start": "Start",

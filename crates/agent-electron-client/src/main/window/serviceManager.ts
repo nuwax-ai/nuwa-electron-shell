@@ -26,7 +26,7 @@ import {
 import { getConfiguredPorts } from "../services/startupPorts";
 import {
   getAppEnv,
-  getLanproxyBinPath,
+  getLanproxyEntryPath,
   getTtydBinPath,
   getNuwaxFileServerBundledDir,
   getBundledGitBashPath,
@@ -308,26 +308,30 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       }
     }
 
-    const binPath = getLanproxyBinPath();
-    if (!fs.existsSync(binPath)) {
+    const entryPath = getLanproxyEntryPath();
+    if (!fs.existsSync(entryPath)) {
       return { success: false, error: t("Claw.Lanproxy.platformNotSupported") };
     }
 
     const useSsl = config.ssl !== false;
+    // clientKey 走环境变量而非命令行，避免出现在进程列表里
     const args = [
+      entryPath,
       "-s",
       config.serverIp,
       "-p",
       String(config.serverPort),
-      "-k",
-      config.clientKey,
       `--ssl=${useSsl}`,
     ];
 
     return ctx.lanproxy.start({
-      command: binPath,
+      command: process.execPath,
       args,
-      env: getAppEnv(),
+      env: {
+        ...getAppEnv(),
+        ELECTRON_RUN_AS_NODE: "1",
+        LANPROXY_CLIENT_KEY: config.clientKey,
+      },
       startupDelayMs: 1000,
     });
   };

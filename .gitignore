@@ -34,7 +34,7 @@ crates/agent-electron-client/resources/node/
 # Bundled Git: 构建时 prepare-git 下载
 crates/agent-electron-client/resources/git/
 
-# Bundled lanproxy: 构建时 prepare-lanproxy 复制当前平台二进制
+# Bundled lanproxy client: 构建时 prepare-lanproxy 用 esbuild 生成 lanproxy-client.js
 crates/agent-electron-client/resources/lanproxy/bin/
 
 # Bundled ttyd: 构建时 prepare-ttyd 复制当前平台二进制（binaries/ 下的源二进制需提交）
