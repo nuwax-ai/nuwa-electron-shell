@@ -286,6 +286,34 @@ describe("autoUpdater - getInstallerType & canAutoUpdate", () => {
       expect(mod.getInstallerType()).toBe("nsis");
     });
 
+    it("候选键读不到 DisplayName（reg 超时 / 非 REG_SZ）时跳过该键，不得抛错，兜底 'nsis'", async () => {
+      mockReaddirSync.mockReturnValue(["app.exe"]);
+      const mod = await importFresh();
+      stubRegistry(mod, ["HKLM\\...\\Uninstall\\{NO_NAME}"], {
+        "HKLM\\...\\Uninstall\\{NO_NAME}": {
+          UninstallString: "MsiExec.exe /I{NO_NAME}",
+        },
+      });
+      expect(() => mod.getInstallerType()).not.toThrow();
+      expect(mod.getInstallerType()).toBe("nsis");
+    });
+
+    it("读不到 DisplayName 的候选键不阻断后续真 MSI 键的判定", async () => {
+      mockReaddirSync.mockReturnValue(["app.exe"]);
+      const mod = await importFresh();
+      stubRegistry(
+        mod,
+        ["HKLM\\...\\Uninstall\\{NO_NAME}", "HKLM\\...\\Uninstall\\{REAL}"],
+        {
+          "HKLM\\...\\Uninstall\\{REAL}": {
+            DisplayName: "NuwaClaw",
+            UninstallString: "MsiExec.exe /I{REAL}",
+          },
+        },
+      );
+      expect(mod.getInstallerType()).toBe("msi");
+    });
+
     it("目录为空 + 注册表无证据应兜底 'nsis'", async () => {
       mockReaddirSync.mockReturnValue([]);
       const mod = await importFresh();

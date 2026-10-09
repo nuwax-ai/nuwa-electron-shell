@@ -221,7 +221,11 @@ function findMsiUninstallKey(productName: string): string | null {
     registryAdapter.searchUninstallKeysByDisplayName(productName);
   for (const key of candidates) {
     const display = registryAdapter.queryValue(key, "DisplayName");
-    if (display !== productName && !display.startsWith(productName + " ")) {
+    // queryValue 在 reg 超时 / 非 REG_SZ / 键无此值时返回 null，该键不构成 MSI 证据
+    if (
+      display === null ||
+      (display !== productName && !display.startsWith(productName + " "))
+    ) {
       continue;
     }
     const uninstall = registryAdapter.queryValue(key, "UninstallString");
