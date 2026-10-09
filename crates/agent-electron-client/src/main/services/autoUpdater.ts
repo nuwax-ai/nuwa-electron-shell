@@ -214,26 +214,40 @@ export function _setRegistryAdapterForTest(
  * 在 Windows 注册表中寻找本产品的真 MSI 卸载项：
  * DisplayName 为 productName 或「productName + 空格 + 版本」（electron-builder
  * NSIS/MSI 的 uninstallDisplayName 模板带版本后缀，win-pc 真机实证
- * "Nuwax 1.0.24"）且 UninstallString 含 msiexec。返回命中的键路径,无则 null。
+ * "Nuwax 1.0.24"）且 UninstallString 含 msiexec。
+ *
+ * queryValue 在 reg 超时 / 非 REG_SZ / 值不存在时都返回 null，三者无法区分。
+ * 读不到不能当作「不是 MSI」的反证，否则一次瞬时失败会把真 MSI 缓存成 NSIS 并放开
+ * 自动更新；因此用 unreadable 单独标记「证据不全」，由调用方保守处理。
  */
-function findMsiUninstallKey(productName: string): string | null {
+interface MsiRegistryEvidence {
+  key: string | null;
+  unreadable: boolean;
+}
+
+function findMsiUninstallKey(productName: string): MsiRegistryEvidence {
   const candidates =
     registryAdapter.searchUninstallKeysByDisplayName(productName);
+  let unreadable = false;
   for (const key of candidates) {
     const display = registryAdapter.queryValue(key, "DisplayName");
-    // queryValue 在 reg 超时 / 非 REG_SZ / 键无此值时返回 null，该键不构成 MSI 证据
-    if (
-      display === null ||
-      (display !== productName && !display.startsWith(productName + " "))
-    ) {
+    if (display === null) {
+      unreadable = true;
+      continue;
+    }
+    if (display !== productName && !display.startsWith(productName + " ")) {
       continue;
     }
     const uninstall = registryAdapter.queryValue(key, "UninstallString");
-    if (uninstall && /msiexec/i.test(uninstall)) {
-      return key;
+    if (uninstall === null) {
+      unreadable = true;
+      continue;
+    }
+    if (/msiexec/i.test(uninstall)) {
+      return { key, unreadable };
     }
   }
-  return null;
+  return { key: null, unreadable };
 }
 
 /**
@@ -250,7 +264,7 @@ function findMsiUninstallKey(productName: string): string | null {
  * 部署等形态，electron-updater 下载后运行 NSIS 安装器可全新落装，此前被
  * 误判 MSI 导致点「更新」跳下载页而非直更）。
  */
-function detectInstallerType(): InstallerType {
+function detectInstallerType(): InstallerType | "inconclusive" {
   if (!app.isPackaged) return "dev";
   if (process.platform === "darwin") return "mac";
   if (process.platform === "linux") return "linux";
@@ -316,12 +330,18 @@ function detectInstallerType(): InstallerType {
 
     // 无卸载程序文件 ≠ MSI：按注册表证据判定真 MSI，否则按 NSIS 兜底
     // （解压/绿色部署形态，见函数头注）
-    const msiKey = findMsiUninstallKey(productName);
-    if (msiKey) {
+    const evidence = findMsiUninstallKey(productName);
+    if (evidence.key) {
       log.info(
-        `[AutoUpdater] Windows installer type: MSI (registry uninstall key: ${msiKey})`,
+        `[AutoUpdater] Windows installer type: MSI (registry uninstall key: ${evidence.key})`,
       );
       return "msi";
+    }
+    if (evidence.unreadable) {
+      log.warn(
+        "[AutoUpdater] Windows installer type undetermined: a registry uninstall entry could not be read",
+      );
+      return "inconclusive";
     }
     log.info(
       "[AutoUpdater] Windows installer type: NSIS assumed (no uninstaller file in app directory, no MSI registry evidence — unpacked/portable deploy tolerated)",
@@ -335,10 +355,14 @@ function detectInstallerType(): InstallerType {
 let cachedInstallerType: InstallerType | undefined;
 
 export function getInstallerType(): InstallerType {
-  if (!cachedInstallerType) {
-    cachedInstallerType = detectInstallerType();
+  if (cachedInstallerType) return cachedInstallerType;
+  const detected = detectInstallerType();
+  if (detected === "inconclusive") {
+    // 证据不全时保守按 MSI 处理（不自动更新），且不缓存，下次调用重新探测
+    return "msi";
   }
-  return cachedInstallerType;
+  cachedInstallerType = detected;
+  return detected;
 }
 
 /**

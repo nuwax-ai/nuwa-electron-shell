@@ -286,7 +286,7 @@ describe("autoUpdater - getInstallerType & canAutoUpdate", () => {
       expect(mod.getInstallerType()).toBe("nsis");
     });
 
-    it("候选键读不到 DisplayName（reg 超时 / 非 REG_SZ）时跳过该键，不得抛错，兜底 'nsis'", async () => {
+    it("候选键读不到 DisplayName（reg 超时 / 非 REG_SZ）时不得抛错，且不能当作非 MSI：保守判 'msi'、禁用自动更新", async () => {
       mockReaddirSync.mockReturnValue(["app.exe"]);
       const mod = await importFresh();
       stubRegistry(mod, ["HKLM\\...\\Uninstall\\{NO_NAME}"], {
@@ -295,10 +295,44 @@ describe("autoUpdater - getInstallerType & canAutoUpdate", () => {
         },
       });
       expect(() => mod.getInstallerType()).not.toThrow();
+      expect(mod.getInstallerType()).toBe("msi");
+      expect(mod.canAutoUpdate()).toBe(false);
+    });
+
+    it("名称匹配但 UninstallString 读不到同样属于证据不全：保守判 'msi'", async () => {
+      mockReaddirSync.mockReturnValue(["app.exe"]);
+      const mod = await importFresh();
+      stubRegistry(mod, ["HKLM\\...\\Uninstall\\{K}"], {
+        "HKLM\\...\\Uninstall\\{K}": { DisplayName: "NuwaClaw" },
+      });
+      expect(mod.getInstallerType()).toBe("msi");
+      expect(mod.canAutoUpdate()).toBe(false);
+    });
+
+    it("证据不全的判定不被缓存：注册表恢复可读后重新探测得到确定结果", async () => {
+      mockReaddirSync.mockReturnValue(["app.exe"]);
+      const mod = await importFresh();
+      stubRegistry(mod, ["HKLM\\...\\Uninstall\\{NO_NAME}"], {});
+      expect(mod.getInstallerType()).toBe("msi");
+      stubRegistry(mod, [], {});
+      expect(mod.getInstallerType()).toBe("nsis");
+      stubRegistry(mod, ["HKLM\\...\\Uninstall\\{NO_NAME}"], {});
       expect(mod.getInstallerType()).toBe("nsis");
     });
 
-    it("读不到 DisplayName 的候选键不阻断后续真 MSI 键的判定", async () => {
+    it("可读且名称不匹配的无关键不构成证据不全，仍按 'nsis' 兜底", async () => {
+      mockReaddirSync.mockReturnValue(["app.exe"]);
+      const mod = await importFresh();
+      stubRegistry(mod, ["HKLM\\...\\Uninstall\\{OTHER}"], {
+        "HKLM\\...\\Uninstall\\{OTHER}": {
+          DisplayName: "Some Other Product",
+          UninstallString: "MsiExec.exe /I{OTHER}",
+        },
+      });
+      expect(mod.getInstallerType()).toBe("nsis");
+    });
+
+    it("读不到 DisplayName 的候选键不阻断后续真 MSI 键的判定，且该确定结果会被缓存", async () => {
       mockReaddirSync.mockReturnValue(["app.exe"]);
       const mod = await importFresh();
       stubRegistry(
@@ -311,6 +345,8 @@ describe("autoUpdater - getInstallerType & canAutoUpdate", () => {
           },
         },
       );
+      expect(mod.getInstallerType()).toBe("msi");
+      stubRegistry(mod, [], {});
       expect(mod.getInstallerType()).toBe("msi");
     });
 
