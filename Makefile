@@ -39,7 +39,7 @@ help:
 	@echo "=== Electron App Build ==="
 	@echo "  electron-install-deps       - Install Electron client npm dependencies"
 	@echo "  electron-rebuild            - Rebuild native modules (better-sqlite3) for Electron"
-	@echo "  electron-prepare-lanproxy   - Prepare lanproxy binary for Electron"
+	@echo "  electron-prepare-lanproxy   - Build lanproxy client script for Electron"
 	@echo "  electron-prepare-node      - Prepare bundled Node.js for Electron"
 	@echo "  electron-prepare-uv        - Prepare bundled uv for Electron"
 	@echo "  electron-prepare-mcp-proxy - Prepare @nuwax-ai/mcp-proxy-ts for Electron"
@@ -121,7 +121,7 @@ electron-rebuild:
 
 .PHONY: electron-prepare-lanproxy
 electron-prepare-lanproxy:
-	@echo ">>> Preparing lanproxy binary for Electron..."
+	@echo ">>> Building lanproxy client script for Electron..."
 	cd crates/$(ELECTRON_CLIENT) && npm run prepare:lanproxy
 
 .PHONY: electron-prepare-node

@@ -201,18 +201,6 @@ async function afterSignMac(context) {
     }
   }
 
-  // 4. 签名 resources/lanproxy（bin/ 与 binaries/ 均可能被运行时使用）
-  const lanproxyPath = path.join(resourcesPath, 'lanproxy');
-  if (fs.existsSync(lanproxyPath)) {
-    const lanproxyFiles = findExecutables(lanproxyPath);
-    console.log(`[after-sign] 找到 lanproxy 可执行文件: ${lanproxyFiles.length} 个`);
-    for (const file of lanproxyFiles) {
-      const relative = path.relative(lanproxyPath, file);
-      console.log(`[after-sign] 签名 lanproxy/${relative}`);
-      codesign(file, identity);
-    }
-  }
-
   // 5. 签名 resources/sandbox-runtime（三端沙箱运行时）
   const sandboxRuntimePath = path.join(resourcesPath, 'sandbox-runtime');
   if (fs.existsSync(sandboxRuntimePath)) {
@@ -299,7 +287,6 @@ async function afterSignMac(context) {
         path.join(resourcesPath, 'nuwax-codex-acp-ts', 'vendor', 'nuwax-codex'),
         path.join(resourcesPath, 'node'),
         path.join(resourcesPath, 'uv'),
-        path.join(resourcesPath, 'lanproxy'),
         path.join(resourcesPath, 'sandbox-runtime'),
         path.join(resourcesPath, 'nuwaxcode'),
       ];
@@ -418,15 +405,6 @@ async function afterSignWindows(context) {
   if (fs.existsSync(nodePath)) {
     console.log('[after-sign] Windows: 签名 node...');
     const result = signWin.signDirectory(nodePath);
-    totalSigned += result.success;
-    totalFailed += result.failed;
-  }
-
-  // 3. 签名 lanproxy
-  const lanproxyPath = path.join(resourcesPath, 'lanproxy');
-  if (fs.existsSync(lanproxyPath)) {
-    console.log('[after-sign] Windows: 签名 lanproxy...');
-    const result = signWin.signDirectory(lanproxyPath);
     totalSigned += result.success;
     totalFailed += result.failed;
   }

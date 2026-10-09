@@ -58,7 +58,7 @@ const RESOURCES = [
     required: true,
   },
   { script: 'prepare:mcp-proxy', dir: 'mcp-proxy-ts', marker: ['package.json'], required: true },
-  { script: 'prepare:lanproxy', dir: 'lanproxy', marker: ['binaries'], required: true },
+  { script: 'prepare:lanproxy', dir: 'lanproxy', marker: ['bin/lanproxy-client.js'], required: true },
   { script: 'prepare:ttyd', dir: 'ttyd', marker: ['binaries'], required: true },
   ...(isWin ? [{ script: 'prepare:git', dir: 'git', marker: ['bin'], required: true }] : []),
   { script: 'prepare:node', dir: 'node', marker: [], required: false },

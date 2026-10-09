@@ -280,54 +280,12 @@ export function resolveGitBashExecutable(): string {
 
 // ==================== lanproxy ====================
 
-export function getLanproxyBinPath(): string {
-  const resourcesPath = getResourcesPath();
-  const binariesDir = path.join(resourcesPath, "lanproxy", "binaries");
-  const binDir = path.join(resourcesPath, "lanproxy", "bin");
-
-  const platformMap: Record<string, string> = {
-    "darwin-arm64": "nuwax-lanproxy-aarch64-apple-darwin",
-    "darwin-x64": "nuwax-lanproxy-x86_64-apple-darwin",
-    "win32-x64": "nuwax-lanproxy-x86_64-pc-windows-msvc.exe",
-    "win32-ia32": "nuwax-lanproxy-i686-pc-windows-msvc.exe",
-    "linux-x64": "nuwax-lanproxy-x86_64-unknown-linux-gnu",
-    "linux-arm64": "nuwax-lanproxy-aarch64-unknown-linux-gnu",
-  };
-  const platformKey = `${process.platform}-${process.arch}`;
-  const binaryName = platformMap[platformKey];
-
-  if (binaryName) {
-    const binaryPath = path.join(binariesDir, binaryName);
-    if (fs.existsSync(binaryPath)) return binaryPath;
-  }
-
-  const binName = isWindows() ? "nuwax-lanproxy.exe" : "nuwax-lanproxy";
-  const binPath = path.join(binDir, binName);
-  if (fs.existsSync(binPath)) return binPath;
-
-  if (isWindows() && fs.existsSync(binariesDir)) {
-    try {
-      const entries = fs.readdirSync(binariesDir, { withFileTypes: true });
-      const exes = entries.filter(
-        (e) =>
-          e.isFile() &&
-          e.name.endsWith(".exe") &&
-          e.name.toLowerCase().includes("lanproxy"),
-      );
-      if (exes.length > 0) {
-        const preferArch = process.arch === "x64" ? "x86_64" : "i686";
-        const preferred = exes.find((e) => e.name.includes(preferArch));
-        const exe = preferred ?? exes[0];
-        const found = path.join(binariesDir, exe.name);
-        log.info("[getLanproxyBinPath] Using exe found in binaries:", exe.name);
-        return found;
-      }
-    } catch {
-      // ignore
-    }
-  }
-
-  return path.join(binDir, binName);
+/**
+ * lanproxy 客户端入口脚本。由 prepare-lanproxy 在构建期把 src/main/services/lanproxy/cli.ts
+ * 打成单文件，运行时用 Electron 内置 Node（ELECTRON_RUN_AS_NODE）执行，不再随包携带原生可执行文件。
+ */
+export function getLanproxyEntryPath(): string {
+  return path.join(getResourcesPath(), "lanproxy", "bin", "lanproxy-client.js");
 }
 
 // ==================== ttyd ====================

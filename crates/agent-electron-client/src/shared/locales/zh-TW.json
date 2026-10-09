@@ -331,7 +331,7 @@
   "Claw.Lanproxy.tunnelStopped": "內網穿透已停止",
   "Claw.Lanproxy.tunnelStarted": "內網穿透已啟動",
   "Claw.Lanproxy.errorWithDetail": "錯誤: {0}",
-  "Claw.Lanproxy.platformNotSupported": "目前平台暫不支援內網穿透（未偵測到 lanproxy 二進制）。請使用帶 lanproxy 的安裝包或從 Tauri 構建獲取對應平台二進制。",
+  "Claw.Lanproxy.platformNotSupported": "未找到內網穿透用戶端元件（lanproxy-client.js），請使用完整的安裝包重新安裝。",
   "Claw.Lanproxy.running": "● 執行中",
   "Claw.Lanproxy.stopped": "○ 已停止",
   "Claw.Lanproxy.start": "啟動",
