@@ -54,6 +54,13 @@ const BANNED_BRIDGE_PATHS = new Set(
   BANNED_BRIDGE_FILES.map((p) => path.normalize(path.join(PROJECT_ROOT, p)))
 );
 
+// capture 窗口 HTML 由渲染层函数序列化注入（.toString() 进 CSP nonce 窗口），主进程构建
+// HTML 需要这两个纯构建入口。仅豁免这两个「序列化源」，其余 main→renderer 一律禁止。
+const MAIN_SERIALIZED_RENDERER_SOURCES = new Set([
+  'src/renderer/features/capture/windowHtml.ts',
+  'src/renderer/features/capture/recordingPage.ts',
+].map((p) => path.normalize(path.join(PROJECT_ROOT, p))));
+
 function isSourceFile(filePath) {
   return filePath.endsWith('.ts') || filePath.endsWith('.tsx');
 }
@@ -179,8 +186,9 @@ function checkFile(filePath) {
     }
 
     if (inMain) {
-      const directAliasViolation = imp.specifier.startsWith('@renderer/');
-      const resolvedViolation = resolved && isWithin(resolved, RENDERER_ROOT);
+      const serializedSource = resolved && MAIN_SERIALIZED_RENDERER_SOURCES.has(path.normalize(resolved));
+      const directAliasViolation = !serializedSource && imp.specifier.startsWith('@renderer/');
+      const resolvedViolation = resolved && !serializedSource && isWithin(resolved, RENDERER_ROOT);
       if (directAliasViolation || resolvedViolation) {
         violations.push({
           line,
