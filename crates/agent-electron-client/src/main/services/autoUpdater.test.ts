@@ -24,10 +24,21 @@ const mockUpdaterSetFeedURL = vi.fn();
 const mockUpdaterCheckForUpdates = vi.fn();
 const mockUpdaterDownloadUpdate = vi.fn();
 const mockUpdaterQuitAndInstall = vi.fn();
+const mockReadFileSync = vi.fn((..._args: unknown[]): string => {
+  throw new Error("ENOENT");
+});
+const mockAppRelaunch = vi.fn();
+const mockAppQuit = vi.fn();
+const mockInstallLinuxDeb = vi.fn();
 
 vi.mock("fs", () => ({
   existsSync: (...args: unknown[]) => mockExistsSync(...args),
   readdirSync: (...args: unknown[]) => mockReaddirSync(...args),
+  readFileSync: (...args: unknown[]) => mockReadFileSync(...args),
+}));
+
+vi.mock("./linuxDebInstaller", () => ({
+  installLinuxDeb: (...args: unknown[]) => mockInstallLinuxDeb(...args),
 }));
 
 vi.mock("electron-log", () => ({
@@ -45,11 +56,14 @@ vi.mock("electron", () => ({
     getPath: (name: string) => {
       if (name === "exe")
         return "C:\\Users\\user\\AppData\\Local\\Programs\\NuwaClaw\\NuwaClaw.exe";
+      if (name === "home") return "/home/u";
       return "";
     },
     getAppPath: () => "/app",
     getVersion: () => mockAppVersion(),
     once: (...args: unknown[]) => mockAppOnce(...args),
+    relaunch: (...args: unknown[]) => mockAppRelaunch(...args),
+    quit: (...args: unknown[]) => mockAppQuit(...args),
   },
   BrowserWindow: class {},
   shell: {},
@@ -83,6 +97,7 @@ const fakeElectronUpdaterModule = () => ({
 
 vi.mock("@shared/constants", () => ({
   APP_DATA_DIR_NAME: ".nuwaclaw",
+  LOGS_DIR_NAME: "logs",
 }));
 
 vi.mock("../db", () => ({
@@ -1078,5 +1093,167 @@ describe("installUpdate — 安装前清理 await 语义", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// Linux deb：不走 electron-updater 的同步 pkexec，由 linuxDebInstaller 接管安装
+// ────────────────────────────────────────────────────────────────────────────
+describe("Linux deb 安装形态", () => {
+  const DEB_PATH =
+    "/home/u/.cache/nuwaclaw-updater/pending/NuwaClaw-0.9.5-amd64.deb";
+
+  function mockDebPackage(type = "deb") {
+    mockLinux();
+    (process as any).resourcesPath = "/opt/NuwaClaw/resources";
+    mockReadFileSync.mockImplementation((...args: unknown[]) => {
+      if (String(args[0]) === "/opt/NuwaClaw/resources/package-type")
+        return `${type}\n`;
+      throw new Error("ENOENT");
+    });
+  }
+
+  function emitUpdaterEvent(name: string, payload: unknown) {
+    const handler = mockUpdaterOn.mock.calls.find((c) => c[0] === name)?.[1] as
+      | ((info: unknown) => void)
+      | undefined;
+    expect(handler).toBeTypeOf("function");
+    handler!(payload);
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    mockUpdaterOn.mockClear();
+    mockUpdaterQuitAndInstall.mockClear();
+    mockAppRelaunch.mockClear();
+    mockAppQuit.mockClear();
+    mockInstallLinuxDeb.mockReset();
+    mockReadFileSync.mockReset();
+    mockReadFileSync.mockImplementation(() => {
+      throw new Error("ENOENT");
+    });
+    mockNetRequest.mockImplementation(() => {
+      throw new Error("offline");
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    delete (process as any).resourcesPath;
+  });
+
+  it("package-type 为 deb 时识别为 deb 安装，AppImage 与其他平台不是", async () => {
+    mockDebPackage();
+    expect((await importFresh()).isLinuxDebInstall()).toBe(true);
+
+    mockDebPackage("AppImage");
+    expect((await importFresh()).isLinuxDebInstall()).toBe(false);
+
+    mockLinux();
+    mockReadFileSync.mockImplementation(() => {
+      throw new Error("ENOENT");
+    });
+    expect((await importFresh()).isLinuxDebInstall()).toBe(false);
+
+    mockDarwin();
+    expect((await importFresh()).isLinuxDebInstall()).toBe(false);
+  });
+
+  it("deb 安装关闭退出时自动安装，避免普通退出触发同步 pkexec 卡住", async () => {
+    mockDebPackage();
+    const mod = await importFreshWithUpdaterMock();
+    mod.initAutoUpdater(() => null);
+    expect(lastFakeUpdater.autoInstallOnAppQuit).toBe(false);
+
+    mockDebPackage("AppImage");
+    const mod2 = await importFreshWithUpdaterMock();
+    mod2.initAutoUpdater(() => null);
+    expect(lastFakeUpdater.autoInstallOnAppQuit).toBe(true);
+  });
+
+  it("安装由 linuxDebInstaller 接管：授权后清理，成功后重启，不调 quitAndInstall", async () => {
+    mockDebPackage();
+    const mod = await importFreshWithUpdaterMock();
+    const markQuitting = vi.fn();
+    const cleanup = vi.fn(async () => {});
+    mod.initAutoUpdater(() => null, cleanup, markQuitting);
+    emitUpdaterEvent("update-downloaded", {
+      version: "0.9.5",
+      downloadedFile: DEB_PATH,
+    });
+    mockInstallLinuxDeb.mockImplementation(async (options: any) => {
+      expect(markQuitting).not.toHaveBeenCalled();
+      await options.beforeInstall();
+      expect(markQuitting).toHaveBeenCalledTimes(1);
+      expect(cleanup).toHaveBeenCalledTimes(1);
+      return { ok: true };
+    });
+
+    const result = await mod.installUpdate();
+
+    expect(result).toEqual({ success: true });
+    expect(mockInstallLinuxDeb).toHaveBeenCalledWith(
+      expect.objectContaining({
+        debPath: DEB_PATH,
+        logPath: "/home/u/.nuwaclaw/logs/update-install.log",
+        askpassTitle: "Claw.AutoUpdater.linuxAuthTitle",
+      }),
+    );
+    expect(mockUpdaterQuitAndInstall).not.toHaveBeenCalled();
+    expect(mockAppRelaunch).toHaveBeenCalledTimes(1);
+    expect(mockAppQuit).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["auth-failed", "Claw.AutoUpdater.linuxAuthFailed"],
+    ["no-askpass", "Claw.AutoUpdater.linuxManualInstall"],
+    ["install-failed", "Claw.AutoUpdater.linuxInstallFailed"],
+  ])("%s 时返回错误且不重启", async (reason, errorKey) => {
+    mockDebPackage();
+    const mod = await importFreshWithUpdaterMock();
+    mod.initAutoUpdater(() => null);
+    emitUpdaterEvent("update-downloaded", {
+      version: "0.9.5",
+      downloadedFile: DEB_PATH,
+    });
+    mockInstallLinuxDeb.mockResolvedValue({ ok: false, reason });
+
+    const result = await mod.installUpdate();
+
+    expect(result).toEqual({ success: false, error: errorKey });
+    expect(mockAppRelaunch).not.toHaveBeenCalled();
+    expect(mockAppQuit).not.toHaveBeenCalled();
+    expect(mockUpdaterQuitAndInstall).not.toHaveBeenCalled();
+  });
+
+  it("尚未下载完成时不启动安装", async () => {
+    mockDebPackage();
+    const mod = await importFreshWithUpdaterMock();
+    mod.initAutoUpdater(() => null);
+
+    const result = await mod.installUpdate();
+
+    expect(result.success).toBe(false);
+    expect(mockInstallLinuxDeb).not.toHaveBeenCalled();
+  });
+
+  it("安装进行中重复点击不会再次启动安装", async () => {
+    mockDebPackage();
+    const mod = await importFreshWithUpdaterMock();
+    mod.initAutoUpdater(() => null);
+    emitUpdaterEvent("update-downloaded", {
+      version: "0.9.5",
+      downloadedFile: DEB_PATH,
+    });
+    let finish!: (value: unknown) => void;
+    mockInstallLinuxDeb.mockReturnValue(new Promise((r) => (finish = r)));
+
+    const first = mod.installUpdate();
+    const second = await mod.installUpdate();
+    expect(second.success).toBe(false);
+    expect(mockInstallLinuxDeb).toHaveBeenCalledTimes(1);
+
+    finish({ ok: true });
+    expect(await first).toEqual({ success: true });
   });
 });
