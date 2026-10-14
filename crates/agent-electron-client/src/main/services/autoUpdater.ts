@@ -7,9 +7,10 @@
  * 3. electron-updater 从版本化路径读取 latest-*.yml 完成下载/安装
  *
  * - autoDownload = false: 用户控制下载时机
- * - autoInstallOnAppQuit = true: 下载完成后退出时自动安装
+ * - autoInstallOnAppQuit = true: 下载完成后退出时自动安装（Linux deb 除外）
  * - Windows: NSIS 安装支持自动更新；MSI 安装（注册表 UninstallString 为
  *   msiexec 的真 MSI，非「找不到卸载程序」的兜底误判）引导到官网下载安装页
+ * - Linux deb: 安装由 linuxDebInstaller 接管（不走 quitAndInstall，原因见该文件头注）
  */
 
 import { app, BrowserWindow, shell, dialog, net, powerMonitor } from "electron";
@@ -23,9 +24,11 @@ import type {
   UpdateProgress,
   UpdateCheckOptions,
 } from "@shared/types/updateTypes";
+import { APP_DATA_DIR_NAME, LOGS_DIR_NAME } from "@shared/constants";
 import { readSetting } from "../db";
 import { compareVersions } from "./system/dependencyUtils";
 import { t } from "./i18n";
+import { installLinuxDeb } from "./linuxDebInstaller";
 import {
   getWindowsDownloadUrl,
   getMacosDownloadUrl,
@@ -394,6 +397,28 @@ export function canAutoUpdate(): boolean {
   return type !== "msi";
 }
 
+let cachedIsLinuxDebInstall: boolean | null = null;
+
+/**
+ * Linux deb 安装形态：resources/package-type 由 electron-builder 写入，判定口径与
+ * electron-updater 选择 DebUpdater 一致。
+ */
+export function isLinuxDebInstall(): boolean {
+  if (cachedIsLinuxDebInstall === null) {
+    let packageType: string | null = null;
+    try {
+      packageType = fs
+        .readFileSync(path.join(process.resourcesPath, "package-type"), "utf8")
+        .trim();
+    } catch {
+      packageType = null;
+    }
+    cachedIsLinuxDebInstall =
+      process.platform === "linux" && packageType === "deb";
+  }
+  return cachedIsLinuxDebInstall;
+}
+
 /**
  * Windows NSIS 是否关闭差分下载（默认关闭，MinIO 多段 Range 未就绪）。
  * 设 NUWAX_DISABLE_DIFF_UPDATE=0 可临时开启以验证差分。
@@ -447,6 +472,9 @@ const INSTALL_CLEANUP_TIMEOUT_MS = 10_000;
  *    允许 Squirrel.Mac 正常接管退出流程完成安装
  */
 let markQuitting: (() => void) | null = null;
+/** electron-updater 下载完成的安装包路径（Linux deb 自行安装时使用） */
+let downloadedUpdateFile: string | null = null;
+let linuxDebInstallInFlight = false;
 
 function sendStatusToRenderer(): void {
   const win = getMainWindow?.();
@@ -667,6 +695,10 @@ export function initAutoUpdater(
   autoUpdater.logger = log;
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = canAutoUpdate();
+  // deb 退出时安装会走 electron-updater 的同步 pkexec，授权框不可见时退出流程被冻结
+  if (isLinuxDebInstall()) {
+    autoUpdater.autoInstallOnAppQuit = false;
+  }
 
   // MinIO 暂不支持 multipart Range；默认关闭差分，避免失败重试。设 NUWAX_DISABLE_DIFF_UPDATE=0 可临时开启验证。
   const disableDiff = shouldDisableDifferentialDownload();
@@ -747,6 +779,7 @@ export function initAutoUpdater(
 
   autoUpdater.on("update-downloaded", (info: any) => {
     log.info("[AutoUpdater] Update downloaded:", info.version);
+    downloadedUpdateFile = info.downloadedFile ?? null;
     setState({
       status: "downloaded",
       version: info.version,
@@ -1138,37 +1171,93 @@ export async function installUpdate(): Promise<{
     };
   }
 
-  try {
-    // 关键：在 quitAndInstall 前设置退出标志（所有平台通用）
-    // 原因1：quitAndInstall 会触发 app.quit()，进而触发窗口 close 事件；
-    //   若 isQuitting 未设置，close 会被拦截到托盘，app 无法正常退出
-    // 原因2：通知 before-quit handler 跳过 e.preventDefault()，
-    //   让各平台的安装器（macOS Squirrel.Mac / Windows NSIS / Linux AppImage）
-    //   正常接管退出流程完成安装；否则 e.preventDefault() 会阻止安装器触发
-    if (markQuitting) {
-      log.info("[AutoUpdater] Marking app as quitting for update install...");
-      markQuitting();
-    }
+  if (isLinuxDebInstall()) {
+    return installLinuxDebUpdate();
+  }
 
-    // 先停止所有服务再退出：await（带上限）——fire-and-forget 会与秒级退出
-    // 竞速，树杀（每引擎最长 5s）大概率被 app 退出截断而残留进程
-    if (cleanupBeforeInstall) {
-      log.info("[AutoUpdater] Running cleanup before install...");
-      await Promise.race([
-        Promise.resolve(cleanupBeforeInstall()).catch((e) =>
-          log.error("[AutoUpdater] cleanup before install failed:", e),
-        ),
-        new Promise<void>((resolve) =>
-          setTimeout(resolve, INSTALL_CLEANUP_TIMEOUT_MS),
-        ),
-      ]);
-    }
+  try {
+    await prepareForInstall();
     const { autoUpdater } = loadAutoUpdaterModule();
     autoUpdater.quitAndInstall(false, true);
     return { success: true };
   } catch (err: any) {
     log.error("[AutoUpdater] installUpdate error:", err.message);
     return { success: false, error: err.message };
+  }
+}
+
+async function prepareForInstall(): Promise<void> {
+  // 关键：在安装前设置退出标志（所有平台通用）
+  // 原因1：quitAndInstall 会触发 app.quit()，进而触发窗口 close 事件；
+  //   若 isQuitting 未设置，close 会被拦截到托盘，app 无法正常退出
+  // 原因2：通知 before-quit handler 跳过 e.preventDefault()，
+  //   让各平台的安装器（macOS Squirrel.Mac / Windows NSIS / Linux AppImage）
+  //   正常接管退出流程完成安装；否则 e.preventDefault() 会阻止安装器触发
+  if (markQuitting) {
+    log.info("[AutoUpdater] Marking app as quitting for update install...");
+    markQuitting();
+  }
+
+  // 先停止所有服务再退出：await（带上限）——fire-and-forget 会与秒级退出
+  // 竞速，树杀（每引擎最长 5s）大概率被 app 退出截断而残留进程
+  if (cleanupBeforeInstall) {
+    log.info("[AutoUpdater] Running cleanup before install...");
+    await Promise.race([
+      Promise.resolve(cleanupBeforeInstall()).catch((e) =>
+        log.error("[AutoUpdater] cleanup before install failed:", e),
+      ),
+      new Promise<void>((resolve) =>
+        setTimeout(resolve, INSTALL_CLEANUP_TIMEOUT_MS),
+      ),
+    ]);
+  }
+}
+
+async function installLinuxDebUpdate(): Promise<{
+  success: boolean;
+  error?: string;
+}> {
+  if (!downloadedUpdateFile) {
+    return { success: false, error: "No downloaded update to install" };
+  }
+  if (linuxDebInstallInFlight) {
+    return { success: false, error: "Update installation already in progress" };
+  }
+  linuxDebInstallInFlight = true;
+  const debPath = downloadedUpdateFile;
+  const logPath = path.join(
+    app.getPath("home"),
+    APP_DATA_DIR_NAME,
+    LOGS_DIR_NAME,
+    "update-install.log",
+  );
+  try {
+    log.info(`[AutoUpdater] Installing deb via sudo askpass: ${debPath}`);
+    const result = await installLinuxDeb({
+      debPath,
+      logPath,
+      askpassTitle: t("Claw.AutoUpdater.linuxAuthTitle"),
+      beforeInstall: prepareForInstall,
+    });
+    if (result.ok) {
+      log.info("[AutoUpdater] deb installed, relaunching");
+      app.relaunch();
+      app.quit();
+      return { success: true };
+    }
+    log.warn(`[AutoUpdater] deb install not completed: ${result.reason}`);
+    const error =
+      result.reason === "auth-failed"
+        ? t("Claw.AutoUpdater.linuxAuthFailed")
+        : result.reason === "no-askpass"
+          ? t("Claw.AutoUpdater.linuxManualInstall", debPath)
+          : t("Claw.AutoUpdater.linuxInstallFailed", logPath);
+    return { success: false, error };
+  } catch (err: any) {
+    log.error("[AutoUpdater] deb install error:", err.message);
+    return { success: false, error: err.message };
+  } finally {
+    linuxDebInstallInFlight = false;
   }
 }
 
