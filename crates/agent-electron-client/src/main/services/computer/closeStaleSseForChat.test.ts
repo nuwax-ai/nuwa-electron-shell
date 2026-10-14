@@ -91,6 +91,33 @@ describe("closeStaleSseBeforeChat", () => {
     expect(sseClients.has(sessionId)).toBe(false);
   });
 
+  it("新开同项目另一对话时，不关闭与共享目录 id 撞号的对话 SSE", () => {
+    rememberProjectSession("normalProject:272", sessionId);
+    const res = mockResponse();
+    registerSseClient(sessionId, res);
+    bindSessionFirstTokenContext(sessionId, {
+      requestId: "rid-other-conversation",
+      projectId: "272",
+      engine: "nuwaxcode",
+      chatReceivedAt: Date.now(),
+      isNewSession: false,
+    });
+
+    closeStaleSseBeforeChat(
+      {
+        user_id: "1",
+        project_id: "1728395",
+        agent_work_dir: "272",
+        service_type: "computer-normal-project",
+        prompt: "hello",
+      },
+      { findSessionByProjectId: () => null },
+    );
+
+    expect(res.end).not.toHaveBeenCalled();
+    expect(sseClients.has(sessionId)).toBe(true);
+  });
+
   it("closes orphan SSE when TTFT context matches project but registry rotated", () => {
     const orphanId = "ses-orphan-old";
     const res = mockResponse();

@@ -45,6 +45,18 @@ describe("ensureSessionIdFromRegistry", () => {
     expect(ensureSessionIdFromRegistry(req)).toBe("sess-from-project");
   });
 
+  it("新对话无记录时，不继承与共享目录 id 撞号的另一对话 session", () => {
+    rememberProjectSession("normalProject:272", "sess-other-conversation");
+    const req = chatRequest({
+      project_id: "1728395",
+      agent_work_dir: "272",
+      service_type: "computer-normal-project",
+    });
+
+    expect(ensureSessionIdFromRegistry(req)).toBeUndefined();
+    expect(req.session_id).toBeUndefined();
+  });
+
   it("normalProject 会话 reload 后按带前缀 key 恢复（写入侧带前缀，读取侧双形态探测）", () => {
     // 模拟 chat 成功回写 / devcomputer reload capture：写入侧经
     // resolveChatProjectRegistryKey 对 normalProject 业务带 normalProject: 前缀

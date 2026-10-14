@@ -85,6 +85,23 @@ describe("devcomputerAutoReload", () => {
   });
 
   describe("reloadEngineForRequest", () => {
+    it("新对话 reload 不停止与共享目录 id 撞号的另一对话引擎", async () => {
+      mockFindEngineForStop.mockImplementation((key: string) =>
+        key === "normalProject:272"
+          ? { engine: mockEngine(), registryKey: key }
+          : null,
+      );
+
+      const reloaded = await reloadEngineForRequest(chatRequest({
+        project_id: "1728395",
+        agent_work_dir: "272",
+        service_type: "computer-normal-project",
+      }));
+
+      expect(reloaded).toBe(false);
+      expect(mockStopEngine).not.toHaveBeenCalled();
+    });
+
     it("returns false when no engine exists (first dev chat)", async () => {
       mockFindEngineForStop.mockReturnValue(null);
 
