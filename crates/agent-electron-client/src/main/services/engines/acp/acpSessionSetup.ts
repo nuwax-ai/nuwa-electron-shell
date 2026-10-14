@@ -11,7 +11,10 @@ import { resolveAgentProjectDir } from "../../workspacePaths";
 import { extractNormalProjectContainerPid } from "../../computer/agentWorkDir";
 import type { NewSessionOpts } from "./acpNewSessionParams";
 import { supportsLoadSession } from "./acpAgentCapabilities";
-import { rememberSessionRequestProject, type SessionWorkspaceRef } from "./acpSessionWorkspace";
+import {
+  rememberSessionRequestProject,
+  type SessionWorkspaceRef,
+} from "./acpSessionWorkspace";
 
 /**
  * loadSession 超时后走 newSession fallback，避免跨引擎/无效 sessionId 时长时间卡住。
@@ -172,10 +175,9 @@ function findSessionInMemory(
     const byId = deps.getSession(request.session_id);
     if (byId) return byId;
   }
-  if (request.agent_work_dir) {
-    const byWorkDir = deps.findSessionByProjectId(request.agent_work_dir);
-    if (byWorkDir) return byWorkDir;
-  }
+  // A2：仅按 conversationId（project_id）复用会话。不再按 agent_work_dir 匹配——
+  // 否则同一常规项目下不同对话（同 devTargetId）会被归并到同一 session，
+  // 触发抢占。cwd 仍按 agent_work_dir 共享（见 buildWorkDirAndProjectDir）。
   if (request.project_id) {
     const byProject = deps.findSessionByProjectId(request.project_id);
     if (byProject) return byProject;
@@ -251,7 +253,7 @@ export async function resolveSessionForChat(
           LOAD_SESSION_TIMEOUT_MS,
           request.session_id,
         );
-        loaded.projectId = request.agent_work_dir || request.project_id;
+        loaded.projectId = request.project_id || request.agent_work_dir;
         rememberSessionRequestProject(loaded, request.project_id);
         return {
           session: loaded,
@@ -293,7 +295,7 @@ export async function resolveSessionForChat(
   log.info(`${deps.logTag} 📁 Project workspace: ${projectDir}`);
   const created = await deps.createSession(sessionOpts);
   const session = deps.getSessionRecord(created.id);
-  session.projectId = request.agent_work_dir || request.project_id;
+  session.projectId = request.project_id || request.agent_work_dir;
   rememberSessionRequestProject(session, request.project_id);
   return {
     session,
