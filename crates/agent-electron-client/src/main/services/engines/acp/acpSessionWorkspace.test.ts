@@ -109,7 +109,7 @@ describe.each<AgentEngineType>(["claude-code", "nuwaxcode", "codex-cli"])(
       },
     );
 
-    it("同工作目录复用会话时保留两个请求标识，不篡改 agent_work_dir 归属", async () => {
+    it("同工作目录、不同对话各自独立会话，cwd 仍共享该目录（A2）", async () => {
       const base = fs.mkdtempSync(path.join(tmpRoot, `${engine}-shared-`));
       const harness = sessionHarness(engine, base);
       for (const id of ["1694106", "1694107", "1694106"]) {
@@ -120,10 +120,25 @@ describe.each<AgentEngineType>(["claude-code", "nuwaxcode", "codex-cli"])(
           prompt: "hi",
         });
       }
-      expect(harness.sessions.size).toBe(1);
-      const session = [...harness.sessions.values()][0];
-      expect(session.projectId).toBe(base);
-      expect(session.requestProjectIds).toEqual(["1694106", "1694107"]);
+      // A2：不同 conversationId 各自独立会话，不再按 agent_work_dir 归并复用（这正是
+      // 同项目多对话互相抢占的根因）；第三次重复 1694106 复用其自身会话，故共 2 个。
+      expect(harness.sessions.size).toBe(2);
+      const byProject = new Map(
+        [...harness.sessions.values()].map((s) => [s.projectId, s]),
+      );
+      const s106 = byProject.get("1694106");
+      const s107 = byProject.get("1694107");
+      expect(s106).toBeDefined();
+      expect(s107).toBeDefined();
+      expect(s106!.id).not.toBe(s107!.id);
+      // session.projectId 归一为 conversationId，不再被绝对路径 agent_work_dir 覆盖；
+      // 各会话仅保留自身对话标识。
+      expect(s106!.requestProjectIds).toEqual(["1694106"]);
+      expect(s107!.requestProjectIds).toEqual(["1694107"]);
+      // cwd 仍取自 agent_work_dir（同项目共享工作目录），终端按各自 conversationId
+      // 均能解析到 base——agent_work_dir 归属未被篡改。
+      expect(s106!.cwd).toBe(base);
+      expect(s107!.cwd).toBe(base);
       expect(harness.candidates("1694106")).toEqual([base]);
       expect(harness.candidates("1694107")).toEqual([base]);
     });

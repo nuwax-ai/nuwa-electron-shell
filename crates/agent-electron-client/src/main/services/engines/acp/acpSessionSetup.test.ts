@@ -224,10 +224,12 @@ describe("resolveSessionForChat", () => {
   });
 
   it.each(["new", "load", "memory"])(
-    "%s 路径保留平台 project_id，绝对路径 agent_work_dir 不覆盖终端关联",
+    "%s 路径按 conversationId 归一 session.projectId，绝对路径 agent_work_dir 不再覆盖",
     async (mode) => {
+      // A2：session.projectId 主维度为 conversationId(project_id)。
+      // memory 路径返回既有会话（其 projectId 在创建时已归一为 project_id）。
       const existing = makeSession("ses_current", {
-        projectId: "/workspace/current",
+        projectId: "1694106",
         cwd: "/workspace/current",
       });
       const deps = makeDeps({
@@ -242,7 +244,7 @@ describe("resolveSessionForChat", () => {
       });
 
       expect(result.restoredVia).toBe(mode);
-      expect(result.session.projectId).toBe("/workspace/current");
+      expect(result.session.projectId).toBe("1694106");
       expect(result.session).toHaveProperty("requestProjectIds", ["1694106"]);
     },
   );
@@ -400,5 +402,65 @@ describe("resolveSessionForChat", () => {
     expect(result.isNewSession).toBe(true);
     expect(deps.loadSession).not.toHaveBeenCalled();
     expect(deps.createSession).toHaveBeenCalled();
+  });
+});
+
+describe("resolveSessionForChat · 同项目多对话并行（A2 回归）", () => {
+  // 每个对话独立 session、共享 cwd 的验证需要一个能生成唯一 id 的 createSession，
+  // 故不用 makeDeps 默认的固定 id mock。
+  function makeParallelDeps() {
+    const sessions = new Map<string, AcpSessionLike>();
+    let seq = 0;
+    return makeDeps({
+      getSession: (id) => sessions.get(id),
+      findSessionByProjectId: (pid) => {
+        for (const s of sessions.values()) {
+          if (s.projectId === pid || s.id === pid) return s;
+        }
+        return null;
+      },
+      createSession: vi.fn(async (opts: { title?: string; cwd?: string }) => {
+        const id = `sess-${++seq}`;
+        sessions.set(id, makeSession(id, { title: opts.title, cwd: opts.cwd }));
+        return { id };
+      }),
+      getSessionRecord: (id) => sessions.get(id)!,
+    });
+  }
+
+  const npRequest = (projectId: string) => ({
+    user_id: "u1",
+    project_id: projectId,
+    agent_work_dir: "272",
+    service_type: "computer-normal-project" as const,
+    prompt: "hi",
+  });
+
+  it("同 agent_work_dir、不同 conversationId → 各自独立 session，不跨对话复用", async () => {
+    const deps = makeParallelDeps();
+
+    const a = await resolveSessionForChat(deps, npRequest("1728392"));
+    const b = await resolveSessionForChat(deps, npRequest("1728395"));
+
+    expect(a.isNewSession).toBe(true);
+    expect(b.isNewSession).toBe(true);
+    expect(a.session.id).not.toBe(b.session.id);
+    expect(a.session.projectId).toBe("1728392");
+    expect(b.session.projectId).toBe("1728395");
+    // cwd 仍按 agent_work_dir 共享同一工作目录（同项目共享目录是正确语义）
+    expect(a.session.cwd).toBe(b.session.cwd);
+    expect(deps.createSession).toHaveBeenCalledTimes(2);
+  });
+
+  it("同对话（同 conversationId）二次请求复用既有 session，不新建", async () => {
+    const deps = makeParallelDeps();
+
+    const first = await resolveSessionForChat(deps, npRequest("1728392"));
+    const second = await resolveSessionForChat(deps, npRequest("1728392"));
+
+    expect(first.isNewSession).toBe(true);
+    expect(second.restoredVia).toBe("memory");
+    expect(second.session.id).toBe(first.session.id);
+    expect(deps.createSession).toHaveBeenCalledTimes(1);
   });
 });

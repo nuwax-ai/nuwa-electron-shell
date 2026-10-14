@@ -85,6 +85,25 @@ describe("devcomputerAutoReload", () => {
   });
 
   describe("reloadEngineForRequest", () => {
+    it("新对话 reload 不停止与共享目录 id 撞号的另一对话引擎", async () => {
+      mockFindEngineForStop.mockImplementation((key: string) =>
+        key === "normalProject:272"
+          ? { engine: mockEngine(), registryKey: key }
+          : null,
+      );
+
+      const reloaded = await reloadEngineForRequest(
+        chatRequest({
+          project_id: "1728395",
+          agent_work_dir: "272",
+          service_type: "computer-normal-project",
+        }),
+      );
+
+      expect(reloaded).toBe(false);
+      expect(mockStopEngine).not.toHaveBeenCalled();
+    });
+
     it("returns false when no engine exists (first dev chat)", async () => {
       mockFindEngineForStop.mockReturnValue(null);
 
@@ -162,7 +181,7 @@ describe("devcomputerAutoReload", () => {
       expect(mockStopEngine).toHaveBeenCalledWith("proj-1");
     });
 
-    it("prefers agent_work_dir candidate when both differ", async () => {
+    it("无 conversationId 时回退 agent_work_dir 定位引擎", async () => {
       mockFindEngineForStop.mockImplementation((key: string) => {
         if (key === "work-dir-a") {
           return { engine: mockEngine(), registryKey: "work-dir-a" };
@@ -173,17 +192,17 @@ describe("devcomputerAutoReload", () => {
       await reloadEngineForRequest(
         chatRequest({
           agent_work_dir: "work-dir-a",
-          project_id: "proj-b",
+          project_id: undefined,
         }),
       );
 
+      // 未携带 conversationId 的旧请求仍保留目录定位。
       expect(mockFindEngineForStop).toHaveBeenCalledWith("work-dir-a");
       expect(mockStopEngine).toHaveBeenCalledWith("work-dir-a");
     });
 
-    it("falls back to project_id when engine is registered under project_id only", async () => {
+    it("resolves project_id (conversationId) as primary candidate, no agent_work_dir probe", async () => {
       mockFindEngineForStop.mockImplementation((key: string) => {
-        if (key === "work-dir-a") return null;
         if (key === "proj-b") {
           return { engine: mockEngine(), registryKey: "proj-b" };
         }
@@ -197,14 +216,16 @@ describe("devcomputerAutoReload", () => {
         }),
       );
 
-      expect(mockFindEngineForStop).toHaveBeenCalledWith("work-dir-a");
+      // A2：候选以 project_id 为首，命中即停；不再回退查 agent_work_dir
       expect(mockFindEngineForStop).toHaveBeenCalledWith("proj-b");
+      expect(mockFindEngineForStop).not.toHaveBeenCalledWith("work-dir-a");
       expect(mockStopEngine).toHaveBeenCalledWith("proj-b");
     });
   });
 
   describe("resolveChatEngineKey", () => {
     it("matches ensureEngineForRequest key order", () => {
+      // A2：ensureEngineForRequest 与 resolveChatEngineKey 同源，均以 project_id 为首
       expect(
         resolveChatEngineKey(
           chatRequest({
@@ -213,7 +234,7 @@ describe("devcomputerAutoReload", () => {
             session_id: "sess-c",
           }),
         ),
-      ).toBe("work-a");
+      ).toBe("proj-b");
       expect(
         resolveChatEngineKey(
           chatRequest({ project_id: "proj-b", session_id: "sess-c" }),
