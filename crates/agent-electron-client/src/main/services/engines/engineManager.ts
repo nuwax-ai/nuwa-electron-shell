@@ -26,7 +26,7 @@ import { isWindows } from "../system/shellEnv";
 
 // ==================== Types ====================
 
-export type AgentEngine = "claude-code" | "nuwaxcode" | "codex-cli";
+export type AgentEngine = "claude-code" | "nuwaxcode" | "codex-cli" | "pi";
 
 export interface EngineConfig {
   engine: AgentEngine;

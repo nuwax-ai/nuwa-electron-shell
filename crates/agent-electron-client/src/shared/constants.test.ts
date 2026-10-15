@@ -102,6 +102,7 @@ describe("Constants", () => {
         "claude-code",
         "nuwaxcode",
         "codex-cli",
+        "pi",
       ]);
     });
 

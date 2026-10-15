@@ -2,7 +2,8 @@ export type OpenAICompatEngineType =
   | "claude-code"
   | "nuwaxcode"
   | "codex"
-  | "codex-cli";
+  | "codex-cli"
+  | "pi";
 
 export interface OpenAICompatInput {
   engineType?: OpenAICompatEngineType;

@@ -36,6 +36,9 @@ vi.mock("../../system/dependencies", () => ({
   getCodexAcpBundledBinPath: vi.fn(() => null),
   getNodeBinPathWithFallback: () => mockGetNodeBinPathWithFallback(),
   getClaudeCodeAcpBundledDir: vi.fn(() => null),
+  getPiAcpEntryPath: vi.fn(() => null),
+  getPiAgentCliPath: vi.fn(() => null),
+  getPiAcpBundledDir: vi.fn(() => null),
 }));
 
 vi.mock("../../agentInstaller", () => ({
@@ -174,5 +177,37 @@ describe("resolveAcpBinary — custom node agent", () => {
     // 无 bundled node 时仍回退裸命令名（由 spawn/PATH 处理）
     expect(resolved.binPath).toBe("node");
     expect(mockResolveCustomAgentBinary).toHaveBeenCalledWith("node");
+  });
+});
+
+describe("resolveAcpBinary — pi engine", () => {
+  beforeEach(() => {
+    mockGetNodeBinPathWithFallback.mockReset();
+    mockResolveCustomAgentBinary.mockReset();
+    mockResolveCustomAgentBinary.mockReturnValue(null);
+    vi.resetModules();
+  });
+
+  it("falls back to PATH command when bundled adapter missing", async () => {
+    const { resolveAcpBinary } = await import("./acpClient");
+    const resolved = resolveAcpBinary("pi");
+    expect(resolved.binPath).toBe("pi-acp");
+    expect(resolved.isNative).toBe(false);
+    expect(resolved.binArgs).toEqual([]);
+  });
+
+  it("maps command=pi-acp custom agent through npm bin shim resolution", async () => {
+    const { resolveAcpBinary } = await import("./acpClient");
+    mockResolveCustomAgentBinary.mockReturnValue("/app/bin/pi-acp");
+    const { resolveNpmBinShimSpawnTarget, resolveNpmPackageEntry } =
+      await import("../../utils/spawnNoWindow");
+    vi.mocked(resolveNpmPackageEntry).mockReturnValue(
+      "/app/node_modules/pi-acp/dist/index.js",
+    );
+
+    const resolved = resolveAcpBinary("pi-acp");
+    expect(resolved.binPath).toBe("/app/node_modules/pi-acp/dist/index.js");
+    expect(resolved.isNative).toBe(false);
+    expect(mockResolveCustomAgentBinary).toHaveBeenCalledWith("pi-acp");
   });
 });

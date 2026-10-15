@@ -29,6 +29,8 @@ import {
   getCodexAcpTsBundledDir,
   getNodeBinPathWithFallback,
   getClaudeCodeAcpBundledDir,
+  getPiAcpEntryPath,
+  getPiAgentCliPath,
 } from "../../system/dependencies";
 import { APP_DATA_DIR_NAME, LOGS_DIR_NAME } from "../../constants";
 import { resolveCodexAcp } from "@nuwax-ai/agent-kit";
@@ -37,6 +39,12 @@ import {
   resolveIsolatedHomePath,
   type IsolatedHomeScope,
 } from "./isolatedHomePaths";
+import {
+  writePiAgentConfig,
+  PI_API_KEY_ENV,
+  PI_AGENT_DIR_ENV,
+  PI_COMMAND_ENV,
+} from "./piAgentConfig";
 import { prepareOpencodePluginShareForHome } from "./opencodePluginShare";
 import { isWindows } from "../../system/shellEnv";
 import { createPlatformAdapter } from "../../system/platformAdapter";
@@ -458,7 +466,13 @@ export interface AcpConnectionConfig {
   apiProtocol?: string;
   env?: Record<string, string>;
   /** Engine type for process registry tracking */
-  engineType?: "claude-code" | "nuwaxcode" | "codex" | "codex-cli";
+  engineType?: "claude-code" | "nuwaxcode" | "codex" | "codex-cli" | "pi";
+  /** pi 引擎：session 级 MCP 聚合（写入 <agentDir>/mcp.json，pi 原生读取） */
+  mcpServersForPi?: Record<
+    string,
+    | { command: string; args: string[]; env?: Record<string, string> }
+    | { url: string; type?: "http" | "sse" }
+  >;
   /** Purpose of this process (for process registry) */
   purpose?: "engine";
   /** Sandbox wrapping configuration (omit to disable) */
@@ -657,6 +671,19 @@ export function resolveAcpBinary(
     return { binPath: "nuwax-codex-acp", binArgs: [], isNative: true };
   }
 
+  // -- pi (pi-acp adapter + pi coding agent) --
+
+  if (engine === "pi") {
+    const entryPath = getPiAcpEntryPath();
+    if (entryPath) {
+      log.info(`[AcpClient] pi: using bundled pi-acp adapter: ${entryPath}`);
+      return { binPath: entryPath, binArgs: [], isNative: false };
+    }
+    // 回退：PATH 里的 pi-acp（开发机全局安装）
+    log.warn("[AcpClient] pi: bundled adapter not found, falling back to PATH");
+    return { binPath: "pi-acp", binArgs: [], isNative: false };
+  }
+
   // Unknown engine type → try to resolve as custom agent
   log.info(
     `[AcpClient] Unknown engine "${engine}", attempting custom agent resolution`,
@@ -684,6 +711,24 @@ export function resolveAcpBinary(
     (looksLikeFilesystemPath(engine) && fs.existsSync(engine) ? engine : null);
 
   if (candidatePath) {
+    // 服务端常下发 command:"pi-acp"（或绝对路径的 npm bin shim）：
+    // 开发机 pnpm link 的 shim 包名是 pi-acp（@victor 命名空间镜像无 bin），
+    // 现有 shim 解析只认"包名=bin 名"，这里补 pi 特例 → 真实 JS 入口。
+    const base = path.basename(candidatePath).toLowerCase();
+    if (base === "pi-acp" || base === "pi-acp.js") {
+      const resolvedPi = resolveNpmBinShimSpawnTarget(candidatePath) ?? ((): {
+        binPath: string;
+        isNative: boolean;
+      } | null => {
+        // 非 .bin 布局时：从 shim 同目录的 ../pi-acp/package.json 找 bin
+        const pkgDir = path.join(path.dirname(candidatePath), "..", "pi-acp");
+        const entry = resolveNpmPackageEntry(pkgDir, "pi-acp");
+        return entry ? { binPath: entry, isNative: false } : null;
+      })();
+      if (resolvedPi) {
+        return resolvedPi;
+      }
+    }
     const shimResolved = resolveNpmBinShimSpawnTarget(candidatePath);
     if (shimResolved) {
       return {
@@ -890,6 +935,31 @@ export async function createAcpConnection(
     );
   }
   if (config.env) Object.assign(env, config.env);
+
+  // pi 引擎：模型/端点/MCP 配置落盘到 pi agent 目录（pi 不认 ANTHROPIC_BASE_URL
+  // 这类 env 直连自定义端点）；key 走 $NUWAX_PI_API_KEY 插值，不落盘明文。
+  const isPiEngine = config.engineType === "pi";
+  if (isPiEngine) {
+    const piAgentDir = path.join(isolatedHome, ".pi", "agent");
+    const piCliPath = getPiAgentCliPath();
+    if (piCliPath) env[PI_COMMAND_ENV] = piCliPath;
+    env[PI_AGENT_DIR_ENV] = piAgentDir;
+    if (config.apiKey) env[PI_API_KEY_ENV] = config.apiKey;
+    try {
+      writePiAgentConfig({
+        agentDir: piAgentDir,
+        model: {
+          apiKey: config.apiKey,
+          baseUrl: config.baseUrl,
+          model: config.model,
+          apiProtocol: config.apiProtocol,
+        },
+        mcpServers: config.mcpServersForPi,
+      });
+    } catch (err) {
+      log.warn("[AcpClient] pi: write agent config failed:", err);
+    }
+  }
 
   // nuwaxcode runs on opencode and prefers OPENCODE_MODEL.
   // Keep this assignment before OpenAI compatibility injection so model-based

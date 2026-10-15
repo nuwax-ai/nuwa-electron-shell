@@ -52,6 +52,11 @@ describe("agentHelpers", () => {
       expect(mapAgentCommand("nuwax-codex-acp-ts")).toBe("codex-cli");
     });
 
+    it('should map "pi" / "pi-acp" to pi engine', () => {
+      expect(mapAgentCommand("pi")).toBe("pi");
+      expect(mapAgentCommand("pi-acp")).toBe("pi");
+    });
+
     it("should return null for unknown commands", () => {
       expect(mapAgentCommand("unknown-engine")).toBeNull();
       expect(mapAgentCommand("opencode")).toBeNull();

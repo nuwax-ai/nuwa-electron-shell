@@ -11,7 +11,7 @@ import { killProcessTreeGraceful } from "../utils/processTree";
 export interface RegisteredProcess {
   pid: number;
   engineId: string;
-  engineType: "claude-code" | "nuwaxcode" | "codex" | "codex-cli";
+  engineType: "claude-code" | "nuwaxcode" | "codex" | "codex-cli" | "pi";
   purpose: "engine";
   registeredAt: number;
 }

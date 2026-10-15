@@ -16,6 +16,7 @@ export function mapAgentCommand(command: string): AgentEngineType | null {
   ) {
     return "codex-cli";
   }
+  if (command === "pi" || command === "pi-acp") return "pi";
   return null;
 }
 

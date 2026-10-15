@@ -57,6 +57,12 @@ const RESOURCES = [
     marker: ['package.json'],
     required: true,
   },
+  {
+    script: 'prepare:pi-acp',
+    dir: 'pi-acp',
+    marker: ['package.json', path.join('dist', 'index.js')],
+    required: false,
+  },
   { script: 'prepare:mcp-proxy', dir: 'mcp-proxy-ts', marker: ['package.json'], required: true },
   { script: 'prepare:lanproxy', dir: 'lanproxy', marker: ['bin/lanproxy-client.js'], required: true },
   { script: 'prepare:ttyd', dir: 'ttyd', marker: ['binaries'], required: true },
