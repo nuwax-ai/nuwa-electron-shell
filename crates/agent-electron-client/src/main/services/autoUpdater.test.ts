@@ -29,6 +29,7 @@ const mockReadFileSync = vi.fn((..._args: unknown[]): string => {
 });
 const mockAppRelaunch = vi.fn();
 const mockAppQuit = vi.fn();
+const mockShowMessageBox = vi.fn();
 const mockInstallLinuxDeb = vi.fn();
 
 vi.mock("fs", () => ({
@@ -67,7 +68,9 @@ vi.mock("electron", () => ({
   },
   BrowserWindow: class {},
   shell: {},
-  dialog: {},
+  dialog: {
+    showMessageBox: (...args: unknown[]) => mockShowMessageBox(...args),
+  },
   net: {
     request: (...args: unknown[]) => mockNetRequest(...args),
   },
@@ -79,11 +82,15 @@ vi.mock("electron", () => ({
 // electron-updater 走 require 直加载，vi.mock 拦不住（vitest 限制），
 // 测试经 _setAutoUpdaterModuleLoaderForTest 注入下面这份 fake 模块
 const fakeElectronUpdaterModule = () => ({
-  autoUpdater: lastFakeUpdater = {
+  autoUpdater: (lastFakeUpdater = {
     allowPrerelease: false,
     allowDowngrade: false,
-    get channel() { return "latest"; },
-    set channel(_value: string) { this.allowDowngrade = true; },
+    get channel() {
+      return "latest";
+    },
+    set channel(_value: string) {
+      this.allowDowngrade = true;
+    },
     on: (...args: unknown[]) => mockUpdaterOn(...args),
     setFeedURL: (...args: unknown[]) => mockUpdaterSetFeedURL(...args),
     checkForUpdates: (...args: unknown[]) =>
@@ -92,7 +99,7 @@ const fakeElectronUpdaterModule = () => ({
     quitAndInstall: (...args: unknown[]) => mockUpdaterQuitAndInstall(...args),
     autoDownload: false,
     autoInstallOnAppQuit: true,
-  },
+  }),
 });
 
 vi.mock("@shared/constants", () => ({
@@ -336,7 +343,9 @@ describe("autoUpdater - getInstallerType & canAutoUpdate", () => {
       mod._setRegistryAdapterForTest({
         searchUninstallKeysByDisplayName: () => ["HKLM\\...\\Uninstall\\{K}"],
         queryValue: () => {
-          throw new mod.RegistryProbeError("reg query did not complete (ETIMEDOUT)");
+          throw new mod.RegistryProbeError(
+            "reg query did not complete (ETIMEDOUT)",
+          );
         },
       });
       expect(() => mod.getInstallerType()).not.toThrow();
@@ -349,7 +358,9 @@ describe("autoUpdater - getInstallerType & canAutoUpdate", () => {
       const mod = await importFresh();
       mod._setRegistryAdapterForTest({
         searchUninstallKeysByDisplayName: () => {
-          throw new mod.RegistryProbeError("reg query did not complete (ETIMEDOUT)");
+          throw new mod.RegistryProbeError(
+            "reg query did not complete (ETIMEDOUT)",
+          );
         },
         queryValue: () => null,
       });
@@ -427,7 +438,10 @@ describe("autoUpdater - getInstallerType & canAutoUpdate", () => {
       const { isTransientRegFailure } = await importFresh();
       expect(
         isTransientRegFailure(
-          Object.assign(new Error("Command failed"), { status: 1, signal: null }),
+          Object.assign(new Error("Command failed"), {
+            status: 1,
+            signal: null,
+          }),
         ),
       ).toBe(false);
       expect(
@@ -788,6 +802,7 @@ describe("shouldSkipBackgroundCheck", () => {
     expect(shouldSkipBackgroundCheck("checking")).toBe(true);
     expect(shouldSkipBackgroundCheck("downloading")).toBe(true);
     expect(shouldSkipBackgroundCheck("downloaded")).toBe(true);
+    expect(shouldSkipBackgroundCheck("installing")).toBe(true);
   });
 
   it("available 不跳过（允许刷新到更新的版本元数据）", async () => {
@@ -852,29 +867,54 @@ describe("后台静默检查（checkForUpdates({background:true})）", () => {
     ["3.0.10", "3.0.11-beta.1", "stable", false],
     ["3.0.11-beta.2", "3.0.11-beta.1", "beta", false],
     ["0.9.4", "3.0.10", "stable", true],
-  ])("version %s → %s, subscription %s", async (current, target, subscription, available) => {
-    const { readSetting } = await import("../db");
-    vi.mocked(readSetting).mockReturnValue(subscription);
-    mockAppVersion.mockReturnValue(current as string);
-    respondLatestJson({ version: target, yml: { darwin: `https://example.invalid/v${target}/latest-mac.yml` } });
-    try {
-      const mod = await importFreshWithUpdaterMock();
-      expect((await mod.checkForUpdates({ background: true })).hasUpdate).toBe(available);
-      expect(lastFakeUpdater.allowPrerelease).toBe(subscription === "beta");
-      expect(lastFakeUpdater.allowDowngrade).toBe(false);
-      if (available) expect(mockUpdaterSetFeedURL).toHaveBeenCalledWith({ provider: "generic", url: `https://example.invalid/v${target}/` });
-      else expect(mockUpdaterCheckForUpdates).not.toHaveBeenCalled();
-    } finally {
-      vi.mocked(readSetting).mockReset();
-      mockAppVersion.mockReturnValue("0.9.4");
-    }
-  });
+  ])(
+    "version %s → %s, subscription %s",
+    async (current, target, subscription, available) => {
+      const { readSetting } = await import("../db");
+      vi.mocked(readSetting).mockReturnValue(subscription);
+      mockAppVersion.mockReturnValue(current as string);
+      respondLatestJson({
+        version: target,
+        yml: { darwin: `https://example.invalid/v${target}/latest-mac.yml` },
+      });
+      try {
+        const mod = await importFreshWithUpdaterMock();
+        expect(
+          (await mod.checkForUpdates({ background: true })).hasUpdate,
+        ).toBe(available);
+        expect(lastFakeUpdater.allowPrerelease).toBe(subscription === "beta");
+        expect(lastFakeUpdater.allowDowngrade).toBe(false);
+        if (available)
+          expect(mockUpdaterSetFeedURL).toHaveBeenCalledWith({
+            provider: "generic",
+            url: `https://example.invalid/v${target}/`,
+          });
+        else expect(mockUpdaterCheckForUpdates).not.toHaveBeenCalled();
+      } finally {
+        vi.mocked(readSetting).mockReset();
+        mockAppVersion.mockReturnValue("0.9.4");
+      }
+    },
+  );
 
   it("rejects invalid SemVer before using the tolerant comparator", async () => {
     const { isValidUpdateVersion } = await importFresh();
-    for (const value of [undefined, "", "3.0", "03.0.11", "3.0.11-beta.01", "3.0.11-beta..1", "3.0.11\n"])
+    for (const value of [
+      undefined,
+      "",
+      "3.0",
+      "03.0.11",
+      "3.0.11-beta.01",
+      "3.0.11-beta..1",
+      "3.0.11\n",
+    ])
       expect(isValidUpdateVersion(value)).toBe(false);
-    for (const value of ["3.0.11", "3.0.11-beta.1", "3.0.11-rc.1", "3.0.11+build.1"])
+    for (const value of [
+      "3.0.11",
+      "3.0.11-beta.1",
+      "3.0.11-rc.1",
+      "3.0.11+build.1",
+    ])
       expect(isValidUpdateVersion(value)).toBe(true);
   });
 
@@ -1255,5 +1295,172 @@ describe("Linux deb 安装形态", () => {
 
     finish({ ok: true });
     expect(await first).toEqual({ success: true });
+  });
+});
+
+describe("Windows 可选一键更新策略", () => {
+  function emit(name: string, info: any = {}) {
+    const handler = mockUpdaterOn.mock.calls.find(
+      (call) => call[0] === name,
+    )?.[1] as Function;
+    expect(handler).toBeTypeOf("function");
+    handler(info);
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    mockWin32();
+    mockExistsSync.mockImplementation((file) =>
+      String(file).includes("Uninstall NuwaClaw.exe"),
+    );
+    mockUpdaterOn.mockClear();
+    mockUpdaterDownloadUpdate.mockReset();
+    mockUpdaterQuitAndInstall.mockReset();
+    mockUpdaterCheckForUpdates.mockReset();
+    mockShowMessageBox.mockReset().mockResolvedValue({ response: 0 });
+    mockUpdaterDownloadUpdate.mockImplementation(async () => {
+      emit("update-downloaded", {
+        version: "0.9.5",
+        downloadedFile: "C:/cache/update.exe",
+      });
+      return ["C:/cache/update.exe"];
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    delete process.env.NUWAX_UPDATE_SERVER;
+  });
+
+  async function setup(enabled = true, cleanup = vi.fn(async () => {})) {
+    const mod = await importFreshWithUpdaterMock();
+    mod.initAutoUpdater(
+      () => null,
+      cleanup,
+      () => {},
+      { installAfterDownload: enabled },
+    );
+    emit("update-available", { version: "0.9.5" });
+    return { mod, cleanup };
+  }
+
+  it("默认分步策略只下载，不自动清理或安装", async () => {
+    const { mod, cleanup } = await setup(false);
+    await mod.downloadUpdate();
+    expect(mod.getUpdateState()).toMatchObject({
+      status: "downloaded",
+      installAfterDownload: false,
+    });
+    expect(cleanup).not.toHaveBeenCalled();
+    expect(mockUpdaterQuitAndInstall).not.toHaveBeenCalled();
+  });
+
+  it("一次下载操作串起校验、清理、可见安装，并保留当前目录", async () => {
+    const { mod, cleanup } = await setup();
+    expect(await mod.downloadUpdate()).toEqual({ success: true });
+    expect(cleanup).toHaveBeenCalledTimes(1);
+    expect(mockUpdaterQuitAndInstall).toHaveBeenCalledWith(false, true);
+    expect(lastFakeUpdater.installDirectory).toBe(
+      "C:\\Users\\user\\AppData\\Local\\Programs\\NuwaClaw",
+    );
+    expect(lastFakeUpdater.autoRunAppAfterInstall).toBe(true);
+    expect(mod.getUpdateState()).toMatchObject({
+      status: "installing",
+      installAfterDownload: true,
+    });
+  });
+
+  it("两个入口同时点击、检查更新及安装后的再次点击均不重复执行", async () => {
+    let finish!: () => void;
+    const cleanup = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const { mod } = await setup(true, cleanup);
+    const first = mod.downloadUpdate();
+    const second = mod.installUpdate();
+    await vi.waitFor(() => expect(cleanup).toHaveBeenCalledTimes(1));
+    expect(await mod.checkForUpdates()).toMatchObject({
+      alreadyChecking: true,
+    });
+    expect(mockUpdaterCheckForUpdates).not.toHaveBeenCalled();
+    expect(mockUpdaterQuitAndInstall).not.toHaveBeenCalled();
+    finish();
+    await Promise.all([first, second]);
+    await mod.downloadUpdate();
+    expect(mockUpdaterDownloadUpdate).toHaveBeenCalledTimes(1);
+    expect(mockUpdaterQuitAndInstall).toHaveBeenCalledTimes(1);
+  });
+
+  it("已有已校验缓存时，安装入口直接复用，不再次下载", async () => {
+    const { mod } = await setup();
+    emit("update-downloaded", {
+      version: "0.9.5",
+      downloadedFile: "C:/cache/update.exe",
+    });
+    await mod.installUpdate();
+    expect(mockUpdaterDownloadUpdate).not.toHaveBeenCalled();
+    expect(mockUpdaterQuitAndInstall).toHaveBeenCalledTimes(1);
+  });
+
+  it("下载或校验失败不清理、不安装，下一次点击可以重试", async () => {
+    const { mod, cleanup } = await setup();
+    mockUpdaterDownloadUpdate.mockRejectedValueOnce(
+      new Error("checksum mismatch"),
+    );
+    expect(await mod.downloadUpdate()).toEqual({
+      success: false,
+      error: "checksum mismatch",
+    });
+    expect(mod.getUpdateState()).toMatchObject({
+      status: "error",
+      error: "checksum mismatch",
+    });
+    expect(cleanup).not.toHaveBeenCalled();
+    expect(mockUpdaterQuitAndInstall).not.toHaveBeenCalled();
+    expect(await mod.downloadUpdate()).toEqual({ success: true });
+    expect(mockUpdaterDownloadUpdate).toHaveBeenCalledTimes(2);
+    expect(mockUpdaterQuitAndInstall).toHaveBeenCalledTimes(1);
+  });
+
+  it("非 Windows 即使设置策略也保持分步安装", async () => {
+    mockDarwin();
+    const { mod } = await setup();
+    await mod.downloadUpdate();
+    expect(mod.getUpdateState().installAfterDownload).toBe(false);
+    expect(mockUpdaterQuitAndInstall).not.toHaveBeenCalled();
+  });
+
+  it("菜单/托盘只确认一次，下载完成后不再弹第二次安装确认", async () => {
+    process.env.NUWAX_UPDATE_SERVER = "http://127.0.0.1:45678";
+    const { readSetting } = await import("../db");
+    vi.mocked(readSetting).mockReturnValue("stable");
+    const { mod } = await setup();
+    mockUpdaterCheckForUpdates.mockResolvedValue({
+      updateInfo: { version: "0.9.5" },
+    });
+    await mod.showUpdateDialogFlow();
+    expect(mockShowMessageBox).toHaveBeenCalledTimes(1);
+    expect(mockUpdaterQuitAndInstall).toHaveBeenCalledTimes(1);
+  });
+
+  it("后台复检遵循同一个自定义源，不覆盖为默认 OSS 源", async () => {
+    process.env.NUWAX_UPDATE_SERVER = "http://127.0.0.1:45678";
+    const { readSetting } = await import("../db");
+    vi.mocked(readSetting).mockReturnValue("stable");
+    mockNetRequest.mockClear();
+    mockUpdaterCheckForUpdates.mockResolvedValue({
+      updateInfo: { version: "0.9.5" },
+    });
+    const { mod } = await setup();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(mockUpdaterCheckForUpdates).toHaveBeenCalledTimes(1);
+    expect(mockNetRequest).not.toHaveBeenCalled();
+    expect(mod.getUpdateState()).toMatchObject({
+      status: "available",
+      version: "0.9.5",
+    });
   });
 });
