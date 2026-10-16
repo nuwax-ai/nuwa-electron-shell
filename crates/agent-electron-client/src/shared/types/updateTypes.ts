@@ -5,6 +5,7 @@ export type UpdateStatus =
   | "not-available"
   | "downloading"
   | "downloaded"
+  | "installing"
   | "error";
 
 export interface UpdateProgress {
@@ -20,7 +21,7 @@ export interface UpdateInfo {
   releaseDate?: string;
   releaseNotes?: string;
   error?: string;
-  /** 上一次检查仍在进行中，本次调用被跳过 */
+  /** 已有检查或升级任务在进行中，本次检查被跳过 */
   alreadyChecking?: boolean;
 }
 
@@ -31,6 +32,8 @@ export interface UpdateCheckOptions {
 
 export interface UpdateState {
   status: UpdateStatus;
+  /** 宿主明确启用时，一次下载操作会继续安装并重启；旧宿主缺省为 false。 */
+  installAfterDownload?: boolean;
   version?: string;
   /** 更新元数据中的发布日期（ISO 字符串，缺失时不展示）。 */
   releaseDate?: string;

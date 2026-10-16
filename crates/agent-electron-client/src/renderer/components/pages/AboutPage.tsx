@@ -264,7 +264,11 @@ export default function AboutPage({ webMeta }: AboutPageProps = {}) {
 
   // 下载完成后自动弹窗确认安装
   useEffect(() => {
-    if (updateState.status === "downloaded" && !hasShownInstallModal.current) {
+    if (
+      updateState.status === "downloaded" &&
+      !updateState.installAfterDownload &&
+      !hasShownInstallModal.current
+    ) {
       hasShownInstallModal.current = true;
       const modal = Modal.confirm({
         title: t("Claw.About.updateDownloaded"),
@@ -297,7 +301,11 @@ export default function AboutPage({ webMeta }: AboutPageProps = {}) {
     if (updateState.status !== "downloaded") {
       hasShownInstallModal.current = false;
     }
-  }, [updateState.status, updateState.version]);
+  }, [
+    updateState.status,
+    updateState.version,
+    updateState.installAfterDownload,
+  ]);
 
   const handleDownload = useCallback(async () => {
     // 立即切换到 downloading 状态，避免点击后无反馈
@@ -416,7 +424,11 @@ export default function AboutPage({ webMeta }: AboutPageProps = {}) {
                 icon={<DownloadOutlined />}
                 onClick={handleDownload}
               >
-                {t("Claw.About.downloadUpdate")}
+                {t(
+                  updateState.installAfterDownload
+                    ? "Claw.AutoUpdater.downloadNow"
+                    : "Claw.About.downloadUpdate",
+                )}
               </Button>
             ),
         };
@@ -431,6 +443,20 @@ export default function AboutPage({ webMeta }: AboutPageProps = {}) {
                 percent: displayPercent,
               })}
             </div>
+          ),
+        };
+
+      case "installing":
+        return {
+          desc: (
+            <div className={styles.rowDesc}>
+              {t("Claw.About.installUpdate")}
+            </div>
+          ),
+          control: (
+            <Button loading disabled>
+              {t("Claw.AutoUpdater.installNow")}
+            </Button>
           ),
         };
 
@@ -785,6 +811,31 @@ export default function AboutPage({ webMeta }: AboutPageProps = {}) {
           </div>
         </div>
       )}
+      <Modal
+        open={
+          updateState.installAfterDownload === true &&
+          (updateState.status === "downloading" ||
+            updateState.status === "installing")
+        }
+        centered
+        footer={null}
+        closable={false}
+        maskClosable={false}
+        keyboard={false}
+        title={t(
+          updateState.status === "downloading"
+            ? "Claw.About.downloadUpdate"
+            : "Claw.AutoUpdater.installNow",
+        )}
+      >
+        {updateState.status === "downloading" ? (
+          <Progress percent={displayPercent} status="active" />
+        ) : (
+          <Button loading disabled>
+            {t("Claw.About.installUpdate")}
+          </Button>
+        )}
+      </Modal>
     </div>
   );
 }

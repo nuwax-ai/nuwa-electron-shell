@@ -453,9 +453,21 @@ export function _setAutoUpdaterModuleLoaderForTest(
 /** Validate update metadata before the tolerant dependency version comparator. */
 export function isValidUpdateVersion(version: unknown): version is string {
   if (typeof version !== "string") return false;
-  const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(version);
-  return !!match && match[0] === version &&
-    (!match[4] || match[4].split(".").every((part) => !/^\d+$/.test(part) || part === "0" || !part.startsWith("0")));
+  const match =
+    /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(
+      version,
+    );
+  return (
+    !!match &&
+    match[0] === version &&
+    (!match[4] ||
+      match[4]
+        .split(".")
+        .every(
+          (part) =>
+            !/^\d+$/.test(part) || part === "0" || !part.startsWith("0"),
+        ))
+  );
 }
 
 let currentState: UpdateState = { status: "idle" };
@@ -475,6 +487,16 @@ let markQuitting: (() => void) | null = null;
 /** electron-updater 下载完成的安装包路径（Linux deb 自行安装时使用） */
 let downloadedUpdateFile: string | null = null;
 let linuxDebInstallInFlight = false;
+/** 可选宿主策略，默认仍由用户在下载后选择安装时机。 */
+let installAfterDownload = false;
+type UpdateResult = { success: boolean; error?: string };
+let updateTask: Promise<UpdateResult> | null = null;
+
+function usesOneClickUpdate(): boolean {
+  return (
+    installAfterDownload && process.platform === "win32" && canAutoUpdate()
+  );
+}
 
 function sendStatusToRenderer(): void {
   const win = getMainWindow?.();
@@ -587,8 +609,11 @@ async function doCheckViaLatestJson(
     };
   }
 
-  if (!isValidUpdateVersion(latestJson.version) ||
-    (updateChannel === "stable" && latestJson.version.split("+")[0].includes("-"))) {
+  if (
+    !isValidUpdateVersion(latestJson.version) ||
+    (updateChannel === "stable" &&
+      latestJson.version.split("+")[0].includes("-"))
+  ) {
     const msg = t(
       "Claw.AutoUpdater.invalidMetadataVersion",
       latestJson.version,
@@ -667,15 +692,22 @@ async function doCheckViaLatestJson(
  *                quitAndInstall 前会 await（上限 INSTALL_CLEANUP_TIMEOUT_MS）
  * @param onMarkQuitting 在调用 quitAndInstall 前调用，用于设置主进程的 isQuitting/isInstallingUpdate 标志，
  *                       防止窗口 close 被拦截，并让 before-quit 不阻止退出
+ * @param options installAfterDownload：Windows NSIS 下载校验后直接安装，默认关闭
  */
 export function initAutoUpdater(
   getWindow: () => BrowserWindow | null,
   cleanup?: () => void | Promise<void>,
   onMarkQuitting?: () => void,
+  options: { installAfterDownload?: boolean } = {},
 ): void {
   getMainWindow = getWindow;
   cleanupBeforeInstall = cleanup || null;
   markQuitting = onMarkQuitting || null;
+  installAfterDownload = options.installAfterDownload === true;
+  currentState = {
+    ...currentState,
+    installAfterDownload: usesOneClickUpdate(),
+  };
 
   const installerType = getInstallerType();
   log.info(
@@ -781,7 +813,7 @@ export function initAutoUpdater(
     log.info("[AutoUpdater] Update downloaded:", info.version);
     downloadedUpdateFile = info.downloadedFile ?? null;
     setState({
-      status: "downloaded",
+      status: updateTask ? "installing" : "downloaded",
       version: info.version,
       progress: undefined,
       canAutoUpdate: true,
@@ -791,6 +823,7 @@ export function initAutoUpdater(
   autoUpdater.on("error", (err: Error) => {
     log.error("[AutoUpdater] Error:", err.message);
     if (suppressUpdaterStatusEvents) return;
+    if (currentState.status === "installing") updateTask = null;
     setState({
       status: "error",
       error: err.message,
@@ -850,7 +883,10 @@ export function shouldSkipBackgroundCheck(
   status: UpdateState["status"],
 ): boolean {
   return (
-    status === "checking" || status === "downloading" || status === "downloaded"
+    status === "checking" ||
+    status === "downloading" ||
+    status === "downloaded" ||
+    status === "installing"
   );
 }
 
@@ -888,7 +924,7 @@ async function runBackgroundCheck(): Promise<void> {
 
   lastBackgroundCheckAt = Date.now();
   try {
-    const result = await checkForUpdatesViaLatestJson({ background: true });
+    const result = await checkForUpdates({ background: true });
     log.info(
       "[AutoUpdater] Background check done: hasUpdate=%s, version=%s",
       result.hasUpdate,
@@ -919,9 +955,13 @@ export function getBackgroundCheckDebugInfo(): {
 
 /**
  * 通用更新对话框流程（供托盘菜单等外部调用）
- * 检查更新 → 有更新则弹窗 → 下载 → 二次确认 → 安装
+ * 检查更新 → 有更新则确认 → 下载；一键策略直接安装，其他宿主保留二次确认
  */
 export async function showUpdateDialogFlow(): Promise<void> {
+  if (updateTask) {
+    getMainWindow?.()?.show();
+    return;
+  }
   try {
     const result = await checkForUpdates();
     if (!result.hasUpdate) {
@@ -966,6 +1006,13 @@ export async function showUpdateDialogFlow(): Promise<void> {
     });
     if (response !== 0) return;
 
+    if (usesOneClickUpdate()) {
+      const win = getMainWindow?.();
+      if (win && !win.isDestroyed()) {
+        win.show();
+        win.webContents.send("menu:about");
+      }
+    }
     const dlResult = await downloadUpdate();
     if (!dlResult.success) {
       if (dlResult.error)
@@ -976,6 +1023,8 @@ export async function showUpdateDialogFlow(): Promise<void> {
         });
       return;
     }
+
+    if (usesOneClickUpdate()) return;
 
     const { response: installResponse } = await showModal({
       type: "info",
@@ -1011,6 +1060,13 @@ export async function showUpdateDialogFlow(): Promise<void> {
 export async function checkForUpdates(
   options: CheckOptions = {},
 ): Promise<UpdateInfo> {
+  if (updateTask) {
+    return {
+      hasUpdate: !!currentState.version,
+      version: currentState.version,
+      alreadyChecking: true,
+    };
+  }
   if (options.background && shouldSkipBackgroundCheck(currentState.status)) {
     log.info(
       "[AutoUpdater] Background check skipped (status=%s)",
@@ -1095,10 +1151,49 @@ export async function checkForUpdates(
 /**
  * 下载更新
  */
-export async function downloadUpdate(): Promise<{
-  success: boolean;
-  error?: string;
-}> {
+export function downloadUpdate(): Promise<UpdateResult> {
+  return usesOneClickUpdate() ? runOneClickUpdate() : downloadOnlyUpdate();
+}
+
+/** 下载完成的事件已经经过 electron-updater 的完整性及签名校验。 */
+function runOneClickUpdate(): Promise<UpdateResult> {
+  if (updateTask) return updateTask;
+  updateTask = Promise.resolve()
+    .then(async (): Promise<UpdateResult> => {
+      try {
+        if (currentState.status !== "downloaded") {
+          const result = await downloadOnlyUpdate();
+          if (!result.success) return result;
+        }
+        setState({
+          status: "installing",
+          progress: undefined,
+          error: undefined,
+        });
+        return await installDownloadedUpdate();
+      } catch (error: any) {
+        log.error("[AutoUpdater] One-click update failed:", error.message);
+        setState({
+          status: "error",
+          error: error.message,
+          progress: undefined,
+        });
+        return { success: false, error: error.message };
+      }
+    })
+    .then((result) => {
+      // 成功后保持占用直到退出，防止清理结束至 app.quit 之间重复安装。
+      if (!result.success) {
+        updateTask = null;
+        if (currentState.status !== "error")
+          setState({ status: "error", error: result.error });
+      }
+      return result;
+    });
+  return updateTask;
+}
+
+async function downloadOnlyUpdate(): Promise<UpdateResult> {
   // Dev 模式下 Squirrel.Mac 无法处理更新包（bundle ID 不匹配），只允许检查更新
   if (!app.isPackaged) {
     const errMsg = t("Claw.AutoUpdater.devModeUnsupported");
@@ -1128,6 +1223,7 @@ export async function downloadUpdate(): Promise<{
     setState({
       status: "downloading",
       progress: undefined,
+      error: undefined,
       canAutoUpdate: true,
     });
     const { autoUpdater } = loadAutoUpdaterModule();
@@ -1148,10 +1244,11 @@ export async function downloadUpdate(): Promise<{
 /**
  * 退出并安装更新
  */
-export async function installUpdate(): Promise<{
-  success: boolean;
-  error?: string;
-}> {
+export function installUpdate(): Promise<UpdateResult> {
+  return usesOneClickUpdate() ? runOneClickUpdate() : installDownloadedUpdate();
+}
+
+async function installDownloadedUpdate(): Promise<UpdateResult> {
   if (!app.isPackaged) {
     const errMsg = t("Claw.AutoUpdater.installDevUnsupported");
     log.info(
@@ -1178,6 +1275,11 @@ export async function installUpdate(): Promise<{
   try {
     await prepareForInstall();
     const { autoUpdater } = loadAutoUpdaterModule();
+    if (usesOneClickUpdate()) {
+      // 把当前应用路径交给 NSIS；即使存在两种安装范围，也升级正在使用的副本。
+      autoUpdater.installDirectory = path.win32.dirname(app.getPath("exe"));
+      autoUpdater.autoRunAppAfterInstall = true;
+    }
     autoUpdater.quitAndInstall(false, true);
     return { success: true };
   } catch (err: any) {
