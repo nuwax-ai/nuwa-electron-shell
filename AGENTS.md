@@ -1,227 +1,24 @@
-# AGENTS.md - Agent Development Guide
+# nuwa-electron-shell 开发指南
 
-## Project Overview
+默认使用中文回复。
 
-This is the **Nuwax Agent** desktop application - a multi-engine AI assistant that works around the clock.
+## 仓库边界
 
-### Core Features
+- 本仓提供产品中立的 Electron 基座，源码位于 `crates/agent-electron-client`；引擎 SDK 位于 `crates/agent-kit`。
+- 商业身份、登录差异和发布编排由消费方维护。产品壳同步进来的 overlay 不是基座改动，不得提交回本仓。
+- 中立改动经工作分支 PR 进入 main；不 rebase 改写已被产品 pin 引用的提交。
 
-- **Multi-Agent Engine**: Supports claude-code and nuwaxcode
-- **Cross-Platform**: Windows, macOS, Linux
-- **Local Execution**: Runs locally with sandbox option
-- **IM Integration**: Control via Telegram, Discord, DingTalk, Feishu
-- **Persistent Memory**: Remembers user preferences
+## 开发与验证
 
----
+- 小修直接修改并验证相关行为；复杂需求最多维护一份计划，不要求 intent/spec/plan 串行工件或测试先提交。
+- 客户端内的具体约束见 `crates/agent-electron-client/AGENTS.md`。只读与任务相关的文档，不默认遍历历史设计和验收记录。
+- `npm run test:electron` 执行客户端全量测试；日常在 crate 内使用 `npm run test:run -- <相关文件>`。
+- `npm run test:electron:scripts` 检查构建脚本；构建 agent-kit 使用 `npm run build:agent-kit`。
+- 提交钩子仅格式化暂存文件。测试按改动域执行，已有结果足够且代码未变时不重复全量验证。
+- 新增测试覆盖真实行为和未覆盖的风险；注释保留原因、协议、平台差异及单位，不记录开发流水账。
 
-## Architecture
+## 产品隔离
 
-### Process Model
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Electron Main Process                      │
-├─────────────────────────────────────────────────────────────┤
-│  - Window lifecycle                                         │
-│  - SQLite persistence                                      │
-│  - Engine Manager (claude-code/nuwaxcode)                  │
-│  - IM Gateways (Telegram/Discord/DingTalk/Feishu)         │
-│  - 40+ IPC handlers                                        │
-│  - Context isolation enabled, node integration disabled     │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              │ IPC
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                  Electron Renderer Process                   │
-├─────────────────────────────────────────────────────────────┤
-│  - React 18 + Redux Toolkit                                │
-│  - UI and business logic                                   │
-│  - Communicates via IPC only                               │
-└─────────────────────────────────────────────────────────────┘
-```
-
----
-
-## Services
-
-### Core Services
-
-| Service | File | Description |
-|---------|------|-------------|
-| **Unified Agent** | `unifiedAgent.ts` | SDK-based agent lifecycle, MCP injection |
-| **Engine Manager** | `engineManager.ts` | Agent engine lifecycle |
-| **Shell Environment** | `shellEnv.ts` | Cross-platform shell |
-| **Workspace Manager** | `workspaceManager.ts` | Session workspaces |
-| **Dependencies** | `dependencies.ts` | Package management |
-| **MCP** | `mcp.ts` | MCP server management |
-| **Setup** | `setup.ts` | Setup wizard & auth |
-| **File Server** | `fileServer.ts` | Local file service |
-| **Lanproxy** | `lanproxy.ts` | Intranet penetration |
-| **Skills** | `skills.ts` | Skills sync |
-| **IM** | `im.ts` | Instant messaging |
-| **Scheduler** | `scheduler.ts` | Task scheduling |
-| **Permissions** | `permissions.ts` | Permission control |
-
-### Components
-
-| Component | Description |
-|-----------|-------------|
-| `SetupWizard.tsx` | 3-step setup wizard |
-| `SettingsPage.tsx` | Settings UI |
-| `AgentSettings.tsx` | Agent configuration |
-| `MCPSettings.tsx` | MCP management |
-| `LanproxySettings.tsx` | Lanproxy config |
-| `SkillsSync.tsx` | Skills sync UI |
-| `IMSettings.tsx` | IM configuration |
-| `TaskSettings.tsx` | Task settings |
-
----
-
-## Agent Engines
-
-### Supported Engines
-
-| Engine | Command | Description |
-|--------|---------|-------------|
-| **claude-code** | `claude-code --sACP` | Default recommended |
-| **nuwaxcode** | `nuwaxcode serve --stdio` | Alternative |
-
-### Engine Isolation
-
-Each engine runs in an isolated environment with **bundled dev toolchain** injected via `getAppEnv()`:
-
-```typescript
-{
-  NUWACLAW_RUNTIME: '1',  // agent signal: skip env archaeology
-  PATH: '<bundled node/pnpm/uv/rg first, then system>',
-  PNPM_HOME: '~/.nuwaclaw/pnpm/global',
-  UV_TOOL_BIN_DIR: '~/.nuwaclaw/uv/tools/bin',
-  NODE_PATH: '~/.nuwaclaw/node_modules',
-
-  // Isolated home (Git Bash login shells read .bash_profile with full bundled PATH)
-  HOME: '/tmp/nuwax-agent-run-xxx',
-  XDG_CONFIG_HOME: '/tmp/.../.config',
-  CLAUDE_CONFIG_DIR: '/tmp/.../.claude',
-  NUWAXCODE_CONFIG_DIR: '/tmp/.../.nuwaxcode',
-  ANTHROPIC_API_KEY: 'xxx',
-  ANTHROPIC_BASE_URL: 'xxx',
-}
-```
-
-**Development agents** running inside NuWaClaw (even with sandbox disabled): when `NUWACLAW_RUNTIME=1`, use `pnpm` / `node` / `uv` / toolkit scripts directly — do not probe `which node` or manually construct paths.
-
-Data root directory: `~/.nuwaclaw/` (not `~/.nuwax-agent/` in older docs).
-
----
-
-## Dependencies
-
-### Required Dependencies
-
-| Dependency | Type | Description |
-|------------|------|-------------|
-| **uv** | bundled | Python package manager (>=0.5.0), shipped in extraResources |
-| **nuwax-file-server** | npm-local | File service |
-| **nuwaxcode** | npm-local | Agent engine |
-| **@nuwax-ai/mcp-proxy-ts** | npm-local | MCP protocol aggregation proxy |
-
-### Installation Locations
-
-```
-~/.nuwax-agent/
-├── engines/           # Agent engines
-├── workspaces/       # Session workspaces
-├── node_modules/    # Local npm packages
-│   ├── .bin/        # Executable symlinks (injected into PATH)
-│   └── mcp-servers/ # MCP servers (isolated)
-├── bin/              # App binaries
-├── logs/             # Application logs
-└── nuwax-agent.db   # SQLite database
-```
-
-> **Note**: All data is stored under `~/.nuwax-agent/`. The Electron `app.getPath('userData')` path is NOT used.
-
----
-
-## Session & Workspace
-
-### Rule
-
-- **One Session = One Workspace**
-- Workspace directory is **user-specified**
-- Each session has independent configuration
-
-### Workflow
-
-```
-User creates session
-    │
-    └── Specify workspace directory
-        │
-        └── Validate directory
-            │
-            └── Save to config
-                │
-                └── Engine uses this directory
-```
-
----
-
-## Development
-
-### Commands
-
-```bash
-# Install dependencies
-npm install
-
-# Development
-npm run electron:dev
-
-# Build
-npm run build
-
-# Package
-npm run dist:mac    # macOS
-npm run dist:win    # Windows
-npm run dist:linux  # Linux
-```
-
-### Project Structure
-
-```
-nuwax-agent/
-├── crates/
-│   ├── agent-electron-client/  # Electron client
-│   ├── agent-gui-server/       # GUI agent server (Node.js)
-│   └── @nuwax-ai/mcp-proxy-ts/  # MCP proxy (Node.js)
-│
-├── docs/                      # Documentation
-├── scripts/                   # Build scripts
-└── CHANGELOG.md              # Version history
-```
-
----
-
-## Key Files
-
-- `src/main/main.ts` - Electron main process
-- `src/main/preload.ts` - Preload script
-- `src/App.tsx` - React root
-- `src/services/` - All services
-- `src/components/` - All components
-
----
-
-## API Keys
-
-Store sensitive configuration in SQLite, not in code:
-
-- `anthropic_api_key` - Claude API key
-- `default_model` - Default model
-- `server_host` - Backend server
-
----
-
-*Last updated: 2026-02-23*
+- 社区默认数据目录为 `~/.nuwaclaw`，产品覆盖来自共享 constants 与运行配置；不要硬编码其他产品目录。
+- 商业覆写工作树与社区验证分开。消费方的 `base:test` 会清 overlay，只能在隔离副本运行。
+- 提交前检查 diff，仅包含本次中立改动；产品壳另有 `check:pin` 防止覆写泄漏。

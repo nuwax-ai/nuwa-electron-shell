@@ -3,7 +3,7 @@
 nuwax 平台桌面客户端的**功能模块基座**：全部业务与构建系统都在本仓
 （`crates/agent-electron-client` Electron 客户端主体、`crates/agent-kit` 共享
 ACP 原语包、`crates/agent-gui-server` GUI Agent MCP、`crates/windows-sandbox-helper`
-Windows 沙箱 helper、根 Makefile sidecar 准备全家桶、约 1585 个测试用例）。
+Windows 沙箱 helper、根 Makefile sidecar 资源准备）。
 
 本仓**不定义产品身份、不承载商业实现**——产品壳经 submodule 引用本仓做构建发布：
 
@@ -26,7 +26,7 @@ Windows 沙箱 helper、根 Makefile sidecar 准备全家桶、约 1585 个测�
 | env | 默认（社区版） | 商业版（Nuwax 壳）取值 |
 |---|---|---|
 | `NUWAX_APP_IDENTIFIER` | `nuwaclaw`（数据目录 ~/.nuwaclaw） | `nuwax`（~/.nuwax；Nuwax 壳经 overlay 覆写 migrate.ts 阻断历史目录迁移，全新开始） |
-| `NUWAX_APP_DISPLAY_NAME` | `女娲 Nuwax` | `Nuwax`（ASCII——UA token=Nuwax/\<ver\>、关于页等；营销名女娲Nuwax 不进客户端） |
+| `NUWAX_APP_DISPLAY_NAME` | `女娲 Nuwax` | 由产品壳配置；系统展示名与 ASCII 技术标识分开 |
 | `NUWAX_PORT_OFFSET` | `0`（18099/60002~60009/60173） | `1000`（整体 +1000，同机双开错开） |
 | `NUWAX_UPDATE_FEED_BASE` | `...aliyuncs.com/nuwaclaw-electron` | `...aliyuncs.com/nuwax-electron` |
 
