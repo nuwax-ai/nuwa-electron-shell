@@ -1,18 +1,5 @@
-/**
- * 沙箱工作空间核心类型定义
- * 多平台沙箱工作空间系统
- *
- * @version 1.0.0
- * @updated 2026-03-22
- */
-
-// ============================================================================
 // 基础类型
-// ============================================================================
 
-/**
- * 支持的平台类型
- */
 export type Platform = "darwin" | "win32" | "linux";
 
 /**
@@ -71,9 +58,6 @@ export type SandboxAutoFallback = "startup-only" | "session" | "manual";
  */
 export type SandboxFallback = "degrade_to_off" | "fail_closed";
 
-/**
- * 统一沙箱策略
- */
 export interface SandboxPolicy {
   /** 是否启用沙箱 */
   enabled: boolean;
@@ -87,18 +71,12 @@ export interface SandboxPolicy {
   windowsMode: WindowsSandboxMode;
 }
 
-/**
- * 单个后端能力状态
- */
 export interface SandboxCapabilityItem {
   available: boolean;
   reason?: string;
   binaryPath?: string;
 }
 
-/**
- * 多后端能力探测结果
- */
 export interface SandboxCapabilities {
   platform: Platform;
   recommendedBackend: SandboxBackend;
@@ -117,28 +95,17 @@ export interface SandboxCapabilities {
  */
 export type PermissionLevel = 0 | 1 | 2 | 3;
 
-/**
- * CP 工作流检查点
- */
 export type Checkpoint = "CP1" | "CP2" | "CP3" | "CP4" | "CP5";
 
-/**
- * 检查点状态
- */
 export type CheckpointStatus =
   | "pending"
   | "in_progress"
   | "completed"
   | "failed";
 
-/**
- * 质量门禁状态
- */
 export type GateStatus = "pending" | "passed" | "failed";
 
-// ============================================================================
 // 进程级沙箱（ACP 引擎）
-// ============================================================================
 
 /**
  * ACP 引擎进程级沙箱配置
@@ -167,13 +134,8 @@ export interface SandboxProcessConfig {
   windowsSandboxMode?: WindowsSandboxMode;
 }
 
-// ============================================================================
 // 沙箱配置
-// ============================================================================
 
-/**
- * 沙箱配置
- */
 export interface SandboxConfig {
   /** 沙箱类型 */
   type: SandboxType;
@@ -201,13 +163,8 @@ export interface SandboxConfig {
   mode?: SandboxMode;
 }
 
-// ============================================================================
 // 工作区
-// ============================================================================
 
-/**
- * 工作区
- */
 export interface Workspace {
   /** 工作区唯一标识 */
   id: string;
@@ -237,9 +194,6 @@ export interface Workspace {
   status: WorkspaceStatus;
 }
 
-/**
- * 工作区状态
- */
 export type WorkspaceStatus =
   | "creating"
   | "active"
@@ -248,9 +202,6 @@ export type WorkspaceStatus =
   | "destroyed"
   | "error";
 
-/**
- * 创建工作区选项
- */
 export interface CreateWorkspaceOptions {
   /** 保留策略 */
   retention?: Partial<RetentionPolicy>;
@@ -262,13 +213,8 @@ export interface CreateWorkspaceOptions {
   customPath?: string;
 }
 
-// ============================================================================
 // 命令执行
-// ============================================================================
 
-/**
- * 命令执行选项
- */
 export interface ExecuteOptions {
   /** 工作目录 */
   cwd?: string;
@@ -286,9 +232,6 @@ export interface ExecuteOptions {
   skipPermissionCheck?: boolean;
 }
 
-/**
- * 命令执行结果
- */
 export interface ExecuteResult {
   /** 标准输出 */
   stdout: string;
@@ -306,13 +249,8 @@ export interface ExecuteResult {
   args: string[];
 }
 
-// ============================================================================
 // 文件操作
-// ============================================================================
 
-/**
- * 文件信息
- */
 export interface FileInfo {
   /** 文件名 */
   name: string;
@@ -328,13 +266,8 @@ export interface FileInfo {
   permissions?: string;
 }
 
-// ============================================================================
 // 保留策略
-// ============================================================================
 
-/**
- * 保留策略
- */
 export interface RetentionPolicy {
   /** 保留模式
    * - always: 始终保留
@@ -352,13 +285,8 @@ export interface RetentionPolicy {
   preserveOnError?: boolean;
 }
 
-// ============================================================================
 // 权限管理
-// ============================================================================
 
-/**
- * 权限类型
- */
 export type PermissionType =
   | "file:read"
   | "file:write"
@@ -370,9 +298,6 @@ export type PermissionType =
   | "package:install:python"
   | "package:install:system";
 
-/**
- * 权限
- */
 export interface Permission {
   /** 权限 ID */
   id: string;
@@ -395,9 +320,6 @@ export interface Permission {
   reason?: string;
 }
 
-/**
- * 权限策略
- */
 export interface PermissionPolicy {
   /** 自动批准的权限类型 */
   autoApprove: PermissionType[];
@@ -411,9 +333,6 @@ export interface PermissionPolicy {
   safeCommands: string[];
 }
 
-/**
- * 权限检查结果
- */
 export interface PermissionResult {
   /** 是否允许 */
   allowed: boolean;
@@ -423,9 +342,6 @@ export interface PermissionResult {
   requestId?: string;
 }
 
-/**
- * 权限请求
- */
 export interface PermissionRequest {
   /** 请求 ID */
   id: string;
@@ -443,13 +359,8 @@ export interface PermissionRequest {
   status: "pending" | "approved" | "denied";
 }
 
-// ============================================================================
 // 工作流状态
-// ============================================================================
 
-/**
- * 工作流状态
- */
 export interface WorkflowState {
   /** 项目名称 */
   project: string;
@@ -499,9 +410,6 @@ export interface WorkspaceRecord {
   status: WorkspaceStatus;
 }
 
-/**
- * 沙箱执行指标
- */
 export interface SandboxMetrics {
   /** 已创建的沙箱数量 */
   sandboxesCreated: number;
@@ -517,9 +425,6 @@ export interface SandboxMetrics {
   humanInterventions: number;
 }
 
-/**
- * 最近变更记录
- */
 export interface RecentChange {
   /** 时间戳 */
   timestamp: string;
@@ -531,13 +436,8 @@ export interface RecentChange {
   sessionId?: string;
 }
 
-// ============================================================================
 // 质量门禁
-// ============================================================================
 
-/**
- * 质量门禁结果
- */
 export interface GateResult {
   /** 是否通过 */
   pass: boolean;
@@ -545,9 +445,6 @@ export interface GateResult {
   reason?: string;
 }
 
-/**
- * 质量门禁报告
- */
 export interface GateReport {
   /** 各门禁结果 */
   results: Record<string, GateResult>;
@@ -555,13 +452,8 @@ export interface GateReport {
   allPassed: boolean;
 }
 
-// ============================================================================
 // 清理
-// ============================================================================
 
-/**
- * 清理结果
- */
 export interface CleanupResult {
   /** 删除的工作区数量 */
   deletedCount: number;
@@ -571,13 +463,8 @@ export interface CleanupResult {
   errors: string[];
 }
 
-// ============================================================================
 // 沙箱状态
-// ============================================================================
 
-/**
- * 沙箱状态
- */
 export interface SandboxStatus {
   /** 是否可用 */
   available: boolean;
@@ -610,13 +497,8 @@ export interface SandboxStatus {
   };
 }
 
-// ============================================================================
 // 容器信息（Docker 特有）
-// ============================================================================
 
-/**
- * 容器信息
- */
 export interface ContainerInfo {
   /** 容器 ID */
   id: string;
@@ -634,13 +516,8 @@ export interface ContainerInfo {
   ports?: string[];
 }
 
-// ============================================================================
 // 事件类型
-// ============================================================================
 
-/**
- * 沙箱事件类型
- */
 export interface SandboxEvents {
   /** 工作区已创建 */
   "workspace:created": { workspace: Workspace };
