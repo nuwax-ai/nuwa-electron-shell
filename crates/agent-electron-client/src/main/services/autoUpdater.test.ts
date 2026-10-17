@@ -835,7 +835,7 @@ describe("后台静默检查（checkForUpdates({background:true})）", () => {
   }
 
   /** net.request 回放一份 latest.json 响应 */
-  function respondLatestJson(latest: Record<string, unknown>) {
+  function respondLatestJson(latest: Record<string, unknown>, chunks = [Buffer.from(JSON.stringify(latest))]) {
     mockNetRequest.mockImplementation((() => {
       const listeners: Record<string, (arg?: unknown) => void> = {};
       return {
@@ -848,7 +848,7 @@ describe("后台静默检查（checkForUpdates({background:true})）", () => {
             listeners.response?.({
               statusCode: 200,
               on: (event: string, cb: (arg?: unknown) => void) => {
-                if (event === "data") cb(JSON.stringify(latest));
+                if (event === "data") chunks.forEach((chunk) => cb(chunk));
                 if (event === "end") cb();
               },
             });
@@ -857,6 +857,23 @@ describe("后台静默检查（checkForUpdates({background:true})）", () => {
       };
     }) as any);
   }
+
+  it.each([1, 2, 3, 4, 7])("preserves UTF-8 release notes across %d-byte chunks", async (chunkSize) => {
+    const latest = {
+      version: "3.0.10",
+      notes: "新版本就绪：更新并重启升级 🚀，繁體中文。",
+      yml: { darwin: "https://example.invalid/v3.0.10/latest-mac.yml" },
+    };
+    const bytes = Buffer.from(JSON.stringify(latest), "utf8");
+    const chunks: Buffer[] = [];
+    for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+      chunks.push(bytes.subarray(offset, offset + chunkSize));
+    }
+    respondLatestJson(latest, chunks);
+    const mod = await importFreshWithUpdaterMock();
+    expect((await mod.checkForUpdates({ background: true })).hasUpdate).toBe(true);
+    expect(mod.getUpdateState().releaseNotes).toBe(latest.notes);
+  });
 
   it.each([
     ["3.0.10", "3.0.11-beta.1", "beta", true],
