@@ -3,7 +3,7 @@
  *
  * - 版本号运行时从 Electron 主进程获取
  * - 检查更新 + 下载 + 重启安装 完整流程
- * - 下载完成后弹窗确认是否立即重启安装
+ * - 分步升级下载完成后显示安装按钮；安装持续 1 秒后才显示进度弹窗
  * - Windows MSI 安装用户引导到官网下载安装页
  * - macOS/Linux 上 Squirrel 不发送 download-progress，用本地模拟进度保证进度条有变化
  *
@@ -28,6 +28,7 @@ const OFFICIAL_WEBSITE_URL = "https://nuwax.com";
 
 /** macOS/Linux 无 download-progress 时，模拟进度从 0 增长到该值（%） */
 const SIMULATED_PROGRESS_CAP = 90;
+const INSTALL_DIALOG_DELAY_MS = 1_000;
 /** 模拟进度更新间隔（ms） */
 const SIMULATED_PROGRESS_INTERVAL_MS = 500;
 /** 预计下载时长（ms），用于计算每 tick 的增量，约 45s 内从 0 到 SIMULATED_PROGRESS_CAP */
@@ -63,8 +64,26 @@ export default function AboutPage({ webMeta }: AboutPageProps = {}) {
     arch?: string;
     bundledDist?: { version: string; gitHash?: string } | null;
   }>({});
-  const hasShownInstallModal = useRef(false);
   const [installing, setInstalling] = useState(false);
+  const [showInstallProgress, setShowInstallProgress] = useState(false);
+  const installationActive = installing || updateState.status === "installing";
+
+  useEffect(() => {
+    if (updateState.status === "error") setInstalling(false);
+  }, [updateState.status]);
+
+  useEffect(() => {
+    if (!installationActive) {
+      setShowInstallProgress(false);
+      return;
+    }
+    // 下载保持行内反馈；安装耗时较长才展示弹窗，避免点击后短暂闪现。
+    const timer = setTimeout(
+      () => setShowInstallProgress(true),
+      INSTALL_DIALOG_DELAY_MS,
+    );
+    return () => clearTimeout(timer);
+  }, [installationActive]);
   /** macOS/Linux 无真实进度时的模拟进度（0..SIMULATED_PROGRESS_CAP），有 progress 时不用 */
   const [simulatedPercent, setSimulatedPercent] = useState(0);
   const simulatedIntervalRef = useRef<ReturnType<typeof setInterval> | null>(
@@ -261,51 +280,6 @@ export default function AboutPage({ webMeta }: AboutPageProps = {}) {
       setSimulatedPercent(0);
     }
   }, [updateState.status, updateState.progress]);
-
-  // 下载完成后自动弹窗确认安装
-  useEffect(() => {
-    if (
-      updateState.status === "downloaded" &&
-      !updateState.installAfterDownload &&
-      !hasShownInstallModal.current
-    ) {
-      hasShownInstallModal.current = true;
-      const modal = Modal.confirm({
-        title: t("Claw.About.updateDownloaded"),
-        content: t("Claw.About.updateDownloadedConfirm", {
-          version: updateState.version,
-        }),
-        okText: t("Claw.About.restartNow"),
-        cancelText: t("Claw.About.later"),
-        okButtonProps: { loading: false },
-        onOk: async () => {
-          modal.update({ okButtonProps: { loading: true } });
-          try {
-            const result = await window.electronAPI?.app?.installUpdate?.();
-            if (!result || !result.success) {
-              const errorMessage =
-                result?.error || t("Claw.About.installFailed");
-              message.error(errorMessage);
-              modal.update({ okButtonProps: { loading: false } });
-              return Promise.reject(new Error(errorMessage));
-            }
-          } catch {
-            message.error(t("Claw.About.installFailed"));
-            modal.update({ okButtonProps: { loading: false } });
-            return Promise.reject(new Error(t("Claw.About.installFailed")));
-          }
-        },
-      });
-    }
-    // 状态回到非 downloaded 时重置标记
-    if (updateState.status !== "downloaded") {
-      hasShownInstallModal.current = false;
-    }
-  }, [
-    updateState.status,
-    updateState.version,
-    updateState.installAfterDownload,
-  ]);
 
   const handleDownload = useCallback(async () => {
     // 立即切换到 downloading 状态，避免点击后无反馈
@@ -812,29 +786,17 @@ export default function AboutPage({ webMeta }: AboutPageProps = {}) {
         </div>
       )}
       <Modal
-        open={
-          updateState.installAfterDownload === true &&
-          (updateState.status === "downloading" ||
-            updateState.status === "installing")
-        }
+        open={installationActive && showInstallProgress}
         centered
         footer={null}
         closable={false}
         maskClosable={false}
         keyboard={false}
-        title={t(
-          updateState.status === "downloading"
-            ? "Claw.About.downloadUpdate"
-            : "Claw.AutoUpdater.installNow",
-        )}
+        title={t("Claw.AutoUpdater.installNow")}
       >
-        {updateState.status === "downloading" ? (
-          <Progress percent={displayPercent} status="active" />
-        ) : (
-          <Button loading disabled>
-            {t("Claw.About.installUpdate")}
-          </Button>
-        )}
+        <Button loading disabled>
+          {t("Claw.About.installUpdate")}
+        </Button>
       </Modal>
     </div>
   );
