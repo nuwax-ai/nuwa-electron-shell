@@ -82,6 +82,7 @@ export interface ServiceResult {
   success: boolean;
   error?: string;
   errorCode?: string;
+  errorStage?: "spawn";
   message?: string;
   healthCheck?: {
     healthy: boolean;

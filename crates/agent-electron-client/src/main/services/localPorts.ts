@@ -9,7 +9,7 @@ export type LocalEndpoint = {
   status: "reserved" | "starting" | "ready" | "stopped" | "failed";
   generation: number;
 };
-export type LocalStartResult = { success: boolean; error?: string; errorCode?: string };
+export type LocalStartResult = { success: boolean; error?: string; errorCode?: string; errorStage?: "spawn" };
 type Reservation = { close(): Promise<void> };
 export type LocalPortPolicy = {
   ranges: ReadonlyArray<readonly [number, number]>;
@@ -184,6 +184,8 @@ export class LocalPortManager {
           }
           endpoint.status = "failed";
           await this.stopOwned(stop);
+          // A process creation failure cannot be repaired by changing its listener port.
+          if (result.errorStage === "spawn") return result;
           let conflict = portError(result);
           // Native programs do not always preserve the OS error code in stderr.
           // A second real bind distinguishes a raced port from a generic spawn/health failure.
