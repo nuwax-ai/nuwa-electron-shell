@@ -1,3 +1,4 @@
+import { getLocalPortManager } from "../localPorts";
 import * as http from "http";
 import * as net from "net";
 import * as fs from "fs";
@@ -458,9 +459,10 @@ export function getTtydGatewayStatus(): {
 export async function checkTtydGatewayHealth(options: {
   port: number;
   timeoutMs?: number;
+  path?: string;
 }): Promise<{ healthy: boolean; error?: string }> {
   const timeoutMs = options.timeoutMs ?? 1000;
-  const healthPath = "/computer/ttyd/health/health/ws";
+  const healthPath = options.path ?? "/computer/ttyd/health/health/ws";
 
   return new Promise((resolve) => {
     let settled = false;
@@ -551,7 +553,7 @@ export async function allocateInternalTtydPort(
 
 export async function startTtydGateway(
   options: GatewayStartOptions,
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; errorCode?: string }> {
   if (server?.listening) {
     if (
       listenPort === options.listenPort &&
@@ -628,7 +630,8 @@ export async function startTtydGateway(
       server = null;
       listenPort = null;
       targetPort = null;
-      resolve({ success: false, error: lastError });
+      void getLocalPortManager()?.release("ttyd");
+      resolve({ success: false, error: lastError, errorCode: error.code });
     });
 
     nextServer.listen(options.listenPort, LOCALHOST_IP, () => {

@@ -16,6 +16,7 @@ import * as fs from "fs";
 import { spawnSync } from "child_process";
 import type { HandlerContext } from "@shared/types/ipc";
 import { getConfiguredPorts } from "../services/startupPorts";
+import { getLocalPortManager } from "../services/localPorts";
 import { killProcessTreesListeningOnTcpPort } from "../services/utils/processTree";
 import { getTtydBinPath } from "../services/system/dependencies";
 import {
@@ -51,6 +52,10 @@ export function registerTtydHandlers(ctx: HandlerContext): void {
       await killProcessTreesListeningOnTcpPort(gatewayStatus.targetPort).catch(
         () => {},
       );
+    }
+    if (result.success) {
+      await getLocalPortManager()?.release("ttyd");
+      await getLocalPortManager()?.release("ttydInternal");
     }
     return result;
   });

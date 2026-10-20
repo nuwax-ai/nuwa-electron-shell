@@ -24,6 +24,8 @@ import {
   normalizeOptionalPort,
 } from "../services/constants";
 import { getConfiguredPorts } from "../services/startupPorts";
+import { getLocalPortManager } from "../services/localPorts";
+import { randomUUID } from "node:crypto";
 import {
   getAppEnv,
   getLanproxyEntryPath,
@@ -79,6 +81,7 @@ export interface ServiceResult {
   [key: string]: unknown;
   success: boolean;
   error?: string;
+  errorCode?: string;
   message?: string;
   healthCheck?: {
     healthy: boolean;
@@ -112,7 +115,12 @@ export function createServiceManager(ctx: ServiceManagerContext) {
    * 单次启动文件服务器（不含外层重试）。
    * 健康失败会 stop 进程，避免下次命中「Already running」假成功。
    */
-  const startFileServerOnce = async (port: number): Promise<ServiceResult> => {
+  let fileServerInstance: string | undefined;
+  const startFileServerOnce = async (port: number, signal?: AbortSignal): Promise<ServiceResult> => {
+    if (getLocalPortManager() && ctx.fileServer.running) {
+      const health = await waitForFileServerHealth(port, 1500, 200, fileServerInstance, signal);
+      if (health.healthy && ctx.fileServer.running) return { success: true, message: "Already running" };
+    }
     // 重试前可能残留 running 标记；先清掉再 spawn
     if (ctx.fileServer.running) {
       try {
@@ -203,6 +211,7 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       gitBinDir,
     });
 
+    fileServerInstance = getLocalPortManager() ? randomUUID() : undefined;
     log.info("[ServiceManager] Starting file server on port", port);
     const startResult = await ctx.fileServer.start({
       command: process.execPath,
@@ -211,6 +220,7 @@ export function createServiceManager(ctx: ServiceManagerContext) {
         ...getAppEnv(),
         ...dirConfig,
         PORT: String(port),
+        ...(getLocalPortManager() ? { HOST: "127.0.0.1", NUWAX_SERVICE_INSTANCE_ID: fileServerInstance! } : {}),
         NODE_ENV: "production",
         ELECTRON_RUN_AS_NODE: "1",
         // Git 环境变量，供 nuwax-file-server 使用
@@ -218,6 +228,8 @@ export function createServiceManager(ctx: ServiceManagerContext) {
         BASH_PATH: gitBashPath,
       },
       startupDelayMs: DEFAULT_STARTUP_DELAY,
+      signal,
+      onExit: () => { void getLocalPortManager()?.release("fileServer"); },
       onStdoutLine: createFileServerPerfHandler(),
     });
 
@@ -226,8 +238,11 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       const health = await waitForFileServerHealth(
         port,
         FILE_SERVER_HEALTH_TIMEOUT_MS,
+        200,
+        fileServerInstance,
+        signal,
       );
-      if (!health.healthy) {
+      if (!health.healthy || (getLocalPortManager() && !ctx.fileServer.running)) {
         log.error(
           "[ServiceManager] FileServer health check failed:",
           health.error,
@@ -243,7 +258,7 @@ export function createServiceManager(ctx: ServiceManagerContext) {
         }
         return {
           success: false,
-          error: `FileServer started but health check failed: ${health.error}`,
+          error: `FileServer started but health check failed: ${health.error || "Owned process exited"}`,
         };
       }
       log.info("[ServiceManager] FileServer health check passed");
@@ -259,7 +274,9 @@ export function createServiceManager(ctx: ServiceManagerContext) {
    *
    * 幂等：已在跑且健康时直接成功；不健康则进入完整重试。
    */
-  const startFileServer = async (port: number): Promise<ServiceResult> => {
+  const startFileServer = async (port: number, signal?: AbortSignal): Promise<ServiceResult> => {
+    const ports = getLocalPortManager();
+    if (ports) return ports.start("fileServer", startFileServerOnce, () => ctx.fileServer.stopAsync(3000), signal);
     // 已运行：再探一次 /health，避免升级后僵尸进程被当成成功
     if (ctx.fileServer.running) {
       const health = await waitForFileServerHealth(
@@ -445,8 +462,19 @@ export function createServiceManager(ctx: ServiceManagerContext) {
    * - 幂等：已运行直接返回成功，供启动/重启流程重复调用而不打断已有终端会话
    * - cwd / wrapper 逻辑见 services/packages/ttydHelper.ts
    */
-  const startTtyd = async (): Promise<ServiceResult> => {
-    const { ttyd: publicPort } = getConfiguredPorts();
+  const stopManagedTtyd = async (): Promise<void> => {
+    await stopTtydGateway();
+    const result = await ctx.ttyd.stopAsync(3000);
+    if (!result.success) throw new Error(result.message || "ttyd stop failed");
+    await getLocalPortManager()?.release("ttydInternal");
+    await getLocalPortManager()?.release("ttyd");
+  };
+  const startTtyd = async (signal?: AbortSignal): Promise<ServiceResult> => {
+    const ports = getLocalPortManager();
+    if (ports) return ports.start("ttyd", (port, activeSignal) => startTtydOnce(port, activeSignal), stopManagedTtyd, signal);
+    return startTtydOnce(getConfiguredPorts().ttyd, signal);
+  };
+  const startTtydOnce = async (publicPort: number, signal?: AbortSignal): Promise<ServiceResult> => {
 
     if (ctx.ttyd.running) {
       const gatewayStatus = getTtydGatewayStatus();
@@ -487,7 +515,9 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       log.warn("[ServiceManager] ttyd gateway pre-start port sweep failed:", e);
     }
 
-    const internalPort = await allocateInternalTtydPort(publicPort);
+    let internalPort = getLocalPortManager()
+      ? await getLocalPortManager()!.reserve("ttydInternal", signal)
+      : await allocateInternalTtydPort(publicPort);
 
     const win = isWindows();
 
@@ -565,13 +595,32 @@ export function createServiceManager(ctx: ServiceManagerContext) {
     log.info(
       `[ServiceManager] Starting ttyd on 127.0.0.1:${internalPort} behind gateway 127.0.0.1:${publicPort} (shell=${shellCmd}, cwd=${initialCwd})`,
     );
-    const startResult = await ctx.ttyd.start({
-      command: binPath,
-      args,
-      env: { ...process.env } as Record<string, string>,
-      cwd: initialCwd,
-      startupDelayMs: 1000,
-    });
+    const launchTtyd = async (port: number, activeSignal?: AbortSignal): Promise<ServiceResult> => {
+      internalPort = port;
+      const selectedArgs = [...args];
+      selectedArgs[1] = String(port);
+      const result = await ctx.ttyd.start({
+        command: binPath,
+        args: selectedArgs,
+        env: { ...process.env } as Record<string, string>,
+        cwd: initialCwd,
+        startupDelayMs: 1000,
+        signal: activeSignal,
+        onExit: () => {
+          if (getLocalPortManager()) {
+            void stopTtydGateway();
+            void getLocalPortManager()!.release("ttydInternal");
+            void getLocalPortManager()!.release("ttyd");
+          }
+        },
+      });
+      if (!result.success || !getLocalPortManager()) return result;
+      const health = await checkTtydGatewayHealth({ port, timeoutMs: 1500, path: "/ws" });
+      return health.healthy && ctx.ttyd.running ? result : { success: false, error: `ttyd health check failed: ${health.error || "Owned process exited"}` };
+    };
+    const startResult = getLocalPortManager()
+      ? await getLocalPortManager()!.start("ttydInternal", launchTtyd, () => ctx.ttyd.stopAsync(3000), signal)
+      : await launchTtyd(internalPort, signal);
     if (!startResult.success) return startResult;
 
     const gatewayResult = await startTtydGateway({
@@ -585,7 +634,7 @@ export function createServiceManager(ctx: ServiceManagerContext) {
     }
 
     const health = await waitForTtydGatewayHealth(publicPort);
-    if (!health.healthy) {
+    if (!health.healthy || (getLocalPortManager() && (!ctx.ttyd.running || !getTtydGatewayStatus().running))) {
       await stopTtydGateway();
       await ctx.ttyd.stopAsync(3000);
       await killProcessTreesListeningOnTcpPort(internalPort).catch(() => {});
@@ -776,6 +825,14 @@ export function createServiceManager(ctx: ServiceManagerContext) {
     }
 
     signal?.throwIfAborted();
+    if (getLocalPortManager()) {
+      await startAndRecordTtyd(results);
+      signal?.throwIfAborted();
+      if (Object.values(results).some((result) => !result.success)) return { success: false, results };
+      await getLocalPortManager()!.beforePublish(signal);
+      signal?.throwIfAborted();
+    }
+
     // 5. 启动 Lanproxy
     try {
       const clientKey = readSetting("auth.saved_key") as string | null;
@@ -828,7 +885,7 @@ export function createServiceManager(ctx: ServiceManagerContext) {
 
     signal?.throwIfAborted();
     // 6. 启动 ttyd Web 终端（仅回环；幂等，不打断已有终端会话）
-    await startAndRecordTtyd(results);
+    if (!getLocalPortManager()) await startAndRecordTtyd(results);
 
     signal?.throwIfAborted();
     log.info("[ServiceManager] All services restart complete");
@@ -844,6 +901,7 @@ export function createServiceManager(ctx: ServiceManagerContext) {
     success: boolean;
     results: Record<string, ServiceResult>;
   }> => {
+    if (getLocalPortManager()) return restartAllServices();
     log.info("[ServiceManager] Restarting all services except lanproxy...");
     const results: Record<string, ServiceResult> = {};
 
@@ -966,6 +1024,7 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       if (stopped && !stopped.success)
         throw new Error(stopped.message || "Service stop failed");
       await killProcessTreesListeningOnTcpPort(getConfiguredPorts().fileServer);
+      await getLocalPortManager()?.release("fileServer");
       results.fileServer = { success: true };
       log.info("[ServiceManager] FileServer stopped");
     } catch (e) {
@@ -998,6 +1057,8 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       if (gatewayStatus.targetPort) {
         await killProcessTreesListeningOnTcpPort(gatewayStatus.targetPort);
       }
+      await getLocalPortManager()?.release("ttyd");
+      await getLocalPortManager()?.release("ttydInternal");
       results.ttyd = { success: true };
       log.info("[ServiceManager] ttyd stopped");
     } catch (e) {

@@ -82,6 +82,9 @@ function resolvePortsFromSettings(getSettingFn) {
 }
 
 function getPortsToCheck(ports, includeVite) {
+  if (process.env.NUWAX_LOCAL_PORT_MODE === 'auto') {
+    return includeVite ? [{ name: 'vite', label: LABELS.vite, port: ports.vite }] : [];
+  }
   const list = [
     { name: 'agent', label: LABELS.agent, port: ports.agent },
     { name: 'fileServer', label: LABELS.fileServer, port: ports.fileServer },

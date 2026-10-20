@@ -1,5 +1,5 @@
 import http from "http";
-import { LOCALHOST_HOSTNAME } from "../constants";
+import { LOCALHOST_IP } from "../constants";
 
 export interface FileServerHealthResult {
   healthy: boolean;
@@ -14,15 +14,18 @@ export interface FileServerHealthResult {
 export async function checkFileServerHealth(
   port: number,
   requestTimeoutMs = 5000,
+  instanceId?: string,
+  signal?: AbortSignal,
 ): Promise<FileServerHealthResult> {
   return new Promise((resolve) => {
     const req = http.request(
       {
-        hostname: LOCALHOST_HOSTNAME,
+        hostname: LOCALHOST_IP,
         port,
         path: "/health",
         method: "GET",
         timeout: requestTimeoutMs,
+        signal,
       },
       (res) => {
         let body = "";
@@ -31,12 +34,12 @@ export async function checkFileServerHealth(
           if (res.statusCode === 200) {
             try {
               const data = JSON.parse(body);
-              if (data.status === "ok") {
+              if (data.status === "ok" && (!instanceId || data.instanceId === instanceId)) {
                 resolve({ healthy: true });
               } else {
                 resolve({
                   healthy: false,
-                  error: `Unexpected status: ${data.status}`,
+                  error: data.status === "ok" ? "Unexpected file-server instance" : `Unexpected status: ${data.status}`,
                 });
               }
             } catch (e) {
@@ -80,6 +83,8 @@ export async function waitForFileServerHealth(
   port: number,
   timeoutMs = 20_000,
   intervalMs = 200,
+  instanceId?: string,
+  signal?: AbortSignal,
 ): Promise<FileServerHealthResult> {
   const deadline = Date.now() + timeoutMs;
   let lastError = "File-server health check timed out";
@@ -89,7 +94,8 @@ export async function waitForFileServerHealth(
     const remaining = deadline - Date.now();
     if (remaining <= 0) break;
     const requestTimeoutMs = Math.min(1500, remaining);
-    const result = await checkFileServerHealth(port, requestTimeoutMs);
+    if (signal?.aborted) return { healthy: false, error: "Service start cancelled" };
+    const result = await checkFileServerHealth(port, requestTimeoutMs, instanceId, signal);
     if (result.healthy) {
       return result;
     }

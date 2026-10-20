@@ -1,3 +1,4 @@
+import { getLocalPortManager } from "../services/localPorts";
 import { ipcMain } from "electron";
 import { APP_NAME_IDENTIFIER } from "@shared/constants";
 import { commercialLifecycle } from "../services/auth/lifecycle";
@@ -24,7 +25,10 @@ export const registerServiceHandler: typeof ipcMain.handle = (
     if (!commercialLifecycle)
       return { success: false, error: "Authentication not initialized" };
     try {
-      return await commercialLifecycle.run(async () => handler(event, ...args));
+      return await commercialLifecycle.run(async () => {
+        const manager = getLocalPortManager();
+        return manager ? manager.runScoped(async () => handler(event, ...args)) : handler(event, ...args);
+      });
     } catch (error) {
       return { success: false, error: String(error) };
     }

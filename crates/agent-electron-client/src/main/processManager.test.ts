@@ -31,6 +31,7 @@ vi.mock("child_process", () => ({
 vi.mock("./services/utils/processTree", () => processTreeMocks);
 
 import { ManagedProcess } from "./processManager";
+import { spawn } from "child_process";
 import { PROCESS_KILL_ESCALATION_TIMEOUT } from "@shared/constants";
 
 /** Create a fake ChildProcess-like object */
@@ -58,6 +59,44 @@ describe("ManagedProcess", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it("an old child's late exit cannot clear a replacement or its startup timer", async () => {
+    vi.useFakeTimers();
+    const first = createFakeProc(); const replacement = createFakeProc();
+    vi.mocked(spawn).mockReturnValueOnce(first).mockReturnValueOnce(replacement);
+    const mp = new ManagedProcess("retry");
+    const attempt = mp.start({ command: "node", args: [], startupDelayMs: 1000 });
+    first.emit("error", Object.assign(new Error("bind failed"), { code: "EADDRINUSE" }));
+    expect(await attempt).toMatchObject({ success: false, errorCode: "EADDRINUSE" });
+    const next = mp.start({ command: "node", args: [], startupDelayMs: 2000 });
+    first.emit("exit", 1, null);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(await next).toMatchObject({ success: true });
+    expect(mp.running).toBe(true);
+    mp.stop();
+  });
+
+  it("preserves the file service's structured bind error code", async () => {
+    vi.useFakeTimers();
+    const proc = createFakeProc(); vi.mocked(spawn).mockReturnValueOnce(proc);
+    const mp = new ManagedProcess("fileServer");
+    const result = mp.start({ command: "node", args: [], startupDelayMs: 10 });
+    proc.stderr.emit("data", Buffer.from('NUWAX_SERVICE_ERROR:{"code":"EADDRINUSE"}\n'));
+    proc.emit("exit", 1, null);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(await result).toMatchObject({ success: false, errorCode: "EADDRINUSE" });
+  });
+
+  it("cancels a pending start and waits for its owned process cleanup", async () => {
+    vi.useFakeTimers();
+    const proc = createFakeProc(); vi.mocked(spawn).mockReturnValueOnce(proc);
+    const mp = new ManagedProcess("cancel"); const controller = new AbortController();
+    const result = mp.start({ command: "node", args: [], signal: controller.signal });
+    controller.abort();
+    expect(await result).toMatchObject({ success: false, error: "Service start cancelled" });
+    expect(processTreeMocks.killProcessTreeGraceful).toHaveBeenCalledWith(proc.pid, 3000);
+    expect(mp.running).toBe(false);
   });
 
   describe("stop()", () => {
