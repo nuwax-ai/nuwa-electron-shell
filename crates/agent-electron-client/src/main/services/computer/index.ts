@@ -10,6 +10,7 @@ import * as http from "http";
 import log from "electron-log";
 import { LOCALHOST_HOSTNAME } from "../constants";
 import { getConfiguredPorts } from "../startupPorts";
+import { getLocalPortManager } from "../localPorts";
 import { killProcessTreesListeningOnTcpPort } from "../utils/processTree";
 import { getOrCreateInternalSecret } from "../intervention";
 import { serverState } from "./state";
@@ -62,9 +63,15 @@ async function requestDispatcher(
 
 // ==================== Lifecycle ====================
 
-export async function startComputerServer(
+export async function startComputerServer(port: number): Promise<{ success: boolean; error?: string; errorCode?: string }> {
+  const ports = getLocalPortManager();
+  if (ports) return ports.start("agent", (selected) => startComputerServerOnce(selected), stopComputerServer);
+  return startComputerServerOnce(port);
+}
+
+async function startComputerServerOnce(
   port: number,
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; errorCode?: string }> {
   if (!serverState.server) {
     try {
       log.info(`[ComputerServer] Pre-start port sweep for ${port}`);
@@ -109,13 +116,15 @@ export async function startComputerServer(
       serverState.lastError = errorMsg;
       serverState.server = null;
       serverState.runningPort = null;
-      resolve({ success: false, error: errorMsg });
+      void getLocalPortManager()?.release("agent");
+      resolve({ success: false, error: errorMsg, errorCode: err.code });
     });
 
     // 监听 0.0.0.0：与 Tauri rcoder 行为一致，lanproxy 隧道需要从外部访问此端口
-    serverState.server.listen(port, "0.0.0.0", () => {
+    const host = getLocalPortManager()?.host ?? "0.0.0.0";
+    serverState.server.listen(port, host, () => {
       log.info(
-        `✅ [ComputerServer] Listening on 0.0.0.0:${port} (aligned with rcoder /computer/* API)`,
+        `✅ [ComputerServer] Listening on ${host}:${port} (aligned with rcoder /computer/* API)`,
       );
       serverState.lastError = null;
       serverState.runningPort = port;
@@ -127,6 +136,7 @@ export async function startComputerServer(
 export function stopComputerServer(): Promise<void> {
   return new Promise((resolve) => {
     const portToSweep = serverState.runningPort ?? getConfiguredPorts().agent;
+    void getLocalPortManager()?.release("agent");
     if (!serverState.server) {
       serverState.lastError = null;
       serverState.runningPort = null;

@@ -14,7 +14,7 @@ vi.mock("http", () => ({
 }));
 
 vi.mock("../constants", () => ({
-  LOCALHOST_HOSTNAME: "127.0.0.1",
+  LOCALHOST_IP: "127.0.0.1",
 }));
 
 import {
@@ -64,6 +64,13 @@ describe("checkFileServerHealth", () => {
     mockRequest.mockImplementation(makeOkRequest({ status: "ok" }));
     const result = await checkFileServerHealth(60015);
     expect(result).toEqual({ healthy: true });
+  });
+
+  it("rejects another process's healthy endpoint and accepts this instance", async () => {
+    mockRequest.mockImplementation(makeOkRequest({ status: "ok", instanceId: "other" }));
+    expect((await checkFileServerHealth(24605, 1000, "owned")).healthy).toBe(false);
+    mockRequest.mockImplementation(makeOkRequest({ status: "ok", instanceId: "owned" }));
+    expect((await checkFileServerHealth(24605, 1000, "owned")).healthy).toBe(true);
   });
 
   it("returns unhealthy on connection error", async () => {

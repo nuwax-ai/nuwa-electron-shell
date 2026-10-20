@@ -10,6 +10,8 @@ import { BrowserWindow } from "electron";
 import { DEFAULT_ADMIN_SERVER_PORT } from "@shared/constants";
 import { checkLanproxyHealth } from "../packages/lanproxyHealth";
 import { agentService } from "../engines/unifiedAgent";
+import { getLocalPortManager } from "../localPorts";
+import { commercialLifecycle } from "../auth/lifecycle";
 import { parseBody } from "./router";
 
 /** 获取主窗口 */
@@ -33,6 +35,10 @@ const notifyServicesRestarted = (
 async function doRestartAllServicesIncludingComputerServer(): Promise<
   Record<string, { success: boolean; error?: string }>
 > {
+  if (getLocalPortManager() && commercialLifecycle) {
+    const result = await commercialLifecycle.start(true);
+    return result.results ?? { services: { success: result.success, error: result.error } };
+  }
   const { getServiceManager } = await import("../../ipc/processHandlers");
   const serviceManager = getServiceManager();
   if (!serviceManager) {

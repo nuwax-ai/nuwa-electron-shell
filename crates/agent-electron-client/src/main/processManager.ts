@@ -10,13 +10,6 @@ const STARTUP_STDERR_IN_ERROR = 1200;
 export class ManagedProcess {
   private process: ChildProcess | null = null;
   private lastError: string | null = null;
-  /** 当前这次 start() 收集的 stderr，用于「启动后立即退出」时的错误详情 */
-  private startupStderr = "";
-  private startupExit: {
-    code: number | null;
-    signal: NodeJS.Signals | null;
-  } | null = null;
-
   constructor(private readonly name: string) {}
 
   start(config: {
@@ -27,18 +20,37 @@ export class ManagedProcess {
     shell?: boolean;
     stdio?: ("ignore" | "pipe")[];
     startupDelayMs?: number;
+    signal?: AbortSignal;
     /** 每行 stdout 的额外回调，在 log.info 之后调用 */
     onStdoutLine?: (line: string) => void;
-  }): Promise<{ success: boolean; error?: string; message?: string }> {
+    onExit?: () => void;
+  }): Promise<{ success: boolean; error?: string; message?: string; errorCode?: string }> {
+    if (config.signal?.aborted) return Promise.resolve({ success: false, error: "Service start cancelled" });
     if (this.process) {
       this.lastError = null;
       return Promise.resolve({ success: true, message: "Already running" });
     }
 
     return new Promise((resolve) => {
+      let startupStderr = "";
+      let startupExit: { code: number | null; signal: NodeJS.Signals | null } | null = null;
+      let startupTimer: ReturnType<typeof setTimeout> | undefined;
+      let owned: ChildProcess | undefined;
+      let settled = false;
+      const cancel = () => {
+        if (startupTimer) clearTimeout(startupTimer);
+        if (owned && this.process === owned) {
+          void this.stopAsync(3000).then(() => finish({ success: false, error: "Service start cancelled" }));
+        } else finish({ success: false, error: "Service start cancelled" });
+      };
+      const finish = (result: { success: boolean; error?: string; message?: string; errorCode?: string }) => {
+        if (settled) return;
+        settled = true;
+        if (startupTimer) clearTimeout(startupTimer);
+        config.signal?.removeEventListener("abort", cancel);
+        resolve(result);
+      };
       try {
-        this.startupStderr = "";
-        this.startupExit = null;
 
         const proc = spawn(config.command, config.args, {
           shell: config.shell ?? false,
@@ -48,6 +60,7 @@ export class ManagedProcess {
           stdio: (config.stdio as any) ?? ["ignore", "pipe", "pipe"],
         });
 
+        owned = proc;
         proc.stdout?.on("data", (data: Buffer) => {
           const line = data.toString().trim();
           log.info(`[${this.name}]`, line);
@@ -56,8 +69,8 @@ export class ManagedProcess {
 
         proc.stderr?.on("data", (data: Buffer) => {
           const raw = data.toString();
-          const combined = this.startupStderr + raw;
-          this.startupStderr =
+          const combined = startupStderr + raw;
+          startupStderr =
             combined.length > STARTUP_STDERR_CAP
               ? combined.slice(-STARTUP_STDERR_CAP)
               : combined;
@@ -68,13 +81,17 @@ export class ManagedProcess {
           log.error(`[${this.name}] Process error:`, error.message, {
             stack: error.stack,
           });
-          this.process = null;
-          this.lastError = error.message;
-          resolve({ success: false, error: error.message });
+          if (this.process === proc) {
+            this.process = null;
+            this.lastError = error.message;
+            config.onExit?.();
+          }
+          if (config.signal?.aborted) return;
+          finish({ success: false, error: error.message, errorCode: (error as NodeJS.ErrnoException).code });
         });
 
         proc.on("exit", (code, signal) => {
-          this.startupExit = { code, signal: signal ?? null };
+          startupExit = { code, signal: signal ?? null };
           if (code !== 0 && code !== null) {
             log.warn(
               `[${this.name}] Process exited code=${code} signal=${signal ?? "none"}`,
@@ -86,25 +103,30 @@ export class ManagedProcess {
               signal: signal ?? "none",
             });
           }
-          this.process = null;
+          if (this.process === proc) {
+            this.process = null;
+            config.onExit?.();
+          }
         });
 
         this.process = proc;
 
+        config.signal?.addEventListener("abort", cancel, { once: true });
         const delay = config.startupDelayMs ?? 1000;
-        setTimeout(() => {
-          if (this.process) {
+        startupTimer = setTimeout(() => {
+          if (config.signal?.aborted) { finish({ success: false, error: "Service start cancelled" }); return; }
+          if (this.process === proc) {
             this.lastError = null;
-            this.startupStderr = "";
-            this.startupExit = null;
-            resolve({ success: true });
+            startupStderr = "";
+            startupExit = null;
+            finish({ success: true });
           } else {
             const base = t("Claw.Process.exitImmediately");
-            const ex = this.startupExit;
+            const ex = startupExit;
             const exitHint = ex
               ? ` (exit ${ex.code}, signal ${ex.signal ?? "none"})`
               : "";
-            const tail = this.startupStderr.trim();
+            const tail = startupStderr.trim();
 
             // Try to parse structured error prefix (e.g., GUI_AGENT_ERROR:{...})
             let errorMsg: string;
@@ -152,7 +174,8 @@ export class ManagedProcess {
               command: config.command,
               args: config.args,
             });
-            resolve({ success: false, error: msg });
+            const bindingCode = tail.match(/\b(EADDRINUSE|EACCES)\b/)?.[1];
+            finish({ success: false, error: msg, ...(bindingCode ? { errorCode: bindingCode } : {}) });
           }
         }, delay);
       } catch (error) {
@@ -163,7 +186,7 @@ export class ManagedProcess {
           error instanceof Error ? error.message : String(error),
           { stack: error instanceof Error ? error.stack : undefined },
         );
-        resolve({ success: false, error: String(error) });
+        finish({ success: false, error: String(error) });
       }
     });
   }

@@ -7,6 +7,7 @@
 
 import { execSync, spawnSync } from "child_process";
 import { readSetting } from "../db";
+import { getLocalPortManager } from "./localPorts";
 import {
   resolvePortsFromSettings,
   getPortsToCheck,
@@ -34,7 +35,17 @@ exit 1
  * 从当前应用配置（SQLite readSetting）解析出所有启动相关端口（聚合入口）
  */
 export function getConfiguredPorts(): StartupPorts {
-  return resolvePortsFromSettings(readSetting);
+  const runtime = getLocalPortManager();
+  if (!runtime) return resolvePortsFromSettings(readSetting);
+  return {
+    agent: runtime.get("agent")?.port ?? 0,
+    fileServer: runtime.get("fileServer")?.port ?? 0,
+    ttyd: runtime.get("ttyd")?.port ?? 0,
+    // These legacy labels have no TCP listener in an opted-in product.
+    mcp: 0,
+    lanproxyLocal: 0,
+    vite: resolvePortsFromSettings(() => null).vite,
+  };
 }
 
 /**
@@ -45,7 +56,13 @@ export function getPortList(
   includeVite: boolean,
 ): Array<{ name: string; label: string; port: number }> {
   const ports = getConfiguredPorts();
-  return getPortsToCheck(ports, includeVite);
+  const list = getPortsToCheck(ports, includeVite).filter((item) => item.port > 0);
+  const runtime = getLocalPortManager();
+  for (const endpoint of runtime?.snapshot() ?? []) {
+    if (endpoint.service === "gateway" || endpoint.service === "ttydInternal")
+      list.push({ name: endpoint.service as keyof StartupPorts, label: endpoint.service, port: endpoint.port });
+  }
+  return list;
 }
 
 // ==================== 端口占用检查（聚合逻辑） ====================
