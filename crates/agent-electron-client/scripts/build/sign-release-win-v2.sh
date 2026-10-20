@@ -25,6 +25,8 @@
 #   SIGN_WORK_DIR            本地工作目录（默认 /c/tmp/nuwaclaw-sign）
 #   SIGN_WIN_ARTIFACT_PREFIX 产物名前缀（默认 NuwaClaw；须与 CI 构建的 productName 前缀一致）
 #   SIGN_WIN_UNSIGNED_BUNDLE 未签名 zip 在 Release 上的文件名（默认 <前缀>-<ver>-unsigned-win.zip）
+#   SIGNTOOL_PATH            signtool.exe 所在目录（或其全路径）；未设置时按 Windows SDK 常规路径探测。
+#                            无 SDK 的签名机（如 UTM 虚拟机）把独立 signtool 放置路径传入即可。
 #
 # Required Environment Variables:
 #   WINDOWS_CERTIFICATE_SHA1  - Certificate thumbprint
@@ -660,24 +662,40 @@ else
     echo ""
     echo "==> Setting up signtool"
 
-    SIGNTOOL_PATH=""
-    for path in \
-        "/c/Program Files (x86)/Windows Kits/10/bin/10.0.26100.0/x64" \
-        "/c/Program Files (x86)/Windows Kits/10/bin/x64"
-    do
-        if [[ -f "$path/signtool.exe" ]]; then
-            SIGNTOOL_PATH="$path"
-            break
+    # 显式覆写优先：值可以是含 signtool.exe 的目录或 exe 全路径，Windows 风格路径自动转换
+    SIGNTOOL_PATH="${SIGNTOOL_PATH:-}"
+    if [[ -n "$SIGNTOOL_PATH" ]]; then
+        SIGNTOOL_PATH="$(cygpath -u "$SIGNTOOL_PATH" 2>/dev/null || printf '%s' "$SIGNTOOL_PATH")"
+        if [[ -f "$SIGNTOOL_PATH/signtool.exe" ]]; then
+            :
+        elif [[ "$(basename "$SIGNTOOL_PATH")" == "signtool.exe" && -f "$SIGNTOOL_PATH" ]]; then
+            SIGNTOOL_PATH="$(dirname "$SIGNTOOL_PATH")"
+        else
+            echo "Error: SIGNTOOL_PATH 无效（须为含 signtool.exe 的目录或其全路径）：$SIGNTOOL_PATH"
+            exit 1
         fi
-    done
-
-    if [[ -z "$SIGNTOOL_PATH" ]]; then
-        # Try to find any version
-        SIGNTOOL_PATH=$(find "/c/Program Files (x86)/Windows Kits/10/bin" -name "signtool.exe" 2>/dev/null | head -1 | xargs dirname)
     fi
 
     if [[ -z "$SIGNTOOL_PATH" ]]; then
-        echo "Error: signtool.exe not found. Please install Windows SDK."
+        for path in \
+            "/c/Program Files (x86)/Windows Kits/10/bin/10.0.26100.0/x64" \
+            "/c/Program Files (x86)/Windows Kits/10/bin/x64"
+        do
+            if [[ -f "$path/signtool.exe" ]]; then
+                SIGNTOOL_PATH="$path"
+                break
+            fi
+        done
+    fi
+
+    if [[ -z "$SIGNTOOL_PATH" ]]; then
+        # Try to find any version
+        found_signtool="$(find "/c/Program Files (x86)/Windows Kits/10/bin" -name "signtool.exe" 2>/dev/null | head -1)"
+        [[ -n "$found_signtool" ]] && SIGNTOOL_PATH="$(dirname "$found_signtool")"
+    fi
+
+    if [[ -z "$SIGNTOOL_PATH" ]]; then
+        echo "Error: signtool.exe not found. Please install Windows SDK or set SIGNTOOL_PATH."
         exit 1
     fi
 
