@@ -64,6 +64,26 @@ describe("automatic local ports", () => {
     expect(start).toHaveBeenCalledTimes(1);
   });
 
+  it("preserves spawn permission errors without selecting another port", async () => {
+    const bind = vi.fn(async () => reservation());
+    const ports = manager({ ranges: [[24600, 24605]], bind });
+    const error = { success: false, error: "spawn ttyd EACCES", errorCode: "EACCES", errorStage: "spawn" as const };
+    const start = vi.fn(async () => error);
+    expect(await ports.start("ttydInternal", start, async () => {})).toEqual(error);
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(bind).toHaveBeenCalledTimes(1);
+  });
+
+  it("still reselects when a listener rejects a reserved port with EACCES", async () => {
+    const ports = manager({ ranges: [[24600, 24605]], bind: async () => reservation() });
+    const start = vi.fn(async (port: number) => port === 24600
+      ? { success: false, errorCode: "EACCES" }
+      : { success: true });
+    expect((await ports.start("fileServer", start, async () => {})).success).toBe(true);
+    expect(start).toHaveBeenCalledTimes(2);
+    expect(ports.get("fileServer")?.port).toBe(24601);
+  });
+
   it("identifies a native bind race even when the child did not preserve the OS code", async () => {
     let calls = 0;
     const bind = vi.fn(async (port: number) => {

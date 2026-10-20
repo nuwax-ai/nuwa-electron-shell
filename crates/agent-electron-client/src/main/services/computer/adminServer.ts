@@ -37,7 +37,9 @@ async function doRestartAllServicesIncludingComputerServer(): Promise<
 > {
   if (getLocalPortManager() && commercialLifecycle) {
     const result = await commercialLifecycle.start(true);
-    return result.results ?? { services: { success: result.success, error: result.error } };
+    const results = result.results ?? { services: { success: result.success, error: result.error } };
+    notifyServicesRestarted(results);
+    return results;
   }
   const { getServiceManager } = await import("../../ipc/processHandlers");
   const serviceManager = getServiceManager();

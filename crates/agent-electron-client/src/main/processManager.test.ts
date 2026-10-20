@@ -88,6 +88,14 @@ describe("ManagedProcess", () => {
     expect(await result).toMatchObject({ success: false, errorCode: "EADDRINUSE" });
   });
 
+  it("marks spawn permission errors separately from listener errors", async () => {
+    const proc = createFakeProc(); vi.mocked(spawn).mockReturnValueOnce(proc);
+    const mp = new ManagedProcess("ttyd");
+    const result = mp.start({ command: "ttyd", args: [] });
+    proc.emit("error", Object.assign(new Error("spawn ttyd EACCES"), { code: "EACCES" }));
+    expect(await result).toMatchObject({ success: false, error: "spawn ttyd EACCES", errorCode: "EACCES", errorStage: "spawn" });
+  });
+
   it("cancels a pending start and waits for its owned process cleanup", async () => {
     vi.useFakeTimers();
     const proc = createFakeProc(); vi.mocked(spawn).mockReturnValueOnce(proc);

@@ -24,7 +24,7 @@ export class ManagedProcess {
     /** 每行 stdout 的额外回调，在 log.info 之后调用 */
     onStdoutLine?: (line: string) => void;
     onExit?: () => void;
-  }): Promise<{ success: boolean; error?: string; message?: string; errorCode?: string }> {
+  }): Promise<{ success: boolean; error?: string; message?: string; errorCode?: string; errorStage?: "spawn" }> {
     if (config.signal?.aborted) return Promise.resolve({ success: false, error: "Service start cancelled" });
     if (this.process) {
       this.lastError = null;
@@ -43,7 +43,7 @@ export class ManagedProcess {
           void this.stopAsync(3000).then(() => finish({ success: false, error: "Service start cancelled" }));
         } else finish({ success: false, error: "Service start cancelled" });
       };
-      const finish = (result: { success: boolean; error?: string; message?: string; errorCode?: string }) => {
+      const finish = (result: { success: boolean; error?: string; message?: string; errorCode?: string; errorStage?: "spawn" }) => {
         if (settled) return;
         settled = true;
         if (startupTimer) clearTimeout(startupTimer);
@@ -87,7 +87,7 @@ export class ManagedProcess {
             config.onExit?.();
           }
           if (config.signal?.aborted) return;
-          finish({ success: false, error: error.message, errorCode: (error as NodeJS.ErrnoException).code });
+          finish({ success: false, error: error.message, errorCode: (error as NodeJS.ErrnoException).code, errorStage: "spawn" });
         });
 
         proc.on("exit", (code, signal) => {
