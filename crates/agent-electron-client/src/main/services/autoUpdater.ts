@@ -494,7 +494,9 @@ let updateTask: Promise<UpdateResult> | null = null;
 
 function usesOneClickUpdate(): boolean {
   return (
-    installAfterDownload && process.platform === "win32" && canAutoUpdate()
+    installAfterDownload &&
+    (process.platform === "win32" || process.platform === "darwin") &&
+    canAutoUpdate()
   );
 }
 
@@ -692,7 +694,7 @@ async function doCheckViaLatestJson(
  *                quitAndInstall 前会 await（上限 INSTALL_CLEANUP_TIMEOUT_MS）
  * @param onMarkQuitting 在调用 quitAndInstall 前调用，用于设置主进程的 isQuitting/isInstallingUpdate 标志，
  *                       防止窗口 close 被拦截，并让 before-quit 不阻止退出
- * @param options installAfterDownload：Windows NSIS 下载校验后直接安装，默认关闭
+ * @param options installAfterDownload：Windows NSIS / macOS 下载校验后直接安装，默认关闭
  */
 export function initAutoUpdater(
   getWindow: () => BrowserWindow | null,
@@ -1276,9 +1278,11 @@ async function installDownloadedUpdate(): Promise<UpdateResult> {
     await prepareForInstall();
     const { autoUpdater } = loadAutoUpdaterModule();
     if (usesOneClickUpdate()) {
-      // 把当前应用路径交给 NSIS；即使存在两种安装范围，也升级正在使用的副本。
-      autoUpdater.installDirectory = path.win32.dirname(app.getPath("exe"));
       autoUpdater.autoRunAppAfterInstall = true;
+      if (process.platform === "win32") {
+        // NSIS 升级正在使用的副本；macOS 由 Squirrel.Mac 管理 bundle 路径。
+        autoUpdater.installDirectory = path.win32.dirname(app.getPath("exe"));
+      }
     }
     autoUpdater.quitAndInstall(false, true);
     return { success: true };

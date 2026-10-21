@@ -1298,7 +1298,7 @@ describe("Linux deb 安装形态", () => {
   });
 });
 
-describe("Windows 可选一键更新策略", () => {
+describe("Windows / macOS 可选一键更新策略", () => {
   function emit(name: string, info: any = {}) {
     const handler = mockUpdaterOn.mock.calls.find(
       (call) => call[0] === name,
@@ -1425,26 +1425,98 @@ describe("Windows 可选一键更新策略", () => {
     expect(mockUpdaterQuitAndInstall).toHaveBeenCalledTimes(1);
   });
 
-  it("非 Windows 即使设置策略也保持分步安装", async () => {
+  it("macOS 未启用策略时保持分步安装", async () => {
     mockDarwin();
+    const { mod, cleanup } = await setup(false);
+    await mod.downloadUpdate();
+    expect(mod.getUpdateState().installAfterDownload).toBe(false);
+    expect(cleanup).not.toHaveBeenCalled();
+    expect(mockUpdaterQuitAndInstall).not.toHaveBeenCalled();
+  });
+
+  it("macOS 下载校验完成前不退出，完成后一次清理并安装，不写入 NSIS 路径", async () => {
+    mockDarwin();
+    let finish!: () => void;
+    mockUpdaterDownloadUpdate.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = () => {
+            emit("update-downloaded", {
+              version: "0.9.5",
+              downloadedFile: "/cache/update.zip",
+            });
+            resolve();
+          };
+        }),
+    );
+    const { mod, cleanup } = await setup();
+    expect(mod.getUpdateState().installAfterDownload).toBe(true);
+    const first = mod.downloadUpdate();
+    const second = mod.installUpdate();
+    await vi.waitFor(() =>
+      expect(mockUpdaterDownloadUpdate).toHaveBeenCalledTimes(1),
+    );
+    expect(cleanup).not.toHaveBeenCalled();
+    expect(mockUpdaterQuitAndInstall).not.toHaveBeenCalled();
+    finish();
+    expect(await first).toEqual({ success: true });
+    expect(await second).toEqual({ success: true });
+    expect(cleanup).toHaveBeenCalledTimes(1);
+    expect(mockUpdaterQuitAndInstall).toHaveBeenCalledTimes(1);
+    expect(mockUpdaterQuitAndInstall).toHaveBeenCalledWith(false, true);
+    expect(lastFakeUpdater.installDirectory).toBeUndefined();
+    expect(lastFakeUpdater.autoRunAppAfterInstall).toBe(true);
+    expect(mockShowMessageBox).not.toHaveBeenCalled();
+    await mod.installUpdate();
+    expect(mockUpdaterQuitAndInstall).toHaveBeenCalledTimes(1);
+  });
+
+  it("macOS 已下载时直接复用缓存；下载校验失败留在当前版本并允许重试", async () => {
+    mockDarwin();
+    const { mod, cleanup } = await setup();
+    mockUpdaterDownloadUpdate.mockRejectedValueOnce(
+      new Error("checksum mismatch"),
+    );
+    expect(await mod.downloadUpdate()).toEqual({
+      success: false,
+      error: "checksum mismatch",
+    });
+    expect(cleanup).not.toHaveBeenCalled();
+    expect(mockUpdaterQuitAndInstall).not.toHaveBeenCalled();
+    emit("update-downloaded", {
+      version: "0.9.5",
+      downloadedFile: "/cache/update.zip",
+    });
+    expect(await mod.installUpdate()).toEqual({ success: true });
+    expect(mockUpdaterDownloadUpdate).toHaveBeenCalledTimes(1);
+    expect(mockUpdaterQuitAndInstall).toHaveBeenCalledTimes(1);
+    expect(lastFakeUpdater.installDirectory).toBeUndefined();
+  });
+
+  it("Linux 即使设置策略也保持分步安装", async () => {
+    mockLinux();
     const { mod } = await setup();
     await mod.downloadUpdate();
     expect(mod.getUpdateState().installAfterDownload).toBe(false);
     expect(mockUpdaterQuitAndInstall).not.toHaveBeenCalled();
   });
 
-  it("菜单/托盘只确认一次，下载完成后不再弹第二次安装确认", async () => {
-    process.env.NUWAX_UPDATE_SERVER = "http://127.0.0.1:45678";
-    const { readSetting } = await import("../db");
-    vi.mocked(readSetting).mockReturnValue("stable");
-    const { mod } = await setup();
-    mockUpdaterCheckForUpdates.mockResolvedValue({
-      updateInfo: { version: "0.9.5" },
-    });
-    await mod.showUpdateDialogFlow();
-    expect(mockShowMessageBox).toHaveBeenCalledTimes(1);
-    expect(mockUpdaterQuitAndInstall).toHaveBeenCalledTimes(1);
-  });
+  it.each(["win32", "darwin"])(
+    "%s 菜单/托盘只确认一次，下载完成后不再弹第二次安装确认",
+    async (platform) => {
+      if (platform === "darwin") mockDarwin();
+      process.env.NUWAX_UPDATE_SERVER = "http://127.0.0.1:45678";
+      const { readSetting } = await import("../db");
+      vi.mocked(readSetting).mockReturnValue("stable");
+      const { mod } = await setup();
+      mockUpdaterCheckForUpdates.mockResolvedValue({
+        updateInfo: { version: "0.9.5" },
+      });
+      await mod.showUpdateDialogFlow();
+      expect(mockShowMessageBox).toHaveBeenCalledTimes(1);
+      expect(mockUpdaterQuitAndInstall).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it("后台复检遵循同一个自定义源，不覆盖为默认 OSS 源", async () => {
     process.env.NUWAX_UPDATE_SERVER = "http://127.0.0.1:45678";
