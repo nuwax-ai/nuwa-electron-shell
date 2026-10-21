@@ -3,7 +3,7 @@
  *
  * - 版本号运行时从 Electron 主进程获取
  * - 检查更新 + 下载 + 重启安装 完整流程
- * - 下载完成后弹窗确认是否立即重启安装
+ * - 分步升级下载完成后显示安装按钮；下载和安装反馈保持行内展示
  * - Windows MSI 安装用户引导到官网下载安装页
  * - macOS/Linux 上 Squirrel 不发送 download-progress，用本地模拟进度保证进度条有变化
  *
@@ -63,8 +63,12 @@ export default function AboutPage({ webMeta }: AboutPageProps = {}) {
     arch?: string;
     bundledDist?: { version: string; gitHash?: string } | null;
   }>({});
-  const hasShownInstallModal = useRef(false);
   const [installing, setInstalling] = useState(false);
+
+  useEffect(() => {
+    if (updateState.status === "error") setInstalling(false);
+  }, [updateState.status]);
+
   /** macOS/Linux 无真实进度时的模拟进度（0..SIMULATED_PROGRESS_CAP），有 progress 时不用 */
   const [simulatedPercent, setSimulatedPercent] = useState(0);
   const simulatedIntervalRef = useRef<ReturnType<typeof setInterval> | null>(
@@ -261,51 +265,6 @@ export default function AboutPage({ webMeta }: AboutPageProps = {}) {
       setSimulatedPercent(0);
     }
   }, [updateState.status, updateState.progress]);
-
-  // 下载完成后自动弹窗确认安装
-  useEffect(() => {
-    if (
-      updateState.status === "downloaded" &&
-      !updateState.installAfterDownload &&
-      !hasShownInstallModal.current
-    ) {
-      hasShownInstallModal.current = true;
-      const modal = Modal.confirm({
-        title: t("Claw.About.updateDownloaded"),
-        content: t("Claw.About.updateDownloadedConfirm", {
-          version: updateState.version,
-        }),
-        okText: t("Claw.About.restartNow"),
-        cancelText: t("Claw.About.later"),
-        okButtonProps: { loading: false },
-        onOk: async () => {
-          modal.update({ okButtonProps: { loading: true } });
-          try {
-            const result = await window.electronAPI?.app?.installUpdate?.();
-            if (!result || !result.success) {
-              const errorMessage =
-                result?.error || t("Claw.About.installFailed");
-              message.error(errorMessage);
-              modal.update({ okButtonProps: { loading: false } });
-              return Promise.reject(new Error(errorMessage));
-            }
-          } catch {
-            message.error(t("Claw.About.installFailed"));
-            modal.update({ okButtonProps: { loading: false } });
-            return Promise.reject(new Error(t("Claw.About.installFailed")));
-          }
-        },
-      });
-    }
-    // 状态回到非 downloaded 时重置标记
-    if (updateState.status !== "downloaded") {
-      hasShownInstallModal.current = false;
-    }
-  }, [
-    updateState.status,
-    updateState.version,
-    updateState.installAfterDownload,
-  ]);
 
   const handleDownload = useCallback(async () => {
     // 立即切换到 downloading 状态，避免点击后无反馈
@@ -811,31 +770,6 @@ export default function AboutPage({ webMeta }: AboutPageProps = {}) {
           </div>
         </div>
       )}
-      <Modal
-        open={
-          updateState.installAfterDownload === true &&
-          (updateState.status === "downloading" ||
-            updateState.status === "installing")
-        }
-        centered
-        footer={null}
-        closable={false}
-        maskClosable={false}
-        keyboard={false}
-        title={t(
-          updateState.status === "downloading"
-            ? "Claw.About.downloadUpdate"
-            : "Claw.AutoUpdater.installNow",
-        )}
-      >
-        {updateState.status === "downloading" ? (
-          <Progress percent={displayPercent} status="active" />
-        ) : (
-          <Button loading disabled>
-            {t("Claw.About.installUpdate")}
-          </Button>
-        )}
-      </Modal>
     </div>
   );
 }

@@ -98,7 +98,7 @@ function fetchLatestJson(url: string, timeoutMs = 15_000): Promise<LatestJson> {
       ? `${url}&_t=${Date.now()}`
       : `${url}?_t=${Date.now()}`;
     const request = net.request(cacheBustUrl);
-    let body = "";
+    const chunks: Buffer[] = [];
     let settled = false;
 
     const timer = setTimeout(() => {
@@ -117,14 +117,15 @@ function fetchLatestJson(url: string, timeoutMs = 15_000): Promise<LatestJson> {
         return;
       }
       response.on("data", (chunk) => {
-        body += chunk.toString();
+        chunks.push(Buffer.from(chunk));
       });
       response.on("end", () => {
         clearTimeout(timer);
         if (settled) return;
         settled = true;
         try {
-          resolve(JSON.parse(body));
+          // A UTF-8 code point can span response chunks; decode the complete byte stream.
+          resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")));
         } catch (e) {
           reject(new Error(`Invalid JSON from ${url}`));
         }
